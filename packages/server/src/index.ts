@@ -140,10 +140,14 @@ async function start() {
   console.log(`[Templates] Loaded ${templateService.getTemplates().length} workflow templates`)
   console.log(`[Runs]      Loaded ${workflowEngine.getRuns().length} runs`)
 
-  // 加载 Skills
+  // 加载 Skills（扫描 CatPaw、Claude、Codex 的全局和项目级目录）
   const skillPaths = [
     `${process.env.HOME}/.catpaw/skills`,
+    `${process.env.HOME}/.claude/skills`,
+    `${process.env.HOME}/.codex/skills`,
     `${process.cwd()}/.catpaw/skills`,
+    `${process.cwd()}/.claude/skills`,
+    `${process.cwd()}/.codex/skills`,
   ]
   const skills = await skillService.loadSkills(skillPaths)
   console.log(`[Skills]    Loaded ${skills.length} skills`)

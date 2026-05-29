@@ -456,7 +456,11 @@ export function createApiRouter(deps: {
     const { paths } = req.body as { paths?: string[] }
     const searchPaths = paths || [
       `${process.env.HOME}/.catpaw/skills`,
+      `${process.env.HOME}/.claude/skills`,
+      `${process.env.HOME}/.codex/skills`,
       `${process.cwd()}/.catpaw/skills`,
+      `${process.cwd()}/.claude/skills`,
+      `${process.cwd()}/.codex/skills`,
     ]
     const skills = await skillService.loadSkills(searchPaths)
     res.json({ success: true, data: { skills, count: skills.length } })

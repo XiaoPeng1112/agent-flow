@@ -172,8 +172,9 @@ export function AboutPage() {
                 label: <CollapseLabel icon={<ToolOutlined />} text="Skills — 技能注册与发现" />,
                 children: (
                   <div className="text-[13px] text-gray-600 leading-relaxed">
-                    <p>Skills 是 Agent 可调用的能力单元，以 Markdown 文件形式存储在 .catpaw/skills 目录下。</p>
-                    <p className="mt-2"><strong>扫描路径：</strong>项目目录/.catpaw/skills（项目级） + ~/.catpaw/skills（全局级）。</p>
+                    <p>Skills 是 Agent 可调用的能力单元，以 Markdown 文件形式存储在多个工具的 skills 目录下。</p>
+                    <p className="mt-2"><strong>扫描路径（全局级）：</strong>~/.catpaw/skills、~/.claude/skills、~/.codex/skills</p>
+                    <p className="mt-2"><strong>扫描路径（项目级）：</strong>项目目录/.catpaw/skills、项目目录/.claude/skills、项目目录/.codex/skills</p>
                     <p className="mt-2"><strong>使用方式：</strong>进入项目 → Skills Tab → 查看已发现的 Skills 列表 → 在节点配置中关联需要的 Skills。</p>
                   </div>
                 ),

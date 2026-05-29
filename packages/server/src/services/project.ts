@@ -96,7 +96,11 @@ export class ProjectService {
 
     const searchPaths = [
       join(project.path, '.catpaw', 'skills'),
+      join(project.path, '.claude', 'skills'),
+      join(project.path, '.codex', 'skills'),
       `${process.env.HOME}/.catpaw/skills`,
+      `${process.env.HOME}/.claude/skills`,
+      `${process.env.HOME}/.codex/skills`,
     ]
     return this.skillService.loadSkills(searchPaths)
   }
