@@ -11,10 +11,13 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "npm run dev -w packages/client",
     "dev:server": "npm run dev -w packages/server",
-    "build": "npm run build -w packages/client && npm run build -w packages/server"
+    "build": "npm run build -w packages/client && npm run build -w packages/server",
+    "predeploy": "npm run build -w packages/client",
+    "deploy": "gh-pages -d packages/client/dist"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "gh-pages": "^6.3.0",
     "typescript": "~6.0.2"
   }
 }
