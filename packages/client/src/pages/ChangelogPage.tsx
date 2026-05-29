@@ -15,6 +15,21 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.2.0',
+    date: '2026-05-29',
+    title: '后端服务状态监测 & 离线提示 & GitHub Pages 部署',
+    type: 'feature',
+    highlights: [
+      '后端服务健康检测（心跳轮询）',
+      '侧边栏实时状态指示器',
+      '离线横幅含完整启动命令',
+      'gh-pages 一键部署 GitHub Pages',
+      'Skills 多工具目录扫描（CatPaw/Claude/Codex）',
+      '前后端通信机制（REST + WebSocket + Proxy）',
+    ],
+    details: `新增后端服务状态监测系统：前端通过 useServerStatus Hook 每 10 秒轮询 /health 端点，连续 2 次失败判定离线。侧边栏底部新增状态指示器（绿色=在线、蓝色脉动=连接中、红色=离线），离线时顶部显示红色横幅并给出完整的终端启动命令（cd ~/Desktop/work/agent-flow && nvm use 20 && npm run dev）。集成 gh-pages 包实现前端一键部署到 GitHub Pages，无需 GitHub Actions workflow 权限。Skills 扫描路径扩展支持 CatPaw、Claude、Codex 三套工具的全局和项目级目录。`,
+  },
+  {
     version: 'v2.1.0',
     date: '2026-05-29',
     title: '企业级路由 & GitHub 集成 & 上下文文档体系',

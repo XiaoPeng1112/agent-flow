@@ -11,6 +11,8 @@ import {
   CodeOutlined,
   DesktopOutlined,
   DatabaseOutlined,
+  HeartOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons'
 
 /**
@@ -223,6 +225,44 @@ export function AboutPage() {
                   </div>
                 ),
               },
+              {
+                key: '7',
+                label: <CollapseLabel icon={<CloudServerOutlined />} text="前后端通信机制 — 本地服务架构" />,
+                children: (
+                  <div className="text-[13px] text-gray-600 leading-relaxed">
+                    <p>AgentFlow 采用<strong>前后端分离 + 本地后端</strong>架构，前端无论部署在何处（本地 dev server 或 GitHub Pages），都通过浏览器 JS 直接连接用户本机的后端服务。</p>
+                    <p className="mt-3"><strong>REST API（数据操作）：</strong></p>
+                    <p className="mt-1">所有业务请求统一发往 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">http://localhost:3001/api</code>，涵盖项目管理、Runs 操作、Agent 执行、Skills 查询等全部功能。</p>
+                    <p className="mt-3"><strong>WebSocket（实时推送）：</strong></p>
+                    <p className="mt-1">通过 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">ws://localhost:3001/ws</code> 建立持久连接，实时推送 Agent 执行输出流、节点状态变更、Turn 生命周期事件等。断线自动 3 秒重连。</p>
+                    <p className="mt-3"><strong>Vite Dev Proxy（开发环境）：</strong></p>
+                    <p className="mt-1">本地开发时，Vite 配置了 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">/api → localhost:3001</code> 和 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">/ws → ws://localhost:3001</code> 代理，解决跨域问题。生产环境（GitHub Pages）则直接请求 localhost:3001。</p>
+                    <p className="mt-3"><strong>为什么不部署后端到云端？</strong></p>
+                    <p className="mt-1">AgentFlow 后端需要访问用户本地文件系统（扫描 Skills 目录、读取项目文件）并调用本地 CLI 工具（Codex/Claude），这些能力无法在云端实现，因此采用本地运行后端的方案。</p>
+                  </div>
+                ),
+              },
+              {
+                key: '8',
+                label: <CollapseLabel icon={<HeartOutlined />} text="服务状态监测 — 健康检查与离线提示" />,
+                children: (
+                  <div className="text-[13px] text-gray-600 leading-relaxed">
+                    <p>v2.2 新增后端服务状态监测系统，确保用户始终了解后端连接状况：</p>
+                    <p className="mt-3"><strong>健康检查机制：</strong></p>
+                    <p className="mt-1">前端通过 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">useServerStatus</code> Hook 每 10 秒向 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">/health</code> 端点发送心跳请求。单次请求超时 5 秒，连续 2 次失败判定为离线。</p>
+                    <p className="mt-3"><strong>三种状态：</strong></p>
+                    <p className="mt-1">🟢 <strong>online</strong>（在线）— 后端正常运行，侧边栏底部显示绿色指示灯。</p>
+                    <p className="mt-1">🔵 <strong>connecting</strong>（连接中）— 首次加载或手动重试时，蓝色脉动动画。</p>
+                    <p className="mt-1">🔴 <strong>offline</strong>（离线）— 后端不可达，红色指示灯 + 顶部横幅显示完整启动命令。</p>
+                    <p className="mt-3"><strong>离线横幅：</strong></p>
+                    <p className="mt-1">当后端离线时，页面顶部出现红色横幅，包含启动后端的完整终端命令（可直接复制），并提供「重试连接」按钮。后端恢复后自动检测并切回在线状态。</p>
+                    <p className="mt-3"><strong>启动命令：</strong></p>
+                    <code className="block bg-gray-900 rounded-md p-3 mt-1 text-[12px] text-green-400 font-mono leading-[1.8]">
+                      {`$ cd ~/Desktop/work/agent-flow\n$ nvm use 20\n$ npm run dev`}
+                    </code>
+                  </div>
+                ),
+              },
             ]}
           />
         </section>
@@ -235,17 +275,25 @@ export function AboutPage() {
             <div className="text-green-400 mb-3">git clone https://github.com/XiaoPeng1112/agent-flow.git</div>
 
             <div className="text-gray-400 mb-1"># 2. 安装依赖（需 Node.js 20+）</div>
-            <div className="text-green-400 mb-3">cd agent-flow && npm install</div>
+            <div className="text-green-400 mb-1">cd agent-flow</div>
+            <div className="text-green-400 mb-1">nvm use 20</div>
+            <div className="text-green-400 mb-3">npm install</div>
 
             <div className="text-gray-400 mb-1"># 3. 配置 GitHub OAuth（可选，用于登录功能）</div>
             <div className="text-yellow-400 mb-3">export GITHUB_CLIENT_ID=your_id<br/>export GITHUB_CLIENT_SECRET=your_secret</div>
 
-            <div className="text-gray-400 mb-1"># 4. 启动开发服务器</div>
+            <div className="text-gray-400 mb-1"># 4. 启动开发服务器（前后端同时启动）</div>
             <div className="text-green-400 mb-3">npm run dev</div>
 
-            <div className="text-gray-400 mb-1"># 5. 打开浏览器</div>
-            <div className="text-cyan-400">open http://localhost:5173/agent-flow/</div>
+            <div className="text-gray-400 mb-1"># 5. 打开浏览器（侧边栏底部显示绿色状态灯即表示后端正常）</div>
+            <div className="text-cyan-400 mb-3">open http://localhost:5173/agent-flow/</div>
+
+            <div className="text-gray-400 mb-1"># 6. 部署前端到 GitHub Pages（可选）</div>
+            <div className="text-green-400">npm run deploy</div>
           </div>
+          <p className="text-[12px] text-gray-400 mt-3 leading-relaxed">
+            注：后端服务运行在本地 localhost:3001，前端（包括 GitHub Pages 上的版本）通过浏览器直接连接本地后端。如果看到红色"后端服务未连接"横幅，请先在终端执行 npm run dev 启动后端。
+          </p>
         </section>
 
         {/* ═══ 项目信息 ═══ */}

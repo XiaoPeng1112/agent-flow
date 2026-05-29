@@ -193,9 +193,9 @@ export function Sidebar({ serverStatus }: SidebarProps) {
                   : 'bg-red-400'
             }`} />
             <span className="text-[11px] text-slate-500">
-              {serverStatus === 'online' && '服务运行中 · localhost:3001'}
-              {serverStatus === 'connecting' && '正在连接...'}
-              {serverStatus === 'offline' && '服务未连接'}
+              {serverStatus === 'online' && '后端服务运行中 · localhost:3001'}
+              {serverStatus === 'connecting' && '正在连接后端服务...'}
+              {serverStatus === 'offline' && '后端服务未连接'}
             </span>
           </div>
         </div>
