@@ -53,7 +53,7 @@ export function AboutPage() {
               它作为总控台连接本地终端、IDE 编辑器以及 Codex/Claude 等 AI 工具，实现从需求输入到代码交付的全流程闭环操作。
             </p>
             <p className="text-[14px] text-gray-700 leading-[1.8] mt-3">
-              核心理念是 <strong>MAF（Multi-Agent Flow）</strong>——多角色 Agent 框架。
+              核心理念是 <strong>MAF（Multi-Agent Flow）</strong>——多 Agent 流式编排框架。
               不同于单一 AI 助手模式，AgentFlow 将软件开发拆解为多个角色（规划者、管理者、执行者），
               每个角色由专门的 Agent 承担，通过 DAG（有向无环图）编排实现高效协作。
             </p>
