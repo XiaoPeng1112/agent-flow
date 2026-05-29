@@ -58,6 +58,55 @@ export function AboutPage() {
               每个角色由专门的 Agent 承担，通过 DAG（有向无环图）编排实现高效协作。
             </p>
           </div>
+
+          {/* 相关开源项目 & 官方文档参考 */}
+          <div className="mt-5 bg-white border border-gray-100 rounded-xl p-5">
+            <h4 className="text-[13px] font-semibold text-gray-700 mb-3">设计理念参考 & 相关开源项目</h4>
+            <div className="space-y-2.5 text-[12px] text-gray-600 leading-relaxed">
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
+                <div>
+                  <a href="https://www.anthropic.com/research/building-effective-agents" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">Anthropic: Building Effective Agents</a>
+                  <span className="text-gray-400 ml-1">— Anthropic 官方 Agent 架构指南，定义了 Workflow vs Agent 的核心区分，以及编排模式（Orchestrator-Workers、Router、Evaluator-Optimizer）的最佳实践。</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
+                <div>
+                  <a href="https://www.anthropic.com/engineering/built-multi-agent-research-system" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">Anthropic: How We Built Multi-Agent Research System</a>
+                  <span className="text-gray-400 ml-1">— Anthropic 官方工程博客，介绍 Lead Agent + Sub-agents 协作架构的生产实践。</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
+                <div>
+                  <a href="https://github.com/openai/openai-agents-python" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">OpenAI Agents SDK</a>
+                  <span className="text-gray-400 ml-1">— OpenAI 官方多 Agent 框架（Swarm 的生产升级版），提供 Agents、Handoffs、Guardrails 等核心概念。</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
+                <div>
+                  <a href="https://github.com/openai/codex" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">OpenAI Codex CLI</a>
+                  <span className="text-gray-400 ml-1">— OpenAI 官方终端 AI Agent（Rust 实现），AgentFlow 的核心执行后端之一。</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
+                <div>
+                  <a href="https://github.com/ruvnet/ruflo" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">Ruflo (Claude Flow)</a>
+                  <span className="text-gray-400 ml-1">— 面向 Claude Code 的多 Agent 编排平台（49K+ Stars），提供 100+ 专用 Agent、Swarm 协同、自学习记忆等企业级能力。</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
+                <div>
+                  <a href="https://platform.claude.com/docs/en/managed-agents/multi-agent" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">Claude API: Multiagent Sessions</a>
+                  <span className="text-gray-400 ml-1">— Anthropic 官方 API 文档，描述多 Agent 会话编排的原生支持。</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* ═══ 核心架构 ═══ */}
