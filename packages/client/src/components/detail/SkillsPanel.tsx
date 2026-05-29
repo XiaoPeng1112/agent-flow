@@ -38,7 +38,7 @@ export function SkillsPanel({ project }: Props) {
         <div>
           <h3 className="text-[15px] font-semibold text-gray-900">项目 Skills</h3>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            扫描项目目录下的 .catpaw/skills 和全局 Skills
+            扫描 CatPaw / Claude / Codex 的项目级和全局 Skills 目录
           </p>
         </div>
         <Button
@@ -56,7 +56,7 @@ export function SkillsPanel({ project }: Props) {
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
               <span className="text-gray-400">
-                未发现 Skills，确保项目路径下存在 .catpaw/skills/ 目录
+                未发现 Skills，确保项目路径或全局目录下存在 .catpaw/skills、.claude/skills 或 .codex/skills
               </span>
             }
           />

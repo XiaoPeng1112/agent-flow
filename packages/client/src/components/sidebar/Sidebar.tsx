@@ -13,6 +13,7 @@ import {
 import { useAppStore } from '../../store/appStore'
 import { AddProjectModal } from './AddProjectModal'
 import { UserPanel } from './UserPanel'
+import type { ServerStatus } from '../../hooks/useServerStatus'
 
 /** 从当前 URL pathname 中提取 projectId */
 function useCurrentProjectId(): string | undefined {
@@ -21,7 +22,11 @@ function useCurrentProjectId(): string | undefined {
   return match ? match[1] : undefined
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  serverStatus: ServerStatus
+}
+
+export function Sidebar({ serverStatus }: SidebarProps) {
   const projects = useAppStore((s) => s.projects)
   const removeProject = useAppStore((s) => s.removeProject)
   const navigate = useNavigate()
@@ -173,8 +178,26 @@ export function Sidebar() {
         </div>
 
         {/* 用户面板 */}
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-2">
           <UserPanel />
+        </div>
+
+        {/* 服务状态指示 */}
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/5">
+            <div className={`w-2 h-2 rounded-full ${
+              serverStatus === 'online'
+                ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.6)]'
+                : serverStatus === 'connecting'
+                  ? 'bg-blue-400 animate-pulse'
+                  : 'bg-red-400'
+            }`} />
+            <span className="text-[11px] text-slate-500">
+              {serverStatus === 'online' && '服务运行中 · localhost:3001'}
+              {serverStatus === 'connecting' && '正在连接...'}
+              {serverStatus === 'offline' && '服务未连接'}
+            </span>
+          </div>
         </div>
       </div>
 
