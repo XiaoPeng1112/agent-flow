@@ -15,6 +15,57 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.3.1',
+    date: '2026-05-30',
+    title: '工作流模板完善 & 异步安全修复',
+    type: 'fix',
+    highlights: [
+      '三个轻量模板补充交付汇总节点',
+      '所有模板补充 outputContracts 产出物合同',
+      'auto-execute 修复：启动前先转换节点状态',
+      '路由层 async/await 完善',
+      'deleteRun 持久化 await',
+      '健康检查版本号更新至 v2.3.1',
+    ],
+    details: `v2.3.1 针对 v2.3.0 code review 中发现的遗漏进行补全修复。
+
+【模板完善】快速功能迭代、Bug 修复流程、前后端并行开发三个工作流模板均补充了缺失的「交付汇总」(deliver) 节点，确保所有流程都有最终的产出物收拢环节；同时为这三个模板的每个节点补充了 outputContracts 定义，与标准 SDD 模板保持一致，让产出物合同校验机制对所有模板生效。
+
+【异步安全修复】auto-execute 端点修复：批量启动节点前先调用 workflowEngine.startNode() 将节点状态从 ready → running，避免 Agent 进程启动时节点仍处于 ready 状态导致状态不一致；路由层所有调用 async WorkflowEngine 方法的 handler 统一加上 async/await，防止 Promise 静默失败；deleteRun 方法改为 async 并 await persist() 确保删除操作持久化；健康检查版本号从遗留的 2.0.0 更新为 2.3.1。`,
+  },
+  {
+    version: 'v2.3.0',
+    date: '2026-05-30',
+    title: '安全加固 & DAG 增强 & AI 开发流程优化',
+    type: 'feature',
+    highlights: [
+      'WebSocket ManagedWS 防内存泄漏',
+      'cancelTurn 防重复提交',
+      'NodeDetailPanel key 修复',
+      'persist() async/await 数据安全',
+      'OAuth state CSRF 防护',
+      '文件系统路径穿越防护',
+      '孤儿 running 节点自动重置',
+      'Context Chaining（节点上下文传递）',
+      'Agent 产出物结构化解析',
+      '条件分支与动态 DAG',
+      '多 Agent 并行自动执行',
+      'Prompt 模板化（{{变量}} 语法）',
+      'Token 消耗追踪与成本统计',
+      'Git 集成与 Diff Review',
+      'Skill 智能推荐引擎',
+    ],
+    details: `v2.3.0 是一次全面的安全加固、架构增强和 AI 开发流程优化版本。
+
+【安全修复】WebSocket 重连改为 ManagedWebSocket 模式（dispose 标志位防止递归泄漏）；cancelTurn 引入 cancelledTurns Set 防止 close handler 重复提交节点状态；persist() 所有状态变更方法改为 async/await 防止数据丢失；OAuth 回调增加 state 参数校验（CSRF 防护，10 分钟 TTL）；文件系统 API 增加 allowedRoots 路径安全校验防止路径穿越攻击。
+
+【稳定性增强】NodeDetailPanel 增加 key={selectedNode.id} 强制重新挂载解决切换节点时状态残留问题；服务启动时自动检测并重置孤儿 running 节点（进程丢失后不再永远卡死）。
+
+【DAG 编排增强】新增 EdgeCondition 支持条件分支（status/output_contains/expression 三种模式），computeReadyNodes 自动跳过条件不满足的节点；Context Chaining 自动聚合前置节点的 Turn 输出和产出物注入到后续节点上下文；RunConfig 支持 autoExecute/maxParallel 并行执行配置，/auto-execute API 一键批量启动所有 ready 节点。
+
+【AI 开发流程优化】Agent 输出自动结构化解析（提取代码块、JSON 产出物声明并创建 Artifact）；Prompt 模板化支持 {{node.name}}、{{predecessor.summary}} 等内置变量和自定义变量替换；Token 消耗按 Run/Node 粒度统计并估算成本（基于 Claude Sonnet 定价）；Git 集成提供仓库状态、commit 列表、diff 获取与变更摘要能力；Skill 智能推荐基于关键词匹配和节点类型评分自动推荐最相关的 Skills。`,
+  },
+  {
     version: 'v2.2.0',
     date: '2026-05-29',
     title: '后端服务状态监测 & 离线提示 & GitHub Pages 部署',

@@ -133,6 +133,9 @@ export class TemplateService {
           agentRole: 'planner',
           skillIds: [],
           prompt: '简要分析需求，确认核心功能点和实现路径。',
+          outputContracts: [
+            { id: 'oc_qf_req', title: '需求确认摘要', category: 'document', format: 'markdown', required: true },
+          ],
         },
         {
           id: 'implement',
@@ -142,6 +145,9 @@ export class TemplateService {
           agentRole: 'executor',
           skillIds: [],
           prompt: '根据需求直接实现代码。',
+          outputContracts: [
+            { id: 'oc_qf_code', title: '代码变更', category: 'code', format: 'typescript', required: true },
+          ],
         },
         {
           id: 'test',
@@ -151,11 +157,27 @@ export class TemplateService {
           agentRole: 'executor',
           skillIds: [],
           prompt: '测试实现结果，修复发现的问题。',
+          outputContracts: [
+            { id: 'oc_qf_test', title: '测试结果', category: 'test', format: 'markdown', required: true },
+          ],
+        },
+        {
+          id: 'deliver',
+          name: '交付汇总',
+          type: 'deliver',
+          description: '汇总功能实现和测试结果',
+          agentRole: 'manager',
+          skillIds: [],
+          prompt: '汇总本次快速迭代的产出：实现的功能、变更文件、测试结果。',
+          outputContracts: [
+            { id: 'oc_qf_report', title: '交付报告', category: 'report', format: 'markdown', required: true },
+          ],
         },
       ],
       edges: [
         { source: 'specify', target: 'implement' },
         { source: 'implement', target: 'test' },
+        { source: 'test', target: 'deliver' },
       ],
     })
 
@@ -173,6 +195,9 @@ export class TemplateService {
           agentRole: 'planner',
           skillIds: [],
           prompt: '分析以下 bug，定位根因，提出修复方案。',
+          outputContracts: [
+            { id: 'oc_bf_analysis', title: '根因分析报告', category: 'document', format: 'markdown', required: true },
+          ],
         },
         {
           id: 'fix',
@@ -182,6 +207,9 @@ export class TemplateService {
           agentRole: 'executor',
           skillIds: [],
           prompt: '根据分析结果修复问题。',
+          outputContracts: [
+            { id: 'oc_bf_code', title: '修复代码', category: 'code', format: 'typescript', required: true },
+          ],
         },
         {
           id: 'verify',
@@ -191,11 +219,27 @@ export class TemplateService {
           agentRole: 'executor',
           skillIds: [],
           prompt: '验证修复效果，确保无回归问题。',
+          outputContracts: [
+            { id: 'oc_bf_test', title: '回归测试报告', category: 'test', format: 'markdown', required: true },
+          ],
+        },
+        {
+          id: 'deliver',
+          name: '交付汇总',
+          type: 'deliver',
+          description: '汇总 Bug 修复成果：根因、修复方案、验证结果',
+          agentRole: 'manager',
+          skillIds: [],
+          prompt: '汇总本次 Bug 修复：问题根因、修复方案、代码变更、回归测试结果。',
+          outputContracts: [
+            { id: 'oc_bf_report', title: '修复交付报告', category: 'report', format: 'markdown', required: true },
+          ],
         },
       ],
       edges: [
         { source: 'analyze', target: 'fix' },
         { source: 'fix', target: 'verify' },
+        { source: 'verify', target: 'deliver' },
       ],
     })
 
@@ -213,6 +257,10 @@ export class TemplateService {
           agentRole: 'planner',
           skillIds: [],
           prompt: '设计 API 接口，确定请求/响应格式。',
+          outputContracts: [
+            { id: 'oc_pd_api', title: 'API 接口定义', category: 'document', format: 'markdown', required: true },
+            { id: 'oc_pd_schema', title: '数据模型 Schema', category: 'code', format: 'typescript', required: false },
+          ],
         },
         {
           id: 'frontend',
@@ -222,6 +270,9 @@ export class TemplateService {
           agentRole: 'executor',
           skillIds: [],
           prompt: '实现前端页面，使用 mock 数据联调。',
+          outputContracts: [
+            { id: 'oc_pd_fe', title: '前端代码', category: 'code', format: 'typescript', required: true },
+          ],
         },
         {
           id: 'backend',
@@ -231,6 +282,9 @@ export class TemplateService {
           agentRole: 'executor',
           skillIds: [],
           prompt: '实现后端 API 接口。',
+          outputContracts: [
+            { id: 'oc_pd_be', title: '后端代码', category: 'code', format: 'typescript', required: true },
+          ],
         },
         {
           id: 'integrate',
@@ -240,6 +294,21 @@ export class TemplateService {
           agentRole: 'executor',
           skillIds: [],
           prompt: '前后端联调测试，验证接口对接正确。',
+          outputContracts: [
+            { id: 'oc_pd_test', title: '集成测试报告', category: 'test', format: 'markdown', required: true },
+          ],
+        },
+        {
+          id: 'deliver',
+          name: '交付汇总',
+          type: 'deliver',
+          description: '汇总前后端实现和集成测试成果',
+          agentRole: 'manager',
+          skillIds: [],
+          prompt: '汇总本次并行开发成果：接口定义、前端实现、后端实现、集成测试结果、变更文件清单。',
+          outputContracts: [
+            { id: 'oc_pd_report', title: '交付报告', category: 'report', format: 'markdown', required: true },
+          ],
         },
       ],
       edges: [
@@ -247,6 +316,7 @@ export class TemplateService {
         { source: 'design', target: 'backend' },
         { source: 'frontend', target: 'integrate' },
         { source: 'backend', target: 'integrate' },
+        { source: 'integrate', target: 'deliver' },
       ],
     })
   }

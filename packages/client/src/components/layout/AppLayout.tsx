@@ -39,9 +39,9 @@ export function AppLayout() {
       templateApi.list().then((res) => setTemplates(res.templates)),
     ]).catch((err) => console.error('Failed to load initial data:', err))
 
-    // WebSocket 实时通信
-    const ws = createWebSocket(handleWsMessage)
-    return () => { ws.close() }
+    // WebSocket 实时通信（带生命周期管理，dispose 后自动停止重连）
+    const managedWs = createWebSocket(handleWsMessage)
+    return () => { managedWs.dispose() }
   }, [serverStatus.status])
 
   return (

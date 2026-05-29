@@ -135,3 +135,106 @@
 - 版本可追溯，每次变更有 commit 记录
 - 新成员 clone 仓库即获得完整上下文
 - AI 助手新对话开始时读取这些文件即可快速恢复
+
+---
+
+## ADR-008: Context Chaining 自动聚合前置节点上下文
+
+**日期**: 2026-05-30  
+**状态**: 已实施
+
+**背景**: DAG 工作流中后续节点需要前置节点的产出作为输入。最初方案是手动在 prompt 中引用前置节点结果，但这要求用户了解 DAG 拓扑并手动维护引用关系，容易遗漏且不灵活。
+
+**决策**: 引入 `buildNodeContext()` 函数，在节点启动前自动遍历 DAG 所有前置节点（通过反向边追溯），聚合它们最后一个 completed Turn 的输出摘要和 Artifacts 列表，注入到当前节点的 `context.predecessorOutputs` 字段。
+
+**实现要点**:
+- `NodeContext.predecessorOutputs[]` 包含每个前置节点的 nodeName、nodeType、summary（Turn 输出截取）、artifacts
+- Agent prompt 通过模板变量 `{{predecessor.summary}}` 引用
+- 只聚合直接前置节点（一跳），不递归传递（避免上下文爆炸）
+
+**原因**:
+- DAG 拓扑已经隐含了信息依赖关系，不需要额外声明
+- 自动化减少配置负担，降低出错概率
+- 统一的上下文结构方便 Agent 解析和利用
+- 如果不这么做：后续节点拿不到前置产出，等于每个节点独立执行、丧失流程价值
+
+---
+
+## ADR-009: OutputContracts 产出物合同机制
+
+**日期**: 2026-05-30  
+**状态**: 已实施
+
+**背景**: Agent 执行完毕后输出是非结构化文本，难以自动判断是否满足了节点的交付要求。
+
+**决策**: 每个模板节点定义 `outputContracts: OutputContract[]`，声明该节点应产出的结构化物件（类型、格式、是否必选）。Agent 输出经结构化解析后，自动与合同比对校验。
+
+**原因**:
+- 让 Agent 明确"要交什么"，提升输出质量
+- 合同校验可自动判断节点是否真正"完成"
+- 为后续的质量门禁和自动审批提供依据
+- 统一产出物格式，便于 Context Chaining 传递
+
+---
+
+## ADR-010: 所有模板统一包含 deliver（交付汇总）节点
+
+**日期**: 2026-05-30  
+**状态**: 已实施
+
+**背景**: 最初只有标准 SDD 模板有 deliver 节点，其他三个轻量模板以 test 节点收尾。Code Review 发现这导致轻量流程没有最终的产出物收拢环节。
+
+**决策**: 所有 4 个内置模板都在最后增加 deliver 节点（type: 'deliver', agentRole: 'manager'），负责汇总前置节点产出物、生成交付报告。
+
+**原因**:
+- 保持模板行为一致性——所有流程都有明确的"完成"标志
+- deliver 节点聚合所有前置 Artifacts，生成结构化交付清单
+- 便于下游系统（CI/CD、项目管理工具）对接
+
+---
+
+## ADR-011: 文件系统 API 路径安全防护
+
+**日期**: 2026-05-30  
+**状态**: 已实施
+
+**背景**: FileSystemService 提供了文件读写能力，如果不做路径校验，恶意请求可通过 `../../etc/passwd` 等路径穿越攻击访问系统文件。
+
+**决策**: 引入 `allowedRoots` 白名单机制。所有文件操作前先 `path.resolve()` 规范化，再检查是否以某个 allowedRoot 开头。不通过则拒绝。通过环境变量 `ALLOWED_FILE_ROOTS` 配置，默认为 `process.cwd()`。
+
+**原因**:
+- 最小权限原则
+- 即使部署在共享环境也安全
+- 零运行时依赖（纯 path 模块实现）
+
+---
+
+## ADR-012: OAuth state CSRF 防护
+
+**日期**: 2026-05-30  
+**状态**: 已实施
+
+**背景**: OAuth 回调如果不校验 state 参数，攻击者可伪造回调 URL 进行 CSRF 攻击。
+
+**决策**: 发起 OAuth 时生成随机 state 存入 Map（10 分钟 TTL 自动过期），回调时校验 state 一致性，使用后立即删除。
+
+**原因**:
+- OAuth 2.0 安全规范的标准要求
+- 防止第三方伪造授权回调
+- TTL 自动清理防止内存泄漏
+
+---
+
+## ADR-013: GitHub Pages 静态部署 + 子路径 basename
+
+**日期**: 2026-05-30  
+**状态**: 已实施
+
+**背景**: 需要一个免费、无需服务器的前端展示方案。GitHub Pages 部署在 `username.github.io/repo-name` 子路径下。
+
+**决策**: 使用 gh-pages 包直接部署到 GitHub Pages。Vite `base: '/agent-flow/'` + React Router `basename: '/agent-flow'` 保证子路径下资源和路由正常工作。
+
+**原因**:
+- 零成本，自动 HTTPS
+- 无需 GitHub Actions workflow 配置权限
+- 本地一条命令 `npm run deploy` 完成部署

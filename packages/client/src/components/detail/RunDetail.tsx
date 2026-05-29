@@ -110,9 +110,10 @@ export function RunDetail({ run, onBack }: Props) {
           />
         </div>
 
-        {/* 右侧：节点详情面板 */}
+        {/* 右侧：节点详情面板 — key 保证切换节点时重新挂载 */}
         {selectedNode && (
           <NodeDetailPanel
+            key={selectedNode.id}
             node={selectedNode}
             run={run}
             agents={agents}

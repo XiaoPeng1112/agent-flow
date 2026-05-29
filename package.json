@@ -13,7 +13,8 @@
     "dev:server": "npm run dev -w packages/server",
     "build": "npm run build -w packages/client && npm run build -w packages/server",
     "predeploy": "npm run build -w packages/client && cp packages/client/dist/index.html packages/client/dist/404.html",
-    "deploy": "gh-pages -d packages/client/dist"
+    "deploy": "gh-pages -d packages/client/dist",
+    "sync-context": "tsx scripts/sync-context.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

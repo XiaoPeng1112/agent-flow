@@ -19,6 +19,7 @@ import type { WorkflowEngine } from './workflow-engine.js'
 export class AgentService {
   private agents: Map<string, AgentConfig> = new Map()
   private activeProcesses: Map<string, ChildProcess> = new Map()  // turnId → process
+  private cancelledTurns: Set<string> = new Set()  // 已取消的 turn，防止 close handler 重复提交
   private workflowEngine: WorkflowEngine
 
   constructor(workflowEngine: WorkflowEngine) {
@@ -276,7 +277,10 @@ export class AgentService {
       clearTimeout(timeout)
       this.activeProcesses.delete(turnId)
 
-      console.log(`[Agent] Turn ${turnId} exited with code ${code}`)
+      const wasCancelled = this.cancelledTurns.has(turnId)
+      this.cancelledTurns.delete(turnId)
+
+      console.log(`[Agent] Turn ${turnId} exited with code ${code}${wasCancelled ? ' (cancelled)' : ''}`)
 
       // ★ 解析 Token 使用量（从 CLI 输出中提取）
       const tokenUsage = this.parseTokenUsage(fullOutput, agent.type)
@@ -284,8 +288,13 @@ export class AgentService {
         console.log(`[Agent] Turn ${turnId} token usage: ${JSON.stringify(tokenUsage)}`)
       }
 
+      // ★ 产出物结构化解析：从 Agent 输出中提取代码块和文件引用
+      if (code === 0 && !wasCancelled) {
+        this.parseAndCreateArtifacts(fullOutput, runId, nodeId)
+      }
+
       // Phase 2: RecordAgentTurnResult
-      const result = code === 0 ? 'succeeded' : 'failed'
+      const result = wasCancelled ? 'failed' : (code === 0 ? 'succeeded' : 'failed')
       this.workflowEngine.recordTurnResult(turnId, nodeId, result as any, undefined, tokenUsage)
 
       // Phase 3+4: Finalize
@@ -295,17 +304,19 @@ export class AgentService {
       if (code !== 0 && !hasOutput) {
         this.workflowEngine.appendTurnOutput(
           turnId, nodeId,
-          `\n❌ Agent 进程异常退出 (code=${code})。CLI: ${agent.command}\n`
+          wasCancelled
+            ? `\n⚠️ 用户已取消执行。\n`
+            : `\n❌ Agent 进程异常退出 (code=${code})。CLI: ${agent.command}\n`
         )
       }
 
-      // 通知节点完成/失败 — 通过自动提交节点决策
+      // 通知节点完成/失败 — 通过自动提交节点决策（只提交一次）
       try {
         this.workflowEngine.submitNodeDecision(
           runId,
           nodeId,
-          code === 0 ? 'waiting_user_review' : 'failed',
-          code !== 0 ? `Agent 退出码: ${code}` : undefined
+          wasCancelled ? 'failed' : (code === 0 ? 'waiting_user_review' : 'failed'),
+          wasCancelled ? '用户取消执行' : (code !== 0 ? `Agent 退出码: ${code}` : undefined)
         )
       } catch (e) {
         console.error(`[Agent] Failed to submit node decision:`, (e as Error).message)
@@ -330,12 +341,15 @@ export class AgentService {
 
   /**
    * 取消正在执行的 Turn
+   * 注意：不立即删除 activeProcesses，让 close handler 统一处理
    */
   cancelTurn(turnId: string): boolean {
     const proc = this.activeProcesses.get(turnId)
     if (!proc) return false
 
     console.log(`[Agent] Cancelling turn ${turnId}`)
+    // 标记为已取消，close handler 中会检查此标记
+    this.cancelledTurns.add(turnId)
     proc.kill('SIGTERM')
     // 5秒后强制 kill
     setTimeout(() => {
@@ -343,8 +357,7 @@ export class AgentService {
         proc.kill('SIGKILL')
       }
     }, 5000)
-    
-    this.activeProcesses.delete(turnId)
+
     return true
   }
 
@@ -402,11 +415,78 @@ export class AgentService {
       parts.push(contextArtifacts.join('\n---\n'))
     }
 
-    // 用户 prompt
+    // 用户 prompt（支持模板变量替换）
     parts.push('\n## 当前任务\n')
     parts.push(userPrompt)
 
     return parts.join('\n')
+  }
+
+  /**
+   * Prompt 模板变量替换
+   * 支持 {{variable}} 语法，从 NodeContext.variables 和内置变量中解析
+   * 
+   * 内置变量：
+   *   {{node.name}} - 节点名称
+   *   {{node.type}} - 节点类型
+   *   {{run.name}} - Run 名称
+   *   {{predecessor.summary}} - 前置节点输出摘要
+   *   {{predecessor.artifacts}} - 前置节点产出物列表
+   *   {{date}} - 当前日期
+   *   {{timestamp}} - 当前时间戳
+   * 
+   * 自定义变量通过 NodeContext.variables 传入
+   */
+  resolvePromptTemplate(
+    template: string,
+    variables: Record<string, string>
+  ): string {
+    return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, key) => {
+      // 查找变量值
+      if (key in variables) return variables[key]
+
+      // 内置变量
+      switch (key) {
+        case 'date': return new Date().toISOString().split('T')[0]
+        case 'timestamp': return String(Date.now())
+        default: return match  // 未匹配的保留原样
+      }
+    })
+  }
+
+  /**
+   * 从 TaskNode 和 Run 构建模板变量映射
+   */
+  buildTemplateVariables(
+    node: { name: string; type: string; context?: { predecessorOutputs?: Array<{ summary: string; nodeName: string; artifacts: Array<{ title: string }> }> ; variables?: Record<string, string> } },
+    run: { name: string }
+  ): Record<string, string> {
+    const vars: Record<string, string> = {
+      'node.name': node.name,
+      'node.type': node.type,
+      'run.name': run.name,
+      'date': new Date().toISOString().split('T')[0],
+      'timestamp': String(Date.now()),
+    }
+
+    // 从 NodeContext 获取前置节点信息
+    if (node.context?.predecessorOutputs) {
+      const summaries = node.context.predecessorOutputs.map(p => `[${p.nodeName}]: ${p.summary}`).join('\n')
+      vars['predecessor.summary'] = summaries
+
+      const artifactList = node.context.predecessorOutputs
+        .flatMap(p => p.artifacts)
+        .map(a => a.title)
+        .join(', ')
+      vars['predecessor.artifacts'] = artifactList
+    }
+
+    // 合并自定义变量（优先级最高）
+    if (node.context?.variables) {
+      Object.assign(vars, node.context.variables)
+    }
+
+    return vars
   }
 
   private getRoleSystemPrompt(role: AgentRole): string {
@@ -461,6 +541,118 @@ export class AgentService {
       console.error('[Agent] Failed to parse token usage:', (e as Error).message)
     }
     return undefined
+  }
+
+  // ═══════════════ 产出物结构化解析 ═══════════════
+
+  /**
+   * 从 Agent 输出中自动解析结构化产出物
+   * 支持提取：
+   * - Markdown 代码块（带文件名注释的）
+   * - 显式文件路径引用
+   * - JSON/YAML 结构化输出
+   */
+  private parseAndCreateArtifacts(output: string, runId: string, nodeId: string): void {
+    try {
+      const artifacts = this.extractArtifactsFromOutput(output)
+      for (const artifact of artifacts) {
+        this.workflowEngine.addArtifact(runId, nodeId, artifact)
+      }
+      if (artifacts.length > 0) {
+        console.log(`[Agent] Extracted ${artifacts.length} artifact(s) from output for node ${nodeId}`)
+      }
+    } catch (e) {
+      console.error('[Agent] Failed to parse artifacts:', (e as Error).message)
+    }
+  }
+
+  /**
+   * 从输出文本中提取结构化产出物
+   */
+  private extractArtifactsFromOutput(output: string): Array<{
+    title: string
+    category: 'document' | 'code' | 'config' | 'test' | 'report'
+    format: string
+    content: string
+  }> {
+    const artifacts: Array<{
+      title: string
+      category: 'document' | 'code' | 'config' | 'test' | 'report'
+      format: string
+      content: string
+    }> = []
+
+    // 提取带文件名的代码块: ```language:filename 或 ```language // filename
+    const codeBlockRegex = /```(\w+)(?:[:\s]+([^\n]+))?\n([\s\S]*?)```/g
+    let match: RegExpExecArray | null
+
+    while ((match = codeBlockRegex.exec(output)) !== null) {
+      const language = match[1]
+      const fileName = match[2]?.trim()
+      const content = match[3].trim()
+
+      // 只提取有明确文件名或较长内容的代码块
+      if (!fileName && content.length < 100) continue
+
+      const title = fileName || `code_snippet.${language}`
+      const category = this.inferCategory(language, fileName || '')
+      
+      artifacts.push({
+        title,
+        category,
+        format: language,
+        content,
+      })
+    }
+
+    // 提取 JSON 结构化输出块（如果 Agent 输出包含 JSON Schema 格式的产出物声明）
+    const jsonOutputRegex = /```json\n(\{[\s\S]*?"artifacts?"[\s\S]*?\})\n```/g
+    while ((match = jsonOutputRegex.exec(output)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1])
+        if (parsed.artifacts && Array.isArray(parsed.artifacts)) {
+          for (const a of parsed.artifacts) {
+            if (a.title && a.content) {
+              artifacts.push({
+                title: a.title,
+                category: a.category || 'document',
+                format: a.format || 'markdown',
+                content: a.content,
+              })
+            }
+          }
+        }
+      } catch {
+        // JSON 解析失败，跳过
+      }
+    }
+
+    return artifacts
+  }
+
+  /**
+   * 根据语言和文件名推断产出物类别
+   */
+  private inferCategory(language: string, fileName: string): 'document' | 'code' | 'config' | 'test' | 'report' {
+    const lowerFile = fileName.toLowerCase()
+    const lowerLang = language.toLowerCase()
+
+    // 测试文件
+    if (lowerFile.includes('test') || lowerFile.includes('spec') || lowerFile.includes('.test.')) {
+      return 'test'
+    }
+    // 配置文件
+    if (['json', 'yaml', 'yml', 'toml', 'ini'].includes(lowerLang) ||
+        lowerFile.includes('config') || lowerFile.includes('.env') ||
+        lowerFile.endsWith('.json') || lowerFile.endsWith('.yaml')) {
+      return 'config'
+    }
+    // 文档
+    if (['markdown', 'md'].includes(lowerLang) || lowerFile.endsWith('.md')) {
+      return 'document'
+    }
+    // 代码
+    return 'code'
   }
 
   private buildArgs(agent: AgentConfig, prompt: string): { args: string[]; useStdin: boolean } {

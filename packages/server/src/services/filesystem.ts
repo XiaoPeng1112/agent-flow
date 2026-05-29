@@ -1,6 +1,6 @@
 import { watch } from 'chokidar'
 import { readFile, readdir, stat, writeFile } from 'fs/promises'
-import { join, relative } from 'path'
+import { join, relative, resolve, normalize } from 'path'
 import { createTwoFilesPatch } from 'diff'
 import type { FileChange } from '../types/index.js'
 
@@ -11,26 +11,55 @@ import type { FileChange } from '../types/index.js'
 export class FileSystemService {
   private watchers: Map<string, ReturnType<typeof watch>> = new Map()
   private fileSnapshots: Map<string, string> = new Map()
+  private allowedRoots: string[] = []
+
+  /**
+   * 设置允许访问的根目录列表
+   * 所有文件操作必须在这些目录下，防止路径穿越攻击
+   */
+  setAllowedRoots(roots: string[]): void {
+    this.allowedRoots = roots.map(r => resolve(r))
+  }
+
+  /**
+   * 路径安全校验：确保解析后的绝对路径在允许的根目录内
+   * 防止 ../ 等路径穿越攻击
+   */
+  private assertPathSafe(targetPath: string): string {
+    const resolved = resolve(normalize(targetPath))
+    // 如果未配置 allowedRoots，则不限制（向后兼容）
+    if (this.allowedRoots.length === 0) return resolved
+    const isAllowed = this.allowedRoots.some(root => 
+      resolved === root || resolved.startsWith(root + '/')
+    )
+    if (!isAllowed) {
+      throw new Error(`Access denied: path "${targetPath}" is outside allowed directories`)
+    }
+    return resolved
+  }
 
   /** 读取文件内容 */
   async readFile(filePath: string): Promise<string> {
-    return readFile(filePath, 'utf-8')
+    const safePath = this.assertPathSafe(filePath)
+    return readFile(safePath, 'utf-8')
   }
 
   /** 写入文件 */
   async writeFile(filePath: string, content: string): Promise<void> {
-    await writeFile(filePath, content, 'utf-8')
+    const safePath = this.assertPathSafe(filePath)
+    await writeFile(safePath, content, 'utf-8')
   }
 
   /** 列出目录内容 */
   async listDir(dirPath: string): Promise<Array<{ name: string; isDir: boolean; path: string }>> {
-    const entries = await readdir(dirPath, { withFileTypes: true })
+    const safePath = this.assertPathSafe(dirPath)
+    const entries = await readdir(safePath, { withFileTypes: true })
     return entries
       .filter((e) => !e.name.startsWith('.') && e.name !== 'node_modules')
       .map((e) => ({
         name: e.name,
         isDir: e.isDirectory(),
-        path: join(dirPath, e.name),
+        path: join(safePath, e.name),
       }))
       .sort((a, b) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
@@ -40,7 +69,8 @@ export class FileSystemService {
 
   /** 获取文件状态 */
   async getFileStat(filePath: string) {
-    const s = await stat(filePath)
+    const safePath = this.assertPathSafe(filePath)
+    const s = await stat(safePath)
     return {
       size: s.size,
       isFile: s.isFile(),

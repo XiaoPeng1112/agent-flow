@@ -6,6 +6,7 @@ import type { ProjectService } from '../services/project.js'
 import type { WorkflowEngine } from '../services/workflow-engine.js'
 import type { TemplateService } from '../services/template.js'
 import type { AuthService } from '../services/auth.js'
+import type { GitService } from '../services/git.js'
 
 export function createApiRouter(deps: {
   agentService: AgentService
@@ -15,9 +16,10 @@ export function createApiRouter(deps: {
   workflowEngine: WorkflowEngine
   templateService: TemplateService
   authService: AuthService
+  gitService: GitService
 }): Router {
   const router = Router()
-  const { agentService, fileService, skillService, projectService, workflowEngine, templateService, authService } = deps
+  const { agentService, fileService, skillService, projectService, workflowEngine, templateService, authService, gitService } = deps
 
   // ════════════════════════════════════════
   // Auth API (GitHub OAuth)
@@ -34,9 +36,14 @@ export function createApiRouter(deps: {
 
   /** GitHub OAuth 回调 */
   router.get('/auth/callback', async (req, res) => {
-    const { code } = req.query as { code?: string }
+    const { code, state } = req.query as { code?: string; state?: string }
     if (!code) {
       res.status(400).json({ success: false, error: 'Missing code parameter' })
+      return
+    }
+    // 校验 state 参数防止 CSRF 攻击
+    if (!state || !authService.validateState(state)) {
+      res.status(403).json({ success: false, error: 'Invalid or expired OAuth state parameter' })
       return
     }
     try {
@@ -180,7 +187,7 @@ export function createApiRouter(deps: {
   })
 
   /** 创建 Run（从模板实例化） */
-  router.post('/runs', (req, res) => {
+  router.post('/runs', async (req, res) => {
     const { projectId, templateId, name } = req.body
     if (!projectId || !templateId) {
       res.status(400).json({ success: false, error: 'projectId and templateId are required' })
@@ -193,14 +200,14 @@ export function createApiRouter(deps: {
       return
     }
 
-    const run = workflowEngine.createRun(projectId, template, name)
+    const run = await workflowEngine.createRun(projectId, template, name)
     res.json({ success: true, data: { run } })
   })
 
   /** 启动 Run */
-  router.post('/runs/:id/start', (req, res) => {
+  router.post('/runs/:id/start', async (req, res) => {
     try {
-      const run = workflowEngine.startRun(req.params.id)
+      const run = await workflowEngine.startRun(req.params.id)
       res.json({ success: true, data: { run } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -208,8 +215,8 @@ export function createApiRouter(deps: {
   })
 
   /** 删除 Run */
-  router.delete('/runs/:id', (req, res) => {
-    const success = workflowEngine.deleteRun(req.params.id)
+  router.delete('/runs/:id', async (req, res) => {
+    const success = await workflowEngine.deleteRun(req.params.id)
     if (!success) {
       res.status(404).json({ success: false, error: 'Run not found' })
       return
@@ -217,14 +224,24 @@ export function createApiRouter(deps: {
     res.json({ success: true })
   })
 
+  /** 获取 Run 的 Token 消耗统计 */
+  router.get('/runs/:id/token-stats', (req, res) => {
+    try {
+      const stats = workflowEngine.getRunTokenStats(req.params.id)
+      res.json({ success: true, data: stats })
+    } catch (err) {
+      res.status(404).json({ success: false, error: (err as Error).message })
+    }
+  })
+
   // ════════════════════════════════════════
   // Node API (节点状态操作)
   // ════════════════════════════════════════
 
   /** 启动节点（ready → running） */
-  router.post('/runs/:runId/nodes/:nodeId/start', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/start', async (req, res) => {
     try {
-      const node = workflowEngine.startNode(req.params.runId, req.params.nodeId)
+      const node = await workflowEngine.startNode(req.params.runId, req.params.nodeId)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -232,10 +249,10 @@ export function createApiRouter(deps: {
   })
 
   /** 提交节点决策 */
-  router.post('/runs/:runId/nodes/:nodeId/submit', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/submit', async (req, res) => {
     const { decision, error } = req.body
     try {
-      const node = workflowEngine.submitNodeDecision(req.params.runId, req.params.nodeId, decision, error)
+      const node = await workflowEngine.submitNodeDecision(req.params.runId, req.params.nodeId, decision, error)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -243,9 +260,9 @@ export function createApiRouter(deps: {
   })
 
   /** 用户确认节点（wait_user_review → completed） */
-  router.post('/runs/:runId/nodes/:nodeId/approve', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/approve', async (req, res) => {
     try {
-      const node = workflowEngine.approveNode(req.params.runId, req.params.nodeId)
+      const node = await workflowEngine.approveNode(req.params.runId, req.params.nodeId)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -253,10 +270,10 @@ export function createApiRouter(deps: {
   })
 
   /** 用户打回节点（wait_user_review → running） */
-  router.post('/runs/:runId/nodes/:nodeId/reject', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/reject', async (req, res) => {
     const { feedback } = req.body
     try {
-      const node = workflowEngine.rejectNode(req.params.runId, req.params.nodeId, feedback)
+      const node = await workflowEngine.rejectNode(req.params.runId, req.params.nodeId, feedback)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -264,9 +281,9 @@ export function createApiRouter(deps: {
   })
 
   /** 跳过节点 */
-  router.post('/runs/:runId/nodes/:nodeId/skip', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/skip', async (req, res) => {
     try {
-      const node = workflowEngine.skipNode(req.params.runId, req.params.nodeId)
+      const node = await workflowEngine.skipNode(req.params.runId, req.params.nodeId)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -274,9 +291,9 @@ export function createApiRouter(deps: {
   })
 
   /** 回滚节点 */
-  router.post('/runs/:runId/nodes/:nodeId/rollback', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/rollback', async (req, res) => {
     try {
-      workflowEngine.rollbackNode(req.params.runId, req.params.nodeId)
+      await workflowEngine.rollbackNode(req.params.runId, req.params.nodeId)
       const run = workflowEngine.getRun(req.params.runId)
       res.json({ success: true, data: { run } })
     } catch (err) {
@@ -285,9 +302,9 @@ export function createApiRouter(deps: {
   })
 
   /** 强制重置节点（running → ready，用于卡住的节点） */
-  router.post('/runs/:runId/nodes/:nodeId/force-reset', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/force-reset', async (req, res) => {
     try {
-      const node = workflowEngine.forceResetNode(req.params.runId, req.params.nodeId)
+      const node = await workflowEngine.forceResetNode(req.params.runId, req.params.nodeId)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -301,9 +318,9 @@ export function createApiRouter(deps: {
   })
 
   /** 添加节点产出物 */
-  router.post('/runs/:runId/nodes/:nodeId/artifacts', (req, res) => {
+  router.post('/runs/:runId/nodes/:nodeId/artifacts', async (req, res) => {
     try {
-      const artifact = workflowEngine.addArtifact(req.params.runId, req.params.nodeId, req.body)
+      const artifact = await workflowEngine.addArtifact(req.params.runId, req.params.nodeId, req.body)
       res.json({ success: true, data: { artifact } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -382,6 +399,58 @@ export function createApiRouter(deps: {
   router.get('/agents/turns/:nodeId', (req, res) => {
     const turns = workflowEngine.getNodeTurns(req.params.nodeId)
     res.json({ success: true, data: { turns } })
+  })
+
+  /** 并行自动执行：获取所有 ready 节点并批量启动 Agent */
+  router.post('/runs/:runId/auto-execute', async (req, res) => {
+    const { agentId, cwd } = req.body
+    const runId = req.params.runId
+    try {
+      const readyNodes = workflowEngine.getReadyNodes(runId)
+      if (readyNodes.length === 0) {
+        res.json({ success: true, data: { startedTurns: [], message: 'No ready nodes to execute' } })
+        return
+      }
+
+      const config = workflowEngine.getRunConfig(runId)
+      const maxParallel = config?.maxParallel || 5
+      const defaultAgent = agentId || config?.defaultAgentId
+      if (!defaultAgent) {
+        res.status(400).json({ success: false, error: 'agentId is required (or set defaultAgentId in run config)' })
+        return
+      }
+
+      const nodesToExecute = readyNodes.slice(0, maxParallel)
+      const startedTurns: Array<{ nodeId: string; turnId: string }> = []
+
+      for (const node of nodesToExecute) {
+        // 先将节点状态从 ready → running，然后再启动 Agent
+        await workflowEngine.startNode(runId, node.id)
+        const prompt = node.prompt || node.description
+        const turnId = agentService.startTurnAsync({
+          agentId: defaultAgent,
+          nodeId: node.id,
+          runId,
+          prompt,
+          cwd,
+        })
+        startedTurns.push({ nodeId: node.id, turnId })
+      }
+
+      res.json({ success: true, data: { startedTurns, totalReady: readyNodes.length } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 更新 Run 配置（自动执行、并行度等） */
+  router.patch('/runs/:runId/config', async (req, res) => {
+    try {
+      await workflowEngine.updateRunConfig(req.params.runId, req.body)
+      res.json({ success: true })
+    } catch (err) {
+      res.status(400).json({ success: false, error: (err as Error).message })
+    }
   })
 
   // ════════════════════════════════════════
@@ -464,6 +533,97 @@ export function createApiRouter(deps: {
     ]
     const skills = await skillService.loadSkills(searchPaths)
     res.json({ success: true, data: { skills, count: skills.length } })
+  })
+
+  // ════════════════════════════════════════
+  // Git API（Git 集成与 Diff Review）
+  // ════════════════════════════════════════
+
+  /** 获取 Git 仓库状态 */
+  router.get('/git/status', (req, res) => {
+    const { cwd } = req.query as { cwd?: string }
+    const workDir = cwd || process.cwd()
+    if (!gitService.isGitRepo(workDir)) {
+      res.status(400).json({ success: false, error: 'Not a git repository' })
+      return
+    }
+    const status = gitService.getStatus(workDir)
+    res.json({ success: true, data: status })
+  })
+
+  /** 获取最近 commits */
+  router.get('/git/commits', (req, res) => {
+    const { cwd, count } = req.query as { cwd?: string; count?: string }
+    const workDir = cwd || process.cwd()
+    const commits = gitService.getRecentCommits(workDir, count ? parseInt(count, 10) : 10)
+    res.json({ success: true, data: { commits } })
+  })
+
+  /** 获取工作区 diff */
+  router.get('/git/diff', (req, res) => {
+    const { cwd, from, to, staged } = req.query as { cwd?: string; from?: string; to?: string; staged?: string }
+    const workDir = cwd || process.cwd()
+    
+    let diff: string
+    if (from) {
+      diff = gitService.getDiffBetween(workDir, from, to)
+    } else if (staged === 'true') {
+      diff = gitService.getStagedDiff(workDir)
+    } else {
+      diff = gitService.getWorkingDiff(workDir)
+    }
+    
+    const summary = gitService.generateDiffSummary(diff)
+    res.json({ success: true, data: { diff, summary } })
+  })
+
+  /** 获取变更文件列表 */
+  router.get('/git/changed-files', (req, res) => {
+    const { cwd, from, to } = req.query as { cwd?: string; from?: string; to?: string }
+    const workDir = cwd || process.cwd()
+    const files = gitService.getChangedFiles(workDir, from, to)
+    res.json({ success: true, data: { files } })
+  })
+
+  // ════════════════════════════════════════
+  // Skill 智能推荐 API
+  // ════════════════════════════════════════
+
+  /** 根据节点描述智能推荐 Skills */
+  router.post('/skills/recommend', (req, res) => {
+    const { description, nodeType } = req.body as { description: string; nodeType?: string }
+    if (!description) {
+      res.status(400).json({ success: false, error: 'description is required' })
+      return
+    }
+    const allSkills = skillService.getSkills()
+    // 简单关键词匹配推荐（后续可接入 embedding 相似度）
+    const recommendations = allSkills
+      .map(skill => {
+        let score = 0
+        const descLower = description.toLowerCase()
+        const skillDesc = (skill.description + ' ' + skill.triggers.join(' ')).toLowerCase()
+        
+        // 关键词匹配评分
+        for (const trigger of skill.triggers) {
+          if (descLower.includes(trigger.toLowerCase())) score += 10
+        }
+        // 描述相似度（简单词汇重叠）
+        const descWords = descLower.split(/\s+/)
+        for (const word of descWords) {
+          if (word.length > 2 && skillDesc.includes(word)) score += 1
+        }
+        // 节点类型加权
+        if (nodeType && skill.triggers.some(t => t.includes(nodeType))) score += 5
+        
+        return { skill, score }
+      })
+      .filter(r => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(r => ({ ...r.skill, relevanceScore: r.score }))
+
+    res.json({ success: true, data: { recommendations } })
   })
 
   return router

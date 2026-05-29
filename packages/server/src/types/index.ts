@@ -15,9 +15,19 @@ export interface Run {
   status: RunStatus
   nodes: TaskNode[]              // DAG 节点列表
   edges: DAGEdge[]               // DAG 依赖边
+  config?: RunConfig             // 运行时配置
   createdAt: number
   startedAt?: number
   completedAt?: number
+}
+
+/**
+ * Run 运行时配置
+ */
+export interface RunConfig {
+  autoExecute?: boolean          // 是否自动执行 ready 节点（并行模式）
+  defaultAgentId?: string        // 默认 Agent（自动执行时使用）
+  maxParallel?: number           // 最大并行节点数
 }
 
 // ─── DAG (有向无环图定义) ───
@@ -25,6 +35,19 @@ export interface Run {
 export interface DAGEdge {
   source: string   // 源节点 ID
   target: string   // 目标节点 ID
+  condition?: EdgeCondition  // 条件分支：当条件满足时才激活此边
+}
+
+/**
+ * 边条件配置 — 支持条件分支
+ * 当源节点完成后，只有满足条件的边才会激活下游节点
+ */
+export interface EdgeCondition {
+  type: 'status' | 'output_contains' | 'expression'
+  // status: 源节点的完成状态匹配（如 completed / failed）
+  // output_contains: 源节点输出包含特定关键词
+  // expression: 简单表达式评估（预留扩展）
+  value: string
 }
 
 // ─── TaskNode (工作流节点状态机) ───
@@ -64,10 +87,28 @@ export interface TaskNode {
   artifacts: Artifact[]          // 产出物
   prompt?: string                // 节点级 prompt
   userInput?: string             // 用户补充输入
+  context?: NodeContext          // 从前置节点继承的上下文
   order: number                  // 执行顺序（DAG 拓扑排序用）
   startedAt?: number
   completedAt?: number
   error?: string
+}
+
+/**
+ * 节点上下文：由前置节点的产出物和输出自动聚合而来
+ * 实现 Context Chaining — 后续节点可自动获取前置节点的成果
+ */
+export interface NodeContext {
+  predecessorOutputs: PredecessorOutput[]
+  variables?: Record<string, string>   // 模板变量（用于 Prompt 模板化）
+}
+
+export interface PredecessorOutput {
+  nodeId: string
+  nodeName: string
+  nodeType: NodeType
+  summary: string              // Turn 输出摘要
+  artifacts: Artifact[]        // 产出物引用
 }
 
 export type NodeType =

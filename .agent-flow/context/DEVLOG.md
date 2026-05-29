@@ -1,5 +1,62 @@
 # 开发日志
 
+## 2026-05-30（Day 2）— v2.2.0 → v2.3.1
+
+本日主要围绕 Code Review 反馈进行安全加固、架构增强和模板补全。
+
+### v2.3.1 — 工作流模板完善 & 异步安全修复
+
+**完成内容**:
+- 三个轻量模板（quick-feature / bug-fix / parallel-dev）补充缺失的「交付汇总」(deliver) 节点
+- 三个轻量模板所有节点补充 outputContracts 产出物合同定义
+- auto-execute 端点修复：启动 Agent 前先调用 `startNode()` 将节点从 ready → running
+- 路由层所有调用 async WorkflowEngine 方法的 handler 统一加上 async/await
+- `deleteRun` 方法改为 async 并 await persist()
+- 健康检查版本号从遗留的 2.0.0 更新为 2.3.1
+
+**发现的问题**:
+- Vite dev server 重启后端口从 5173 变为 5174 → 原因是旧进程未完全释放端口，Vite 自动递增
+- `tsx watch` 热更新仅监听 server 代码，client 依赖 Vite HMR，需清除 `.vite` 缓存后重启
+
+### v2.3.0 — 安全加固 & DAG 增强 & AI 开发流程优化
+
+**完成内容**:
+
+安全修复：
+- WebSocket ManagedWS 模式（dispose 标志位防止递归重连泄漏）
+- cancelTurn 引入 cancelledTurns Set 防止 close handler 重复提交
+- persist() 所有状态变更方法改为 async/await 防数据丢失
+- OAuth state CSRF 防护（随机 state + 10 分钟 TTL）
+- 文件系统 API allowedRoots 路径穿越防护
+
+稳定性增强：
+- NodeDetailPanel key={selectedNode.id} 强制重挂载解决状态残留
+- 启动时自动检测并重置孤儿 running 节点
+
+DAG 编排增强：
+- EdgeCondition 条件分支（status / output_contains / expression）
+- Context Chaining：buildNodeContext 自动聚合前置节点的 Turn 输出和产出物
+- RunConfig autoExecute / maxParallel 并行执行配置
+- /auto-execute API 批量启动所有 ready 节点
+
+AI 开发流程优化：
+- Agent 输出结构化解析（提取代码块、JSON 产出物 → Artifact）
+- Prompt 模板化 {{变量}} 语法（内置 + 自定义变量）
+- Token 消耗追踪与成本统计（按 Run/Node 粒度）
+- Git 集成（GitService：仓库状态、commit 列表、diff 获取）
+- Skill 智能推荐引擎（关键词匹配 + 节点类型评分）
+
+### v2.2.0 — 后端服务状态监测 & GitHub Pages 部署
+
+**完成内容**:
+- 后端健康检测系统：前端 useServerStatus Hook 每 10 秒轮询 /health
+- 侧边栏实时状态指示器（绿色/蓝色脉动/红色三态）
+- 离线横幅含完整启动命令
+- gh-pages 一键部署 GitHub Pages
+- Skills 扫描支持 CatPaw / Claude / Codex 三套工具的全局和项目级目录
+
+---
+
 ## 2026-05-29（Day 1）— 从零到 v2.1
 
 整个项目在今天下午一个会话内从零搭建完成，经历了三个主要版本迭代：

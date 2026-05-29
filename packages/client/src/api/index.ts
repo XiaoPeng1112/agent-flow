@@ -201,25 +201,65 @@ export const authApi = {
   getRepos: () => request<{ repos: any[] }>('/auth/repos'),
 }
 
-// ═══════════════ WebSocket ═══════════════
+// ═══════════════ WebSocket（带生命周期管理的重连机制） ═══════════════
 
-export function createWebSocket(onMessage: (msg: any) => void): WebSocket {
+/**
+ * 可管理的 WebSocket 连接
+ * - 自动重连（3s 间隔）
+ * - 外部可通过 dispose() 彻底关闭，不再重连
+ * - 避免内存泄漏：dispose 后不会创建新连接
+ */
+export interface ManagedWebSocket {
+  /** 彻底关闭连接并停止重连 */
+  dispose: () => void
+  /** 获取当前底层 WebSocket 实例（可能为 null） */
+  getSocket: () => WebSocket | null
+}
+
+export function createWebSocket(onMessage: (msg: any) => void): ManagedWebSocket {
   const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws'
-  const ws = new WebSocket(wsUrl)
+  let disposed = false
+  let ws: WebSocket | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data)
-      onMessage(msg)
-    } catch (err) {
-      console.error('[WS] Parse error:', err)
+  function connect() {
+    if (disposed) return
+    ws = new WebSocket(wsUrl)
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+        onMessage(msg)
+      } catch (err) {
+        console.error('[WS] Parse error:', err)
+      }
+    }
+
+    ws.onclose = () => {
+      if (disposed) return
+      console.log('[WS] Disconnected, reconnecting in 3s...')
+      reconnectTimer = setTimeout(connect, 3000)
+    }
+
+    ws.onerror = () => {
+      // onerror 后一般会触发 onclose，这里不需要额外处理
     }
   }
 
-  ws.onclose = () => {
-    console.log('[WS] Disconnected, reconnecting in 3s...')
-    setTimeout(() => createWebSocket(onMessage), 3000)
-  }
+  connect()
 
-  return ws
+  return {
+    dispose() {
+      disposed = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (ws) {
+        ws.onclose = null // 防止 close 回调里再重连
+        ws.close()
+        ws = null
+      }
+    },
+    getSocket() {
+      return ws
+    },
+  }
 }

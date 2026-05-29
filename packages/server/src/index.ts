@@ -11,6 +11,7 @@ import { ProjectService } from './services/project.js'
 import { WorkflowEngine } from './services/workflow-engine.js'
 import { TemplateService } from './services/template.js'
 import { AuthService } from './services/auth.js'
+import { GitService } from './services/git.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -19,12 +20,17 @@ const PORT = Number(process.env.PORT) || 3001
 
 const terminalService = new TerminalService()
 const fileService = new FileSystemService()
+// 配置文件系统安全：仅允许访问项目工作目录（默认为 cwd）
+const allowedFileRoots = (process.env.ALLOWED_FILE_ROOTS || process.cwd()).split(',').map(p => p.trim())
+fileService.setAllowedRoots(allowedFileRoots)
+
 const skillService = new SkillService()
 const projectService = new ProjectService(skillService)
 const workflowEngine = new WorkflowEngine()
 const templateService = new TemplateService()
 const agentService = new AgentService(workflowEngine)
 const authService = new AuthService()
+const gitService = new GitService()
 
 // ═══════════════ Express 应用 ═══════════════
 
@@ -41,13 +47,14 @@ app.use('/api', createApiRouter({
   workflowEngine,
   templateService,
   authService,
+  gitService,
 }))
 
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.0.0',
+    version: '2.3.1',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
@@ -155,7 +162,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`
 ┌───────────────────────────────────────────────┐
-│     AgentFlow Server v2.0                     │
+│     AgentFlow Server v2.3.1                   │
 │     MAF-inspired Workflow Engine             │
 │                                               │
 │  HTTP API:  http://localhost:${PORT}/api         │

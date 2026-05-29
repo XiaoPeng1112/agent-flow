@@ -59,10 +59,14 @@ export function AboutPage() {
             </p>
           </div>
 
-          {/* 相关开源项目 & 官方文档参考 */}
-          <div className="mt-5 bg-white border border-gray-100 rounded-xl p-5">
-            <h4 className="text-[13px] font-semibold text-gray-700 mb-3">设计理念参考 & 相关开源项目</h4>
-            <div className="space-y-2.5 text-[12px] text-gray-600 leading-relaxed">
+          {/* 相关开源项目 & 官方文档参考 — 可折叠 */}
+          <details className="mt-5 bg-white border border-gray-100 rounded-xl group">
+            <summary className="px-5 py-4 cursor-pointer select-none flex items-center justify-between hover:bg-gray-50 rounded-xl transition-colors">
+              <span className="text-[13px] font-semibold text-gray-700">设计理念参考 & 相关开源项目</span>
+              <span className="text-[11px] text-gray-400 group-open:hidden">点击展开 ↓</span>
+              <span className="text-[11px] text-gray-400 hidden group-open:inline">收起 ↑</span>
+            </summary>
+            <div className="px-5 pb-5 space-y-2.5 text-[12px] text-gray-600 leading-relaxed">
               <div className="flex items-start gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
                 <div>
@@ -106,7 +110,7 @@ export function AboutPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </details>
         </section>
 
         {/* ═══ 核心架构 ═══ */}
@@ -314,6 +318,71 @@ export function AboutPage() {
               },
             ]}
           />
+        </section>
+
+        {/* ═══ AI 开发流程优化 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<ThunderboltOutlined />} title="AI 开发流程优化（v2.3+）" color="orange" />
+          <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              AgentFlow v2.3 在 AI 开发流程化方面进行了深度优化，目标是让 Agent 不仅能执行单个任务，更能<strong>自动化地串联整个开发链路</strong>，
+              实现从需求到交付的高效闭环。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <ArchCard
+              icon={<ApiOutlined />}
+              title="Context Chaining"
+              desc="节点间自动传递上下文：前置节点的 Turn 输出和产出物自动聚合为后续节点的输入上下文，无需手动搬运信息。"
+              color="#f59e0b"
+            />
+            <ArchCard
+              icon={<CodeOutlined />}
+              title="产出物结构化解析"
+              desc="Agent 输出自动提取代码块（带文件名识别）和 JSON 结构化声明，自动创建 Artifact 进入节点产出物列表。"
+              color="#ef4444"
+            />
+            <ArchCard
+              icon={<ApartmentOutlined />}
+              title="条件分支 & 动态 DAG"
+              desc="DAG 边支持条件配置（status/output_contains/expression），实现基于执行结果的动态路由选择。"
+              color="#8b5cf6"
+            />
+            <ArchCard
+              icon={<RobotOutlined />}
+              title="多 Agent 并行执行"
+              desc="同层级无依赖节点自动并行启动 Agent 执行，RunConfig 支持配置最大并行度和默认 Agent。"
+              color="#06b6d4"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<ToolOutlined />}
+              title="Prompt 模板化"
+              desc="支持 {{node.name}}、{{predecessor.summary}} 等变量语法，自动从节点上下文中解析替换，标准化 Agent 输入。"
+              color="#10b981"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="Token 消耗追踪"
+              desc="按 Run/Node 粒度统计 Token 使用量，自动估算成本（基于模型定价），支持通过 API 查询详细报表。"
+              color="#6366f1"
+            />
+            <ArchCard
+              icon={<GithubOutlined />}
+              title="Git 集成 & Diff Review"
+              desc="内置 Git 服务：仓库状态查询、commit 历史、working/staged diff 获取与变更摘要生成，辅助 Code Review。"
+              color="#1f2937"
+            />
+            <ArchCard
+              icon={<AppstoreOutlined />}
+              title="Skill 智能推荐"
+              desc="根据节点描述和类型，通过关键词匹配和触发词评分自动推荐最相关的 Skills，降低人工配置成本。"
+              color="#ec4899"
+            />
+          </div>
         </section>
 
         {/* ═══ 快速开始 ═══ */}
