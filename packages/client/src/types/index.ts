@@ -1,66 +1,195 @@
-/** 项目信息 */
-export interface Project {
+// ═══════════════════════════════════════════════════
+// AgentFlow Client Types — 与 Server 类型对齐
+// ═══════════════════════════════════════════════════
+
+// ─── Run ───
+
+export type RunStatus = 'created' | 'running' | 'paused' | 'completed' | 'failed'
+
+export interface Run {
   id: string
+  projectId: string
+  templateId: string
   name: string
-  path: string          // 本地绝对路径
   description?: string
-  skills: SkillInfo[]
+  status: RunStatus
+  nodes: TaskNode[]
+  edges: DAGEdge[]
   createdAt: number
-  lastActiveAt: number
+  startedAt?: number
+  completedAt?: number
 }
 
-/** Skill 信息 */
+export interface DAGEdge {
+  source: string
+  target: string
+}
+
+// ─── TaskNode ───
+
+export type TaskNodeStatus =
+  | 'pending'
+  | 'ready'
+  | 'running'
+  | 'wait_user_review'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+
+export type NodeType =
+  | 'specify'
+  | 'design'
+  | 'task'
+  | 'implement'
+  | 'review'
+  | 'test'
+  | 'deliver'
+  | 'custom'
+
+export type AgentRole = 'planner' | 'manager' | 'executor'
+
+export interface TaskNode {
+  id: string
+  runId: string
+  name: string
+  type: NodeType
+  description: string
+  status: TaskNodeStatus
+  agentRole: AgentRole
+  skillIds: string[]
+  artifacts: Artifact[]
+  prompt?: string
+  userInput?: string
+  order: number
+  startedAt?: number
+  completedAt?: number
+  error?: string
+}
+
+// ─── AgentTurn ───
+
+export type AgentTurnStatus = 'idle' | 'running' | 'paused' | 'completed' | 'error'
+export type TurnResult = 'succeeded' | 'failed' | 'paused_for_question'
+
+export interface AgentTurn {
+  id: string
+  nodeId: string
+  runId: string
+  agentId: string
+  turnIndex: number
+  status: AgentTurnStatus
+  result?: TurnResult
+  prompt: string
+  output: string
+  question?: string
+  tokenUsage?: { input: number; output: number; total: number }
+  startedAt: number
+  completedAt?: number
+}
+
+// ─── Agent ───
+
+export interface AgentConfig {
+  id: string
+  name: string
+  role: AgentRole
+  type: 'codex' | 'claude' | 'custom-cli'
+  description: string
+  maxTurns?: number
+  available?: boolean
+  cliPath?: string
+}
+
+// ─── Artifact ───
+
+export interface Artifact {
+  id: string
+  nodeId: string
+  title: string
+  category: 'document' | 'code' | 'config' | 'test' | 'report'
+  format: string
+  content?: string
+  filePath?: string
+  createdAt: number
+}
+
+// ─── Workflow Template ───
+
+export interface WorkflowTemplate {
+  id: string
+  name: string
+  description: string
+  nodes: TemplateNode[]
+  edges: DAGEdge[]
+}
+
+export interface TemplateNode {
+  id: string
+  name: string
+  type: NodeType
+  description: string
+  agentRole: AgentRole
+  skillIds: string[]
+  prompt?: string
+  outputContracts?: OutputContract[]
+}
+
+export interface OutputContract {
+  id: string
+  title: string
+  category: 'document' | 'code' | 'config' | 'test' | 'report'
+  format: string
+  required: boolean
+}
+
+// ─── Skill ───
+
 export interface SkillInfo {
+  id: string
   name: string
   path: string
   description: string
   triggers: string[]
 }
 
-/** Agent 定义 */
-export interface AgentConfig {
+// ─── Project ───
+
+export interface Project {
   id: string
   name: string
-  type: 'codex' | 'claude' | 'custom-cli'
-  description: string
-}
-
-/** 工作流模板 */
-export interface WorkflowTemplate {
-  id: string
-  name: string
-  description: string
-  steps: WorkflowStep[]
-}
-
-/** 工作流步骤 */
-export interface WorkflowStep {
-  id: string
-  name: string
-  type: 'requirement' | 'prd' | 'design' | 'ui' | 'development' | 'bugfix' | 'testing'
-  description: string
-  agentId?: string       // 使用哪个 Agent
-  skillName?: string     // 使用哪个 Skill
-  prompt?: string        // 默认 prompt
-}
-
-/** 任务状态 */
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'error' | 'cancelled'
-
-/** 任务记录 */
-export interface TaskRecord {
-  id: string
-  projectId: string
-  workflowId?: string
-  stepId?: string
-  agentId: string
-  prompt: string
-  output: string
-  status: TaskStatus
+  path: string
+  description?: string
+  contextConfig?: ProjectContext
+  skills: SkillInfo[]
+  runs: Run[]
   createdAt: number
-  startedAt?: number
-  completedAt?: number
+  lastActiveAt: number
 }
 
-/** 活跃 Tab */
-export type ProjectTab = 'workflow' | 'skills' | 'tasks' | 'settings'
+export interface ProjectContext {
+  product?: string
+  technical?: string
+  repoUrl?: string
+  linkedRepos?: string[]
+}
+
+// ─── Inbox ───
+
+export type InboxItemType = 'delegated_task' | 'task_delivery' | 'user_input'
+export type InboxItemStatus = 'queued' | 'processing' | 'resolved' | 'failed'
+
+export interface InboxItem {
+  id: string
+  agentId: string
+  nodeId: string
+  runId: string
+  type: InboxItemType
+  status: InboxItemStatus
+  createdAt: number
+}
+
+// ─── UI 类型 ───
+
+export type ProjectTab = 'runs' | 'workflow' | 'skills' | 'agents' | 'settings'
+
+export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log'

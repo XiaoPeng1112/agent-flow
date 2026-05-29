@@ -75,6 +75,7 @@ export class SkillService {
       const { data: frontmatter, content } = matter(raw)
 
       this.skills.push({
+        id: `skill_${name.replace(/[^a-zA-Z0-9]/g, '_')}`,
         name: (frontmatter.name as string) || name,
         path: filePath,
         description: (frontmatter.description as string) || content.slice(0, 200),

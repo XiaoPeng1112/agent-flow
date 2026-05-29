@@ -1,118 +1,488 @@
-import { spawn } from 'child_process'
-import type { AgentConfig, SessionRecord } from '../types/index.js'
+import { spawn, execSync, type ChildProcess } from 'child_process'
+import type { AgentConfig, AgentRole } from '../types/index.js'
+import type { WorkflowEngine } from './workflow-engine.js'
 
 /**
- * Agent 调度服务
- * 负责管理和调用不同的 AI Agent（Codex CLI、Claude 等）
+ * AgentService — 多角色 Agent 调度服务
+ * 
+ * 参考 MAF 的角色体系：
+ * - planner: 全局规划，分析需求生成 DAG
+ * - manager: 管理节点，分派子任务，验收结果
+ * - executor: 实际执行代码操作
+ * 
+ * 改进点：
+ * - 执行前检测 CLI 是否可用（which/command -v）
+ * - 流式输出实时推送
+ * - 支持取消执行
+ * - 超时保护
  */
 export class AgentService {
   private agents: Map<string, AgentConfig> = new Map()
-  private sessions: SessionRecord[] = []
+  private activeProcesses: Map<string, ChildProcess> = new Map()  // turnId → process
+  private workflowEngine: WorkflowEngine
 
-  constructor() {
-    // 注册默认 Agent
+  constructor(workflowEngine: WorkflowEngine) {
+    this.workflowEngine = workflowEngine
+    this.registerDefaults()
+  }
+
+  private registerDefaults(): void {
+    // planner 角色 Agent
     this.registerAgent({
-      id: 'codex',
-      name: 'OpenAI Codex CLI',
+      id: 'claude-planner',
+      name: 'Claude Planner',
+      role: 'planner',
+      type: 'claude',
+      command: 'claude',
+      description: '使用 Claude Code CLI 进行需求分析和架构设计规划',
+      maxTurns: 3,
+    })
+
+    // manager 角色 Agent
+    this.registerAgent({
+      id: 'claude-manager',
+      name: 'Claude Manager',
+      role: 'manager',
+      type: 'claude',
+      command: 'claude',
+      description: '使用 Claude Code CLI 管理任务分派和验收',
+      maxTurns: 5,
+    })
+
+    // executor 角色 Agents — 多选
+    this.registerAgent({
+      id: 'codex-executor',
+      name: 'Codex Executor',
+      role: 'executor',
       type: 'codex',
       command: 'codex',
-      description: '使用 OpenAI Codex CLI 进行代码生成和编辑',
+      description: '使用 OpenAI Codex CLI 执行代码生成和修改',
+      maxTurns: 10,
     })
 
     this.registerAgent({
-      id: 'claude-cli',
-      name: 'Claude CLI',
+      id: 'claude-executor',
+      name: 'Claude Executor',
+      role: 'executor',
       type: 'claude',
       command: 'claude',
-      description: '使用 Claude CLI (Anthropic) 进行任务执行',
+      description: '使用 Claude Code CLI 执行代码生成和修改',
+      maxTurns: 10,
+    })
+
+    // 通用型 Agent（可用于任何角色，灵活配置）
+    this.registerAgent({
+      id: 'codex-universal',
+      name: 'Codex (通用)',
+      role: 'planner',  // 默认角色，但实际可用于任何节点
+      type: 'codex',
+      command: 'codex',
+      description: 'Codex CLI 通用 Agent，可用于规划/管理/执行',
+      maxTurns: 10,
+    })
+
+    this.registerAgent({
+      id: 'claude-universal',
+      name: 'Claude (通用)',
+      role: 'planner',
+      type: 'claude',
+      command: 'claude',
+      description: 'Claude Code CLI 通用 Agent，可用于规划/管理/执行',
+      maxTurns: 10,
     })
   }
 
-  /** 注册 Agent */
+  // ═══════════════ Agent 注册 ═══════════════
+
   registerAgent(config: AgentConfig): void {
     this.agents.set(config.id, config)
   }
 
-  /** 获取所有可用 Agent */
   getAgents(): AgentConfig[] {
     return Array.from(this.agents.values())
   }
 
-  /** 执行 Agent 任务 */
-  async execute(
-    agentId: string,
-    prompt: string,
-    options: { cwd?: string; onOutput?: (data: string) => void }
-  ): Promise<SessionRecord> {
-    const agent = this.agents.get(agentId)
-    if (!agent) throw new Error(`Agent not found: ${agentId}`)
+  getAgentsByRole(role: AgentRole): AgentConfig[] {
+    // 返回该角色的 Agent + 所有通用 Agent
+    return this.getAgents().filter((a) => 
+      a.role === role || a.id.includes('universal')
+    )
+  }
 
-    const record: SessionRecord = {
-      id: `session_${Date.now()}`,
-      workflowId: '',
-      nodeId: '',
-      agentId,
-      input: prompt,
-      output: '',
-      status: 'running',
-      startedAt: Date.now(),
+  getAgent(id: string): AgentConfig | undefined {
+    return this.agents.get(id)
+  }
+
+  // ═══════════════ CLI 可用性检测 ═══════════════
+
+  /**
+   * 检查 CLI 命令是否存在于 PATH 中
+   */
+  private checkCliAvailable(command: string): { available: boolean; path?: string; error?: string } {
+    try {
+      const extraPaths = [
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
+        `${process.env.HOME}/.local/bin`,
+      ].join(':')
+      const fullPath = `${extraPaths}:${process.env.PATH || ''}`
+
+      const result = execSync(`which ${command} 2>/dev/null || command -v ${command} 2>/dev/null`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+        env: { ...process.env, PATH: fullPath },
+      }).trim()
+      
+      if (result) {
+        return { available: true, path: result }
+      }
+      return { available: false, error: `命令 "${command}" 未找到。请确认已安装并在 PATH 中。` }
+    } catch {
+      return { available: false, error: `命令 "${command}" 不可用。请先安装对应的 CLI 工具。` }
     }
-    this.sessions.push(record)
+  }
 
-    return new Promise((resolve, reject) => {
-      // 根据 agent type 构建命令
-      const args = this.buildArgs(agent, prompt)
-      const proc = spawn(agent.command, args, {
-        cwd: options.cwd || process.cwd(),
-        env: { ...process.env, ...agent.env },
-        shell: true,
-      })
-
-      let output = ''
-
-      proc.stdout?.on('data', (data: Buffer) => {
-        const text = data.toString()
-        output += text
-        options.onOutput?.(text)
-      })
-
-      proc.stderr?.on('data', (data: Buffer) => {
-        const text = data.toString()
-        output += text
-        options.onOutput?.(text)
-      })
-
-      proc.on('close', (code) => {
-        record.output = output
-        record.status = code === 0 ? 'completed' : 'error'
-        record.completedAt = Date.now()
-        resolve(record)
-      })
-
-      proc.on('error', (err) => {
-        record.output = err.message
-        record.status = 'error'
-        record.completedAt = Date.now()
-        reject(err)
-      })
+  /**
+   * 获取所有 Agent 的可用性状态
+   */
+  getAgentsWithStatus(): (AgentConfig & { available: boolean; cliPath?: string })[] {
+    return this.getAgents().map((agent) => {
+      const check = this.checkCliAvailable(agent.command)
+      return { ...agent, available: check.available, cliPath: check.path }
     })
   }
 
-  /** 获取执行历史 */
-  getHistory(): SessionRecord[] {
-    return this.sessions
+  // ═══════════════ Turn 执行 ═══════════════
+
+  /**
+   * 异步启动 Agent Turn（非阻塞）
+   * 
+   * 同步完成：CLI 可用性检测 + Turn 记录创建 + 进程 spawn
+   * 异步进行：进程执行 + 流式输出 + 完成回调
+   * 
+   * @returns turnId - 立即返回，不等待进程完成
+   * @throws 如果 CLI 不存在或 Agent 不存在
+   */
+  startTurnAsync(params: {
+    agentId: string
+    nodeId: string
+    runId: string
+    prompt: string
+    cwd?: string
+    contextArtifacts?: string[]
+  }): string {
+    const { agentId, nodeId, runId, prompt, cwd, contextArtifacts } = params
+
+    const agent = this.agents.get(agentId)
+    if (!agent) throw new Error(`Agent not found: ${agentId}`)
+
+    // ★ 改进1: 执行前检测 CLI 可用性（同步快速失败）
+    const cliCheck = this.checkCliAvailable(agent.command)
+    if (!cliCheck.available) {
+      throw new Error(
+        `Agent "${agent.name}" 的 CLI 工具不可用: ${cliCheck.error}\n` +
+        `需要的命令: ${agent.command}\n` +
+        `请先安装对应的 CLI 工具`
+      )
+    }
+
+    // 构建完整 prompt
+    const fullPrompt = this.buildContextualPrompt(agent, prompt, contextArtifacts)
+
+    // Phase 1: StartAgentTurn（同步创建 Turn 记录）
+    const turn = this.workflowEngine.startTurn(nodeId, runId, agentId, fullPrompt)
+
+    // 后台异步执行进程（不阻塞 HTTP 响应）
+    this.spawnAgentProcess(turn.id, agent, fullPrompt, nodeId, runId, cwd)
+
+    return turn.id
   }
 
-  private buildArgs(agent: AgentConfig, prompt: string): string[] {
+  /**
+   * 后台 spawn Agent 进程
+   */
+  private spawnAgentProcess(
+    turnId: string,
+    agent: AgentConfig,
+    prompt: string,
+    nodeId: string,
+    runId: string,
+    cwd?: string
+  ): void {
+    const { args, useStdin } = this.buildArgs(agent, prompt)
+
+    console.log(`[Agent] Starting turn ${turnId}: ${agent.command} ${args.join(' ').slice(0, 60)}...`)
+    console.log(`[Agent] CWD: ${cwd || process.cwd()}, useStdin: ${useStdin}`)
+
+    // 确保 PATH 包含常见的 CLI 安装路径
+    const extraPaths = [
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
+      `${process.env.HOME}/.local/bin`,
+    ].join(':')
+    const fullPath = `${extraPaths}:${process.env.PATH || ''}`
+
+    const proc = spawn(agent.command, args, {
+      cwd: cwd || process.cwd(),
+      env: {
+        ...process.env,
+        ...agent.env,
+        PATH: fullPath,
+        TERM: 'xterm-256color',  // 避免 "TERM is dumb" 错误
+      },
+      shell: false,  // ★ 关键修复：不通过 shell 执行，避免 prompt 被当命令解析
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    // 如果需要通过 stdin 传递 prompt（codex exec 使用 `-` 从 stdin 读取）
+    if (useStdin && proc.stdin) {
+      proc.stdin.write(prompt)
+      proc.stdin.end()
+    }
+
+    this.activeProcesses.set(turnId, proc)
+
+    let hasOutput = false
+    let fullOutput = ''  // 收集完整输出用于解析 token
+
+    // ★ 超时保护（10 分钟）
+    const timeout = setTimeout(() => {
+      console.log(`[Agent] Turn ${turnId} timed out (10 min)`)
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, '\n\n⚠️ 执行超时（10分钟），已自动终止。\n')
+      proc.kill('SIGTERM')
+      setTimeout(() => {
+        if (proc.exitCode === null) proc.kill('SIGKILL')
+      }, 5000)
+    }, 10 * 60 * 1000)
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      hasOutput = true
+      const chunk = data.toString()
+      fullOutput += chunk
+      // ★ 流式推送到前端
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
+    })
+
+    proc.stderr?.on('data', (data: Buffer) => {
+      hasOutput = true
+      const chunk = data.toString()
+      fullOutput += chunk
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
+    })
+
+    proc.on('close', (code) => {
+      clearTimeout(timeout)
+      this.activeProcesses.delete(turnId)
+
+      console.log(`[Agent] Turn ${turnId} exited with code ${code}`)
+
+      // ★ 解析 Token 使用量（从 CLI 输出中提取）
+      const tokenUsage = this.parseTokenUsage(fullOutput, agent.type)
+      if (tokenUsage) {
+        console.log(`[Agent] Turn ${turnId} token usage: ${JSON.stringify(tokenUsage)}`)
+      }
+
+      // Phase 2: RecordAgentTurnResult
+      const result = code === 0 ? 'succeeded' : 'failed'
+      this.workflowEngine.recordTurnResult(turnId, nodeId, result as any, undefined, tokenUsage)
+
+      // Phase 3+4: Finalize
+      this.workflowEngine.finalizeTurn(turnId, nodeId)
+
+      // 如果失败且没有输出，额外推送一条错误信息
+      if (code !== 0 && !hasOutput) {
+        this.workflowEngine.appendTurnOutput(
+          turnId, nodeId,
+          `\n❌ Agent 进程异常退出 (code=${code})。CLI: ${agent.command}\n`
+        )
+      }
+
+      // 通知节点完成/失败 — 通过自动提交节点决策
+      try {
+        this.workflowEngine.submitNodeDecision(
+          runId,
+          nodeId,
+          code === 0 ? 'waiting_user_review' : 'failed',
+          code !== 0 ? `Agent 退出码: ${code}` : undefined
+        )
+      } catch (e) {
+        console.error(`[Agent] Failed to submit node decision:`, (e as Error).message)
+      }
+    })
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout)
+      this.activeProcesses.delete(turnId)
+
+      console.error(`[Agent] Turn ${turnId} spawn error:`, err.message)
+
+      this.workflowEngine.appendTurnOutput(
+        turnId, nodeId,
+        `\n❌ Agent 进程启动失败: ${err.message}\n请确认 "${agent.command}" 已正确安装。\n`
+      )
+
+      this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
+      this.workflowEngine.finalizeTurn(turnId, nodeId)
+    })
+  }
+
+  /**
+   * 取消正在执行的 Turn
+   */
+  cancelTurn(turnId: string): boolean {
+    const proc = this.activeProcesses.get(turnId)
+    if (!proc) return false
+
+    console.log(`[Agent] Cancelling turn ${turnId}`)
+    proc.kill('SIGTERM')
+    // 5秒后强制 kill
+    setTimeout(() => {
+      if (proc.exitCode === null) {
+        proc.kill('SIGKILL')
+      }
+    }, 5000)
+    
+    this.activeProcesses.delete(turnId)
+    return true
+  }
+
+  /**
+   * 获取当前活跃的 Turn ID 列表
+   */
+  getActiveTurnIds(): string[] {
+    return Array.from(this.activeProcesses.keys())
+  }
+
+  /**
+   * 检查某个 Turn 是否正在执行
+   */
+  isTurnActive(turnId: string): boolean {
+    return this.activeProcesses.has(turnId)
+  }
+
+  /**
+   * 回答暂停中的 Agent 问题
+   */
+  answerQuestion(params: {
+    nodeId: string
+    runId: string
+    agentId: string
+    originalQuestion: string
+    answer: string
+    cwd?: string
+  }): string {
+    const prompt = `上一轮你提出了问题："${params.originalQuestion}"\n\n用户回答：${params.answer}\n\n请基于此回答继续完成任务。`
+
+    return this.startTurnAsync({
+      agentId: params.agentId,
+      nodeId: params.nodeId,
+      runId: params.runId,
+      prompt,
+      cwd: params.cwd,
+    })
+  }
+
+  // ═══════════════ 上下文构建 ═══════════════
+
+  private buildContextualPrompt(
+    agent: AgentConfig,
+    userPrompt: string,
+    contextArtifacts?: string[]
+  ): string {
+    const parts: string[] = []
+
+    // 角色系统提示
+    parts.push(this.getRoleSystemPrompt(agent.role))
+
+    // 前置节点上下文
+    if (contextArtifacts && contextArtifacts.length > 0) {
+      parts.push('\n## 前置节点产出物\n')
+      parts.push(contextArtifacts.join('\n---\n'))
+    }
+
+    // 用户 prompt
+    parts.push('\n## 当前任务\n')
+    parts.push(userPrompt)
+
+    return parts.join('\n')
+  }
+
+  private getRoleSystemPrompt(role: AgentRole): string {
+    switch (role) {
+      case 'planner':
+        return `你是一个项目规划师。你的职责是分析需求、制定技术方案、设计架构。
+你需要产出结构化的分析文档，包括：需求理解、技术选型建议、架构设计、任务拆分建议。
+产出格式为 Markdown。`
+
+      case 'manager':
+        return `你是一个任务管理者。你的职责是将大任务拆分为可执行的子任务，分派给执行者，并验收执行结果。
+你需要明确每个子任务的目标、输入、期望产出和验收标准。`
+
+      case 'executor':
+        return `你是一个代码执行者。你的职责是根据任务要求，在指定的代码仓库中进行实际的代码编写、修改和测试。
+请直接产出代码变更，并简要说明你的实现思路。`
+
+      default:
+        return ''
+    }
+  }
+
+  // ═══════════════ 命令构建 ═══════════════
+
+  /**
+   * 从 CLI 输出中解析 Token 使用量
+   */
+  private parseTokenUsage(output: string, agentType: string): { input: number; output: number; total: number } | undefined {
+    try {
+      if (agentType === 'codex') {
+        // Codex 输出格式: "tokens used\n9,000" 或 "tokens used\n12,345"
+        const match = output.match(/tokens?\s*used\s*\n?\s*([\d,]+)/i)
+        if (match) {
+          const total = parseInt(match[1].replace(/,/g, ''), 10)
+          // Codex 不区分 input/output，估算 70% input 30% output
+          return { input: Math.round(total * 0.7), output: Math.round(total * 0.3), total }
+        }
+      } else if (agentType === 'claude') {
+        // Claude CLI 输出格式可能包含: "Input tokens: X" "Output tokens: Y"
+        const inputMatch = output.match(/input\s*tokens?[:\s]+([\d,]+)/i)
+        const outputMatch = output.match(/output\s*tokens?[:\s]+([\d,]+)/i)
+        const totalMatch = output.match(/total\s*(?:cost|tokens?)[:\s]+([\d,]+)/i)
+        
+        if (inputMatch || outputMatch) {
+          const input = inputMatch ? parseInt(inputMatch[1].replace(/,/g, ''), 10) : 0
+          const out = outputMatch ? parseInt(outputMatch[1].replace(/,/g, ''), 10) : 0
+          const total = totalMatch ? parseInt(totalMatch[1].replace(/,/g, ''), 10) : input + out
+          return { input, output: out, total }
+        }
+      }
+    } catch (e) {
+      console.error('[Agent] Failed to parse token usage:', (e as Error).message)
+    }
+    return undefined
+  }
+
+  private buildArgs(agent: AgentConfig, prompt: string): { args: string[]; useStdin: boolean } {
     switch (agent.type) {
       case 'codex':
-        return [prompt]
+        // codex exec 非交互模式，通过 stdin 传递 prompt（用 `-` 表示从 stdin 读取）
+        // --skip-git-repo-check 避免要求 git 仓库
+        return {
+          args: ['exec', '-', '--skip-git-repo-check'],
+          useStdin: true,
+        }
       case 'claude':
-        return ['-p', prompt]
+        // claude CLI: claude -p "prompt" --no-input
+        // prompt 直接作为参数传递（claude 不需要 shell 转义，因为 shell: false）
+        return {
+          args: ['-p', prompt, '--no-input'],
+          useStdin: false,
+        }
       case 'custom-cli':
-        return [prompt]
+        return { args: [prompt], useStdin: false }
       default:
-        return [prompt]
+        return { args: [prompt], useStdin: false }
     }
   }
 }

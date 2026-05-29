@@ -1,183 +1,180 @@
-import { useState } from 'react'
-import { Play, ChevronRight } from 'lucide-react'
+import { Card, Tag, Tooltip } from 'antd'
+import {
+  ApartmentOutlined,
+  BranchesOutlined,
+  RightOutlined,
+} from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { executeAgent } from '../../api'
-import type { Project, WorkflowTemplate, WorkflowStep } from '../../types'
+import type { Project, WorkflowTemplate } from '../../types'
 
 interface Props {
   project: Project
 }
 
-const stepTypeColors: Record<string, string> = {
-  requirement: 'bg-blue-100 text-blue-700 border-blue-200',
-  prd: 'bg-purple-100 text-purple-700 border-purple-200',
-  design: 'bg-pink-100 text-pink-700 border-pink-200',
-  ui: 'bg-orange-100 text-orange-700 border-orange-200',
-  development: 'bg-green-100 text-green-700 border-green-200',
-  bugfix: 'bg-red-100 text-red-700 border-red-200',
-  testing: 'bg-teal-100 text-teal-700 border-teal-200',
+const nodeTypeConfig: Record<string, { color: string; label: string }> = {
+  specify: { color: 'blue', label: '需求' },
+  design: { color: 'purple', label: '设计' },
+  task: { color: 'magenta', label: '拆分' },
+  implement: { color: 'green', label: '实现' },
+  review: { color: 'orange', label: '审查' },
+  test: { color: 'cyan', label: '测试' },
+  deliver: { color: 'geekblue', label: '交付' },
+  custom: { color: 'default', label: '自定义' },
 }
 
-const stepTypeLabels: Record<string, string> = {
-  requirement: '需求',
-  prd: 'PRD',
-  design: '设计',
-  ui: 'UI',
-  development: '开发',
-  bugfix: '修复',
-  testing: '测试',
+const roleConfig: Record<string, { emoji: string; label: string; color: string }> = {
+  planner: { emoji: '🧠', label: '规划者', color: 'purple' },
+  manager: { emoji: '📋', label: '管理者', color: 'blue' },
+  executor: { emoji: '⚡', label: '执行者', color: 'green' },
 }
 
-export function WorkflowPanel({ project }: Props) {
-  const workflowTemplates = useAppStore((s) => s.workflowTemplates)
-  const agents = useAppStore((s) => s.agents)
-  const addTask = useAppStore((s) => s.addTask)
-  const appendTaskLog = useAppStore((s) => s.appendTaskLog)
-  const [selectedTemplate, setSelectedTemplate] = useState<WorkflowTemplate | null>(null)
-  const [runningStepId, setRunningStepId] = useState<string | null>(null)
-  const [stepPrompts, setStepPrompts] = useState<Record<string, string>>({})
-
-  const handleRunStep = async (step: WorkflowStep) => {
-    const prompt = stepPrompts[step.id] || step.prompt || step.description
-    const agentId = step.agentId || agents[0]?.id || 'claude-cli'
-
-    if (!prompt.trim()) return
-
-    setRunningStepId(step.id)
-    appendTaskLog(`[${step.name}] 开始执行...`)
-    appendTaskLog(`> Agent: ${agentId} | Prompt: ${prompt}`)
-
-    const task = {
-      id: `task_${Date.now()}`,
-      projectId: project.id,
-      workflowId: selectedTemplate?.id,
-      stepId: step.id,
-      agentId,
-      prompt,
-      output: '',
-      status: 'running' as const,
-      createdAt: Date.now(),
-      startedAt: Date.now(),
-    }
-    addTask(task)
-
-    try {
-      const result = await executeAgent(agentId, prompt, project.path)
-      appendTaskLog(`[${step.name}] 执行完成 ✓`)
-      appendTaskLog(result.task?.output || '(无输出)')
-    } catch (err: any) {
-      appendTaskLog(`[${step.name}] 执行失败: ${err.message}`)
-    } finally {
-      setRunningStepId(null)
-    }
-  }
+export function WorkflowPanel({ project: _project }: Props) {
+  const templates = useAppStore((s) => s.templates)
 
   return (
-    <div className="p-6">
-      {/* 模板选择 */}
-      {!selectedTemplate ? (
-        <div>
-          <h3 className="text-base font-semibold text-slate-800 mb-4">选择工作流模板</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {workflowTemplates.map((tpl) => (
-              <div
-                key={tpl.id}
-                onClick={() => setSelectedTemplate(tpl)}
-                className="p-4 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 hover:shadow-sm transition-all"
-              >
-                <h4 className="text-sm font-semibold text-slate-800">{tpl.name}</h4>
-                <p className="text-xs text-slate-500 mt-1">{tpl.description}</p>
-                <div className="flex flex-wrap gap-1 mt-3">
-                  {tpl.steps.map((step) => (
-                    <span
-                      key={step.id}
-                      className={`px-1.5 py-0.5 text-[10px] rounded border ${stepTypeColors[step.type] || 'bg-slate-100 text-slate-600'}`}
-                    >
-                      {stepTypeLabels[step.type] || step.type}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div>
-          {/* 返回 + 模板名 */}
-          <div className="flex items-center gap-2 mb-6">
-            <button
-              onClick={() => setSelectedTemplate(null)}
-              className="text-sm text-indigo-600 hover:text-indigo-800"
-            >
-              ← 返回模板列表
-            </button>
-            <span className="text-slate-300">|</span>
-            <h3 className="text-base font-semibold text-slate-800">{selectedTemplate.name}</h3>
-          </div>
+    <div>
+      <div className="mb-5">
+        <h3 className="text-[15px] font-semibold text-gray-900">工作流模板</h3>
+        <p className="text-[12px] text-gray-400 mt-0.5">
+          基于 MAF 的 SDD 流程模板设计，支持 DAG 有向无环图编排
+        </p>
+      </div>
 
-          {/* Pipeline 步骤展示 */}
-          <div className="space-y-3">
-            {selectedTemplate.steps.map((step, idx) => (
-              <div
-                key={step.id}
-                className="bg-white border border-slate-200 rounded-xl p-4 transition-all hover:shadow-sm"
-              >
-                <div className="flex items-center gap-3">
-                  {/* 步骤编号 */}
-                  <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600 shrink-0">
-                    {idx + 1}
-                  </div>
-
-                  {/* 步骤信息 */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-800">{step.name}</span>
-                      <span className={`px-1.5 py-0.5 text-[10px] rounded border ${stepTypeColors[step.type]}`}>
-                        {stepTypeLabels[step.type]}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">{step.description}</p>
-                  </div>
-
-                  {/* 执行按钮 */}
-                  <button
-                    onClick={() => handleRunStep(step)}
-                    disabled={runningStepId !== null}
-                    className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                      runningStepId === step.id
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                    } disabled:opacity-50`}
-                  >
-                    <Play className="w-3 h-3" />
-                    {runningStepId === step.id ? '执行中...' : '执行'}
-                  </button>
-                </div>
-
-                {/* Prompt 输入 */}
-                <div className="mt-3">
-                  <textarea
-                    value={stepPrompts[step.id] || ''}
-                    onChange={(e) =>
-                      setStepPrompts((p) => ({ ...p, [step.id]: e.target.value }))
-                    }
-                    placeholder={step.prompt || `输入具体需求描述，如：${step.description}...`}
-                    rows={2}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none font-mono bg-slate-50"
-                  />
-                </div>
-
-                {/* 步骤箭头 */}
-                {idx < selectedTemplate.steps.length - 1 && (
-                  <div className="flex justify-center mt-2">
-                    <ChevronRight className="w-4 h-4 text-slate-300 rotate-90" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="flex flex-col gap-5">
+        {templates.map((template) => (
+          <TemplateCard key={template.id} template={template} />
+        ))}
+      </div>
     </div>
   )
+}
+
+function TemplateCard({ template }: { template: WorkflowTemplate }) {
+  const hasParallel = template.nodes.some((node) => {
+    const outgoing = template.edges.filter((e) => e.source === node.id)
+    return outgoing.length > 1
+  })
+
+  const layers = buildLayers(template)
+
+  return (
+    <Card
+      className="!border-gray-200 hover:!border-indigo-300 transition-all !bg-white"
+      styles={{ body: { padding: '20px 24px' } }}
+    >
+      {/* 头部 */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+            <ApartmentOutlined className="text-indigo-500 text-[18px]" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-[14px] font-semibold text-gray-800">{template.name}</h4>
+              {hasParallel && (
+                <Tag icon={<BranchesOutlined />} color="purple" className="!text-[10px]">
+                  并行
+                </Tag>
+              )}
+            </div>
+            <p className="text-[12px] text-gray-400 mt-0.5">{template.description}</p>
+          </div>
+        </div>
+        <Tag className="!text-[11px] !bg-gray-50 !border-gray-200 !text-gray-500">
+          {template.nodes.length} 节点
+        </Tag>
+      </div>
+
+      {/* DAG 流程图 */}
+      <div className="bg-gray-50 rounded-xl p-4 mb-4">
+        <div className="flex items-center gap-2 overflow-x-auto">
+          {layers.map((layer, layerIdx) => (
+            <div key={layerIdx} className="flex items-center gap-2">
+              <div className={`flex ${layer.length > 1 ? 'flex-col' : ''} gap-1.5`}>
+                {layer.map((nodeId) => {
+                  const node = template.nodes.find((n) => n.id === nodeId)
+                  if (!node) return null
+                  const typeConf = nodeTypeConfig[node.type] || nodeTypeConfig.custom
+                  const role = roleConfig[node.agentRole]
+                  return (
+                    <Tooltip
+                      key={node.id}
+                      title={
+                        <div>
+                          <div className="font-medium">{node.name}</div>
+                          <div className="text-[11px] opacity-80">{node.description}</div>
+                          <div className="text-[11px] mt-1">{role?.emoji} {role?.label}</div>
+                        </div>
+                      }
+                    >
+                      <div className="px-3 py-1.5 bg-white rounded-lg border border-gray-200 shadow-sm whitespace-nowrap flex items-center gap-1.5 hover:border-indigo-300 hover:shadow transition-all cursor-default">
+                        <Tag color={typeConf.color} className="!text-[10px] !m-0 !px-1 !leading-4">
+                          {typeConf.label}
+                        </Tag>
+                        <span className="text-[12px] text-gray-700 font-medium">{node.name}</span>
+                      </div>
+                    </Tooltip>
+                  )
+                })}
+              </div>
+              {layerIdx < layers.length - 1 && (
+                <RightOutlined className="text-[12px] text-gray-300 mx-1 shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 节点角色统计 */}
+      <div className="flex items-center gap-4">
+        {Object.entries(roleConfig).map(([role, conf]) => {
+          const count = template.nodes.filter((n) => n.agentRole === role).length
+          if (count === 0) return null
+          return (
+            <div key={role} className="flex items-center gap-1.5 text-[12px] text-gray-500">
+              <span>{conf.emoji}</span>
+              <span>{conf.label}</span>
+              <Tag className="!text-[10px] !m-0 !px-1">{count}</Tag>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
+// 根据 DAG edges 构建层级（拓扑排序分层）
+function buildLayers(template: WorkflowTemplate): string[][] {
+  const inDegree = new Map<string, number>()
+  const adjList = new Map<string, string[]>()
+
+  for (const node of template.nodes) {
+    inDegree.set(node.id, 0)
+    adjList.set(node.id, [])
+  }
+
+  for (const edge of template.edges) {
+    inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+    adjList.get(edge.source)?.push(edge.target)
+  }
+
+  const layers: string[][] = []
+  let queue = [...inDegree.entries()].filter(([, d]) => d === 0).map(([id]) => id)
+
+  while (queue.length > 0) {
+    layers.push([...queue])
+    const nextQueue: string[] = []
+
+    for (const curr of queue) {
+      for (const neighbor of adjList.get(curr) || []) {
+        const newDeg = (inDegree.get(neighbor) || 1) - 1
+        inDegree.set(neighbor, newDeg)
+        if (newDeg === 0) nextQueue.push(neighbor)
+      }
+    }
+
+    queue = nextQueue
+  }
+
+  return layers
 }

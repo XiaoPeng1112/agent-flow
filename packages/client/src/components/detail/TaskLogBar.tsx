@@ -1,5 +1,11 @@
 import { useRef, useEffect } from 'react'
-import { ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
+import { Button, Badge } from 'antd'
+import {
+  CodeOutlined,
+  UpOutlined,
+  DownOutlined,
+  ClearOutlined,
+} from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 
 export function TaskLogBar() {
@@ -13,57 +19,58 @@ export function TaskLogBar() {
     if (showTaskLog && logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [taskLogContent, showTaskLog])
+  }, [taskLogContent.length, showTaskLog])
 
   return (
-    <div className="border-t border-slate-200 bg-white">
-      {/* 展开/收起按钮栏 */}
+    <div className="border-t border-gray-100 bg-white/95 backdrop-blur-sm">
+      {/* 折叠栏头部 */}
       <div
+        className="flex items-center justify-between px-6 py-2 cursor-pointer hover:bg-gray-50/80 transition-colors"
         onClick={toggleTaskLog}
-        className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
       >
-        <div className="flex items-center gap-2">
-          {showTaskLog ? (
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-          ) : (
-            <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
-          )}
-          <span className="text-xs font-medium text-slate-600">
-            任务日志 {taskLogContent.length > 0 && `(${taskLogContent.length})`}
+        <div className="flex items-center gap-2.5">
+          <CodeOutlined className="text-gray-400" />
+          <span className="text-[13px] font-medium text-gray-600">
+            任务日志
           </span>
+          {taskLogContent.length > 0 && (
+            <Badge
+              count={taskLogContent.length}
+              size="small"
+              className="!text-[10px]"
+              color="#6366f1"
+            />
+          )}
+          {showTaskLog ? (
+            <DownOutlined className="text-[10px] text-gray-400" />
+          ) : (
+            <UpOutlined className="text-[10px] text-gray-400" />
+          )}
         </div>
-        {showTaskLog && taskLogContent.length > 0 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              clearTaskLog()
-            }}
-            className="p-1 hover:bg-slate-100 rounded"
+        {showTaskLog && (
+          <Button
+            type="text"
+            size="small"
+            icon={<ClearOutlined />}
+            onClick={(e) => { e.stopPropagation(); clearTaskLog() }}
+            className="!text-gray-400 hover:!text-gray-600"
           >
-            <Trash2 className="w-3 h-3 text-slate-400" />
-          </button>
+            清空
+          </Button>
         )}
       </div>
 
       {/* 日志内容 */}
       {showTaskLog && (
-        <div className="h-40 overflow-y-auto border-t border-slate-100 bg-slate-900 px-4 py-2 font-mono text-xs">
+        <div className="h-40 overflow-y-auto px-6 pb-3 bg-[#0f0f17] font-mono text-[11px] leading-[1.7]">
           {taskLogContent.length === 0 ? (
-            <p className="text-slate-500">暂无日志输出...</p>
+            <div className="text-gray-500 py-6 text-center text-[11px]">
+              等待 Agent 输出...
+            </div>
           ) : (
-            taskLogContent.map((line, i) => (
-              <div
-                key={i}
-                className={`py-0.5 ${
-                  line.startsWith('[') && line.includes('失败')
-                    ? 'text-red-400'
-                    : line.startsWith('[') && line.includes('完成')
-                    ? 'text-green-400'
-                    : line.startsWith('>')
-                    ? 'text-indigo-400'
-                    : 'text-slate-300'
-                }`}
-              >
+            taskLogContent.map((line, idx) => (
+              <div key={idx} className="py-px whitespace-pre-wrap break-all text-gray-300">
+                <span className="text-gray-600 mr-2.5 select-none text-[10px]">{String(idx + 1).padStart(3, ' ')}</span>
                 {line}
               </div>
             ))

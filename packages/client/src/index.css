@@ -1,33 +1,192 @@
 @import "tailwindcss";
 
-:root {
-  --color-primary: #6366f1;
-  --color-primary-hover: #4f46e5;
-  --color-surface: #ffffff;
-  --color-surface-elevated: #f8fafc;
-  --color-border: #e2e8f0;
-  --color-text: #1e293b;
-  --color-text-secondary: #64748b;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
+@layer base {
+  :root {
+    --sidebar-bg: #1a1a2e;
+    --sidebar-hover: #16213e;
+    --sidebar-active: #0f3460;
+    --sidebar-text: #a8b2d1;
+    --sidebar-text-active: #ffffff;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+    --surface: #ffffff;
+    --surface-secondary: #f8fafc;
+    --border: #e5e7eb;
+    --border-light: #f3f4f6;
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --text-tertiary: #9ca3af;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --info: #3b82f6;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    color: var(--text-primary);
+    background-color: #f5f6fa;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0.01em;
+  }
+
+  #root {
+    width: 100vw;
+    height: 100vh;
+  }
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* Ant Design 主题覆盖 — 需要在 layer 外才能覆盖 antd 的 :where() 样式 */
+.ant-layout {
+  background: transparent !important;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  color: var(--color-text);
-  background-color: #f1f5f9;
-  overflow: hidden;
+.ant-card {
+  border-radius: var(--radius-lg) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
 }
 
-#root {
-  width: 100vw;
-  height: 100vh;
+.ant-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04) !important;
+}
+
+.ant-btn {
+  border-radius: var(--radius-sm) !important;
+  font-weight: 500;
+}
+
+.ant-btn-primary {
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.25) !important;
+}
+
+.ant-btn-primary:hover {
+  box-shadow: 0 4px 8px rgba(99, 102, 241, 0.3) !important;
+}
+
+.ant-tag {
+  border-radius: 5px !important;
+}
+
+.ant-select-selector {
+  border-radius: var(--radius-sm) !important;
+}
+
+.ant-input,
+.ant-input-affix-wrapper {
+  border-radius: var(--radius-sm) !important;
+}
+
+/* Project Tabs 样式优化 */
+.project-tabs .ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+
+.project-tabs .ant-tabs-tab {
+  padding: 10px 4px !important;
+  font-size: 13px !important;
+}
+
+.project-tabs .ant-tabs-tab + .ant-tabs-tab {
+  margin-left: 24px !important;
+}
+
+.project-tabs .ant-tabs-ink-bar {
+  height: 2.5px !important;
+  border-radius: 2px !important;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* DAG 流程图样式 */
+.dag-node {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dag-node:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.dag-edge {
+  stroke-dasharray: 5;
+  animation: dash 20s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+}
+
+.node-running {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* 暗色侧边栏内滚动条 */
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* 统一面板内容区域内边距 */
+.panel-content {
+  padding: 24px 28px;
+}
+
+/* 暗色终端输出区 */
+.terminal-output {
+  background: #0f0f17;
+  border-radius: var(--radius-md);
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+}
+
+/* 卡片内标题行 */
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 选中卡片高亮效果 */
+.card-selected {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08), var(--shadow-md) !important;
 }

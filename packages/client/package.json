@@ -9,10 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.2.4",
+    "@ant-design/pro-components": "^2.8.10",
     "@tailwindcss/vite": "^4.3.0",
+    "antd": "^6.4.3",
     "lucide-react": "^1.17.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-router-dom": "^7.16.0",
     "tailwindcss": "^4.3.0",
     "zustand": "^5.0.14"
   },

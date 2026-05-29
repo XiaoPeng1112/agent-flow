@@ -1,20 +1,11 @@
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
-import type { SkillConfig } from '../types/index.js'
+import type { ProjectData, SkillConfig, ProjectContext } from '../types/index.js'
 import { SkillService } from './skill.js'
-
-export interface ProjectData {
-  id: string
-  name: string
-  path: string
-  description?: string
-  createdAt: number
-  lastActiveAt: number
-}
 
 /**
  * 项目管理服务
- * 负责管理本地项目列表和持久化
+ * 负责管理本地项目列表、上下文配置和持久化
  */
 export class ProjectService {
   private projects: ProjectData[] = []
@@ -23,7 +14,6 @@ export class ProjectService {
 
   constructor(skillService: SkillService) {
     this.skillService = skillService
-    // 数据存储在 ~/.agent-flow/projects.json
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
     this.storagePath = join(home, '.agent-flow', 'projects.json')
   }
@@ -50,17 +40,42 @@ export class ProjectService {
     return this.projects
   }
 
+  /** 获取单个项目 */
+  getProject(id: string): ProjectData | undefined {
+    return this.projects.find((p) => p.id === id)
+  }
+
   /** 添加项目 */
-  async addProject(data: { name: string; path: string; description?: string }): Promise<ProjectData> {
+  async addProject(data: {
+    name: string
+    path: string
+    description?: string
+    contextConfig?: ProjectContext
+  }): Promise<ProjectData> {
     const project: ProjectData = {
       id: `proj_${Date.now()}`,
       name: data.name,
       path: data.path,
       description: data.description,
+      contextConfig: data.contextConfig,
       createdAt: Date.now(),
       lastActiveAt: Date.now(),
     }
     this.projects.push(project)
+    await this.save()
+    return project
+  }
+
+  /** 更新项目 */
+  async updateProject(id: string, updates: Partial<Pick<ProjectData, 'name' | 'description' | 'contextConfig'>>): Promise<ProjectData | undefined> {
+    const project = this.projects.find((p) => p.id === id)
+    if (!project) return undefined
+
+    if (updates.name !== undefined) project.name = updates.name
+    if (updates.description !== undefined) project.description = updates.description
+    if (updates.contextConfig !== undefined) project.contextConfig = updates.contextConfig
+    project.lastActiveAt = Date.now()
+
     await this.save()
     return project
   }
@@ -74,17 +89,11 @@ export class ProjectService {
     return true
   }
 
-  /** 获取单个项目 */
-  getProject(id: string): ProjectData | undefined {
-    return this.projects.find((p) => p.id === id)
-  }
-
   /** 扫描项目的 Skills */
   async scanProjectSkills(projectId: string): Promise<SkillConfig[]> {
     const project = this.getProject(projectId)
     if (!project) throw new Error('Project not found')
 
-    // 扫描项目目录下的 .catpaw/skills 以及全局 skills
     const searchPaths = [
       join(project.path, '.catpaw', 'skills'),
       `${process.env.HOME}/.catpaw/skills`,

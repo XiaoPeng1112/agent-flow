@@ -1,170 +1,220 @@
 import { create } from 'zustand'
-import type { Project, AgentConfig, SkillInfo, TaskRecord, WorkflowTemplate, ProjectTab } from '../types'
+import type {
+  Project, Run, TaskNode, AgentTurn, AgentConfig,
+  SkillInfo, WorkflowTemplate, RunDetailTab,
+} from '../types'
 
-// ===== 默认工作流模板 =====
-const defaultWorkflowTemplates: WorkflowTemplate[] = [
-  {
-    id: 'fullstack-flow',
-    name: '全栈开发流程',
-    description: '从需求到交付的完整开发闭环',
-    steps: [
-      { id: 's1', name: '需求分析', type: 'requirement', description: '分析和明确需求细节' },
-      { id: 's2', name: 'PRD 编写', type: 'prd', description: '生成产品需求文档' },
-      { id: 's3', name: '设计方案', type: 'design', description: '技术架构与设计' },
-      { id: 's4', name: 'UI 实现', type: 'ui', description: '界面设计与样式实现' },
-      { id: 's5', name: '功能开发', type: 'development', description: '核心功能代码实现' },
-      { id: 's6', name: '问题修复', type: 'bugfix', description: '缺陷修复与代码优化' },
-      { id: 's7', name: '测试验收', type: 'testing', description: '自动化测试与验收' },
-    ],
-  },
-  {
-    id: 'quick-feature',
-    name: '快速功能迭代',
-    description: '适用于小功能快速开发',
-    steps: [
-      { id: 's1', name: '需求描述', type: 'requirement', description: '简要需求说明' },
-      { id: 's2', name: '代码实现', type: 'development', description: '直接编码实现' },
-      { id: 's3', name: '测试修复', type: 'testing', description: '测试并修复问题' },
-    ],
-  },
-  {
-    id: 'bug-fix-flow',
-    name: 'Bug 修复流程',
-    description: '定位问题并修复',
-    steps: [
-      { id: 's1', name: '问题分析', type: 'requirement', description: '复现并分析问题根因' },
-      { id: 's2', name: '修复实现', type: 'bugfix', description: '编写修复代码' },
-      { id: 's3', name: '回归验证', type: 'testing', description: '验证修复无回归' },
-    ],
-  },
-]
+// ═══════════════ Store 接口 ═══════════════
 
-// ===== Store 接口 =====
 interface AppState {
-  // 项目管理
+  // ─── 项目管理（纯数据） ───
   projects: Project[]
-  selectedProjectId: string | null
-  activeTab: ProjectTab
 
-  // Agent 列表
+  // ─── Run 管理（核心状态机） ───
+  runs: Run[]
+  runDetailTab: RunDetailTab
+
+  // ─── Agent ───
   agents: AgentConfig[]
+  activeTurns: AgentTurn[]  // 当前正在执行的 turns
 
-  // 全局任务历史
-  tasks: TaskRecord[]
+  // ─── Skills ───
+  skills: SkillInfo[]
 
-  // 工作流模板
-  workflowTemplates: WorkflowTemplate[]
+  // ─── 工作流模板 ───
+  templates: WorkflowTemplate[]
 
-  // 全局 UI 状态
+  // ─── UI 状态 ───
   showTaskLog: boolean
   taskLogContent: string[]
 
-  // Actions - 项目
-  addProject: (project: Omit<Project, 'id' | 'createdAt' | 'lastActiveAt' | 'skills'>) => void
+  // ─── Actions: 项目 ───
+  setProjects: (projects: Project[]) => void
+  addProject: (project: Project) => void
   removeProject: (id: string) => void
-  selectProject: (id: string | null) => void
-  updateProjectSkills: (projectId: string, skills: SkillInfo[]) => void
 
-  // Actions - Tab
-  setActiveTab: (tab: ProjectTab) => void
+  // ─── Actions: Run ───
+  setRuns: (runs: Run[]) => void
+  addRun: (run: Run) => void
+  updateRun: (run: Run) => void
+  removeRun: (id: string) => void
+  setRunDetailTab: (tab: RunDetailTab) => void
 
-  // Actions - 任务
-  addTask: (task: TaskRecord) => void
-  updateTask: (taskId: string, updates: Partial<TaskRecord>) => void
+  // ─── Actions: Node（状态机操作） ───
+  updateNode: (runId: string, node: TaskNode) => void
 
-  // Actions - 工作流模板
-  addWorkflowTemplate: (template: WorkflowTemplate) => void
-  removeWorkflowTemplate: (id: string) => void
+  // ─── Actions: Agent Turn ───
+  setAgents: (agents: AgentConfig[]) => void
+  addActiveTurn: (turn: AgentTurn) => void
+  updateActiveTurn: (turnId: string, updates: Partial<AgentTurn>) => void
+  removeActiveTurn: (turnId: string) => void
 
-  // Actions - UI
+  // ─── Actions: Skills & Templates ───
+  setSkills: (skills: SkillInfo[]) => void
+  setTemplates: (templates: WorkflowTemplate[]) => void
+
+  // ─── Actions: UI ───
   toggleTaskLog: () => void
   appendTaskLog: (line: string) => void
   clearTaskLog: () => void
 
-  // Actions - 数据加载
-  setAgents: (agents: AgentConfig[]) => void
-  setProjects: (projects: Project[]) => void
+  // ─── Actions: WebSocket 事件处理 ───
+  handleWsMessage: (msg: { type: string; payload: any }) => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  // 初始状态
+  // ─── 初始状态 ───
   projects: [],
-  selectedProjectId: null,
-  activeTab: 'workflow',
+  runs: [],
+  runDetailTab: 'dag',
   agents: [],
-  tasks: [],
-  workflowTemplates: defaultWorkflowTemplates,
+  activeTurns: [],
+  skills: [],
+  templates: [],
   showTaskLog: false,
-  taskLogContent: [],
+  taskLogContent: (() => {
+    try {
+      const saved = localStorage.getItem('agentflow_task_log')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })(),
 
-  // 项目操作
-  addProject: (data) => {
-    const project: Project = {
-      ...data,
-      id: `proj_${Date.now()}`,
-      skills: [],
-      createdAt: Date.now(),
-      lastActiveAt: Date.now(),
-    }
-    set({ projects: [...get().projects, project] })
-  },
+  // ─── 项目操作 ───
+  setProjects: (projects) => set({ projects }),
+
+  addProject: (project) => set({ projects: [...get().projects, project] }),
 
   removeProject: (id) => {
-    const { projects, selectedProjectId } = get()
+    set({ projects: get().projects.filter((p) => p.id !== id) })
+  },
+
+  // ─── Run 操作 ───
+  setRuns: (runs) => set({ runs }),
+
+  addRun: (run) => set({ runs: [...get().runs, run] }),
+
+  updateRun: (run) => {
+    set({ runs: get().runs.map((r) => (r.id === run.id ? run : r)) })
+  },
+
+  removeRun: (id) => {
+    set({ runs: get().runs.filter((r) => r.id !== id) })
+  },
+
+  setRunDetailTab: (tab) => set({ runDetailTab: tab }),
+
+  // ─── Node 操作 ───
+  updateNode: (runId, updatedNode) => {
     set({
-      projects: projects.filter((p) => p.id !== id),
-      selectedProjectId: selectedProjectId === id ? null : selectedProjectId,
+      runs: get().runs.map((run) => {
+        if (run.id !== runId) return run
+        return {
+          ...run,
+          nodes: run.nodes.map((n) => (n.id === updatedNode.id ? updatedNode : n)),
+        }
+      }),
     })
   },
 
-  selectProject: (id) => {
-    set({ selectedProjectId: id, activeTab: 'workflow' })
-    if (id) {
-      // 更新 lastActiveAt
-      const projects = get().projects.map((p) =>
-        p.id === id ? { ...p, lastActiveAt: Date.now() } : p
-      )
-      set({ projects })
+  // ─── Agent 操作 ───
+  setAgents: (agents) => set({ agents }),
+
+  addActiveTurn: (turn) => set({ activeTurns: [...get().activeTurns, turn] }),
+
+  updateActiveTurn: (turnId, updates) => {
+    set({
+      activeTurns: get().activeTurns.map((t) =>
+        t.id === turnId ? { ...t, ...updates } : t
+      ),
+    })
+  },
+
+  removeActiveTurn: (turnId) => {
+    set({ activeTurns: get().activeTurns.filter((t) => t.id !== turnId) })
+  },
+
+  // ─── Skills & Templates ───
+  setSkills: (skills) => set({ skills }),
+  setTemplates: (templates) => set({ templates }),
+
+  // ─── UI ───
+  toggleTaskLog: () => set({ showTaskLog: !get().showTaskLog }),
+  appendTaskLog: (line) => {
+    const newLog = [...get().taskLogContent, line].slice(-200) // 保留最近200条
+    set({ taskLogContent: newLog })
+    try { localStorage.setItem('agentflow_task_log', JSON.stringify(newLog)) } catch {}
+  },
+  clearTaskLog: () => {
+    set({ taskLogContent: [] })
+    try { localStorage.removeItem('agentflow_task_log') } catch {}
+  },
+
+  // ─── WebSocket 事件处理 ───
+  handleWsMessage: (msg) => {
+    const { type, payload } = msg
+
+    switch (type) {
+      case 'run:status_changed': {
+        const run = get().runs.find((r) => r.id === payload.runId)
+        if (run) {
+          get().updateRun({ ...run, status: payload.status })
+        }
+        break
+      }
+
+      case 'run:node_updated': {
+        const { runId, nodeId, status } = payload
+        const run = get().runs.find((r) => r.id === runId)
+        if (run) {
+          const node = run.nodes.find((n) => n.id === nodeId)
+          if (node) {
+            get().updateNode(runId, { ...node, status })
+          }
+        }
+        break
+      }
+
+      case 'agent:turn_started': {
+        const { turn } = payload
+        get().addActiveTurn(turn)
+        get().appendTaskLog(`[Turn ${turn.turnIndex}] Agent ${turn.agentId} 开始执行`)
+        break
+      }
+
+      case 'agent:turn_output': {
+        const { turnId, chunk } = payload
+        get().updateActiveTurn(turnId, {
+          output: (get().activeTurns.find((t) => t.id === turnId)?.output || '') + chunk,
+        })
+        get().appendTaskLog(chunk)
+        break
+      }
+
+      case 'agent:turn_completed': {
+        const { turn } = payload
+        // 先更新 tokenUsage 到 activeTurn（供 AgentsPanel 收集）
+        if (turn.tokenUsage) {
+          get().updateActiveTurn(turn.id, { tokenUsage: turn.tokenUsage, status: 'completed', result: turn.result })
+        }
+        get().removeActiveTurn(turn.id)
+        const tokenInfo = turn.tokenUsage ? ` (${turn.tokenUsage.total} tokens)` : ''
+        get().appendTaskLog(`[Turn ${turn.turnIndex}] 执行完成 ✓${tokenInfo}`)
+        break
+      }
+
+      case 'agent:turn_paused': {
+        const { turn, question } = payload
+        get().updateActiveTurn(turn.id, { status: 'paused', question })
+        get().appendTaskLog(`[Turn ${turn.turnIndex}] Agent 暂停，提问: ${question}`)
+        break
+      }
+
+      case 'agent:turn_error': {
+        const { turn } = payload
+        get().removeActiveTurn(turn.id)
+        get().appendTaskLog(`[Turn ${turn.turnIndex}] 执行失败 ✗`)
+        break
+      }
     }
   },
-
-  updateProjectSkills: (projectId, skills) => {
-    set({
-      projects: get().projects.map((p) =>
-        p.id === projectId ? { ...p, skills } : p
-      ),
-    })
-  },
-
-  // Tab
-  setActiveTab: (tab) => set({ activeTab: tab }),
-
-  // 任务
-  addTask: (task) => set({ tasks: [task, ...get().tasks] }),
-
-  updateTask: (taskId, updates) => {
-    set({
-      tasks: get().tasks.map((t) =>
-        t.id === taskId ? { ...t, ...updates } : t
-      ),
-    })
-  },
-
-  // 工作流模板
-  addWorkflowTemplate: (template) => {
-    set({ workflowTemplates: [...get().workflowTemplates, template] })
-  },
-
-  removeWorkflowTemplate: (id) => {
-    set({ workflowTemplates: get().workflowTemplates.filter((t) => t.id !== id) })
-  },
-
-  // UI
-  toggleTaskLog: () => set({ showTaskLog: !get().showTaskLog }),
-  appendTaskLog: (line) => set({ taskLogContent: [...get().taskLogContent, line] }),
-  clearTaskLog: () => set({ taskLogContent: [] }),
-
-  // 数据加载
-  setAgents: (agents) => set({ agents }),
-  setProjects: (projects) => set({ projects }),
 }))
