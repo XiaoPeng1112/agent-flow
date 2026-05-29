@@ -53,23 +53,30 @@ export function AppLayout() {
       <main className="flex-1 flex flex-col overflow-hidden bg-[#f5f6fa]">
         {/* 后端服务离线提示横幅 */}
         {serverStatus.status === 'offline' && (
-          <div className="px-4 py-2.5 bg-gradient-to-r from-red-50 to-orange-50 border-b border-red-100 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2.5">
-              <DisconnectOutlined className="text-red-500 text-[14px]" />
-              <span className="text-[13px] text-red-700 font-medium">
-                后端服务未连接
-              </span>
-              <span className="text-[12px] text-red-500/70">
-                请确保已在项目根目录运行 <code className="px-1.5 py-0.5 bg-red-100 rounded text-[11px] font-mono">npm run dev</code>（需 Node.js 20+）
-              </span>
+          <div className="px-4 py-3 bg-gradient-to-r from-red-50 to-orange-50 border-b border-red-100 shrink-0">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2.5">
+                <DisconnectOutlined className="text-red-500 text-[14px]" />
+                <span className="text-[13px] text-red-700 font-medium">
+                  后端服务未连接 — 数据功能不可用
+                </span>
+              </div>
+              <button
+                onClick={serverStatus.retry}
+                className="flex items-center gap-1.5 px-3 py-1 text-[12px] text-red-600 bg-red-100 hover:bg-red-200 rounded-md transition-colors"
+              >
+                <ReloadOutlined className="text-[11px]" />
+                重试连接
+              </button>
             </div>
-            <button
-              onClick={serverStatus.retry}
-              className="flex items-center gap-1.5 px-3 py-1 text-[12px] text-red-600 bg-red-100 hover:bg-red-200 rounded-md transition-colors"
-            >
-              <ReloadOutlined className="text-[11px]" />
-              重试连接
-            </button>
+            <div className="text-[12px] text-red-600/80 leading-relaxed">
+              请在终端执行以下命令启动后端服务（需 Node.js 20+）：
+            </div>
+            <div className="mt-1.5 px-3 py-2 bg-slate-900 rounded-md font-mono text-[11px] text-green-300 leading-[1.8] select-all">
+              <div><span className="text-slate-500">$</span> cd ~/Desktop/work/agent-flow</div>
+              <div><span className="text-slate-500">$</span> nvm use 20</div>
+              <div><span className="text-slate-500">$</span> npm run dev</div>
+            </div>
           </div>
         )}
 
