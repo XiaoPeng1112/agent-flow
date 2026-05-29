@@ -17,16 +17,19 @@ const changelog: ChangelogEntry[] = [
   {
     version: 'v2.1.0',
     date: '2026-05-29',
-    title: '企业级路由 & GitHub 集成',
+    title: '企业级路由 & GitHub 集成 & 上下文文档体系',
     type: 'feature',
     highlights: [
       'React Router 企业级路由架构',
       'GitHub OAuth 账号登录',
       'GitHub 仓库信息同步',
-      '更新日志入口',
+      '更新日志页面',
       '项目介绍/功能文档页',
+      '.agent-flow/context/ 上下文文档体系',
+      'Vite HMR 修复',
+      'Sidebar 底部导航重构',
     ],
-    details: `本次重大更新将 AgentFlow 从内存状态管理升级为企业级路由驱动架构。引入 react-router-dom v7，实现 URL 即状态——刷新浏览器、分享链接、前进后退均可完整恢复当前视图。同时集成 GitHub OAuth 登录系统，用户登录后可拉取 GitHub 仓库列表并关联到本地项目，实现代码与工作流的无缝衔接。新增更新日志和项目介绍模块，帮助团队成员快速了解系统能力和使用方式。`,
+    details: `本次重大更新将 AgentFlow 从内存状态管理升级为企业级路由驱动架构。引入 react-router-dom v7 + createBrowserRouter，实现 URL 即状态——刷新浏览器、分享链接、前进后退均可完整恢复当前视图。Zustand Store 重构为纯业务数据层，路由状态完全交由 URL 管理。集成 GitHub OAuth 2.0 登录系统（授权码流程），用户登录后可拉取 GitHub 仓库列表。新增 .agent-flow/context/ 目录作为项目上下文持久化方案，纳入 Git 版本控制，支持跨对话/跨人员共享项目知识。同时新增更新日志和项目介绍模块，Sidebar 底部集成导航链接和用户面板。修复了 Vite HMR 与业务 WebSocket 代理路径冲突的问题。`,
   },
   {
     version: 'v2.0.0',
