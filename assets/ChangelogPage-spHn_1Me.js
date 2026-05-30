@@ -1,4 +1,4 @@
-import{n as e,t}from"./ThunderboltOutlined-MfqzPPlt.js";import{t as n}from"./BranchesOutlined-Bm5pqjr8.js";import{t as r}from"./index-DqFUBHMq.js";var i=r(),a=[{version:`v2.4.2`,date:`2026-05-31`,title:`体验优化 — 节点计时器 / 审批交互增强 / Token 统计面板`,type:`feature`,highlights:[`节点实时计时器（running 秒表 + completed 总耗时）`,`审批交互「修改后继续」按钮`,`反馈意见通过 Context Chaining 传递`,`Token 消耗实时统计徽章`,`修复 parseTokenUsage 正则匹配`,`新增 12 项 MRF 对标优化清单`],details:`v2.4.2 针对实际使用中发现的三个痛点进行了快速修复，显著提升执行过程的可观测性和操控灵活度。
+import{n as e,t}from"./ThunderboltOutlined-DPjT6d0h.js";import{t as n}from"./BranchesOutlined-BW-Rsh7O.js";import{t as r}from"./index-OeI9A-sz.js";var i=r(),a=[{version:`v2.4.2`,date:`2026-05-31`,title:`体验优化 — 节点计时器 / 审批交互增强 / Token 统计面板`,type:`feature`,highlights:[`节点实时计时器（running 秒表 + completed 总耗时）`,`审批交互「修改后继续」按钮`,`反馈意见通过 Context Chaining 传递`,`Token 消耗实时统计徽章`,`修复 parseTokenUsage 正则匹配`,`新增 12 项 MRF 对标优化清单`],details:`v2.4.2 针对实际使用中发现的三个痛点进行了快速修复，显著提升执行过程的可观测性和操控灵活度。
 
 【节点计时器】DAG 卡片在 running 状态时显示实时秒表（每秒刷新），completed 后显示总耗时。用户可直观感知每个节点的执行进度，不再需要盲等。
 
