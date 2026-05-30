@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Input, Tooltip, Badge } from 'antd'
+import { Input, Tooltip, Badge, App } from 'antd'
 import {
   PlusOutlined,
   SearchOutlined,
@@ -11,6 +11,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
+import { projectApi } from '../../api'
 import { AddProjectModal } from './AddProjectModal'
 import { UserPanel } from './UserPanel'
 import type { ServerStatus } from '../../hooks/useServerStatus'
@@ -34,6 +35,7 @@ export function Sidebar({ serverStatus }: SidebarProps) {
   const currentProjectId = useCurrentProjectId()
   const [showAdd, setShowAdd] = useState(false)
   const [search, setSearch] = useState('')
+  const { message } = App.useApp()
 
   const filtered = projects.filter(
     (p) =>
@@ -45,12 +47,18 @@ export function Sidebar({ serverStatus }: SidebarProps) {
     navigate(`/projects/${id}/runs`)
   }
 
-  const handleRemoveProject = (id: string, name: string) => {
+  const handleRemoveProject = async (id: string, name: string) => {
     if (confirm(`确定删除项目 "${name}" 吗？`)) {
-      removeProject(id)
-      // 如果删除的是当前选中的项目，导航回首页
-      if (currentProjectId === id) {
-        navigate('/')
+      try {
+        await projectApi.delete(id)
+        removeProject(id)
+        message.success(`项目 "${name}" 已删除`)
+        // 如果删除的是当前选中的项目，导航回首页
+        if (currentProjectId === id) {
+          navigate('/')
+        }
+      } catch (err: any) {
+        message.error(`删除失败: ${err.message}`)
       }
     }
   }
