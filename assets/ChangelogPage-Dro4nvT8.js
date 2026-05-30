@@ -1,4 +1,4 @@
-import{n as e,t}from"./ThunderboltOutlined-BD_oEc79.js";import{t as n}from"./BranchesOutlined-C56ooX88.js";import{t as r}from"./index-DpDxj1Ez.js";var i=r(),a=[{version:`v2.4.1`,date:`2026-05-31`,title:`工程质量提升 — 代码分割 / ErrorBoundary / 统一请求 Hook / 单元测试`,type:`improvement`,highlights:[`React.lazy + Suspense 路由级代码分割`,`ErrorBoundary 全局错误隔离`,`useRequest Hook（Loading / Toast / 指数退避重试）`,`Vitest 单元测试（68 cases 覆盖三大核心服务）`,`首屏 JS 体积优化（页面 chunk 独立拆分）`],details:`v2.4.1 聚焦于工程质量和前端健壮性提升，为项目补全了四大基础能力。
+import{n as e,t}from"./ThunderboltOutlined-CQ6hugg-.js";import{t as n}from"./BranchesOutlined-CFUGrNeB.js";import{t as r}from"./index-BwtfVpbA.js";var i=r(),a=[{version:`v2.4.1`,date:`2026-05-31`,title:`工程质量提升 — 代码分割 / ErrorBoundary / 统一请求 Hook / 单元测试`,type:`improvement`,highlights:[`React.lazy + Suspense 路由级代码分割`,`ErrorBoundary 全局错误隔离`,`useRequest Hook（Loading / Toast / 指数退避重试）`,`Vitest 单元测试（68 cases 覆盖三大核心服务）`,`首屏 JS 体积优化（页面 chunk 独立拆分）`],details:`v2.4.1 聚焦于工程质量和前端健壮性提升，为项目补全了四大基础能力。
 
 【代码分割】所有 5 个路由页面改为 React.lazy() 动态导入 + Suspense 包裹，首屏不再加载未访问页面的代码。构建产物从单一 ~1.1MB chunk 拆分为 845KB 主包 + 多个独立页面 chunk，显著提升首屏加载速度。
 
