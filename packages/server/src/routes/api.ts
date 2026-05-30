@@ -7,6 +7,12 @@ import type { WorkflowEngine } from '../services/workflow-engine.js'
 import type { TemplateService } from '../services/template.js'
 import type { AuthService } from '../services/auth.js'
 import type { GitService } from '../services/git.js'
+import type { RepoIsolationService } from '../services/repo-isolation.js'
+import type { SkillMaterializationService } from '../services/skill-materialization.js'
+import type { PermissionIsolationService } from '../services/permission-isolation.js'
+import type { A2AProtocolService } from '../services/a2a-protocol.js'
+import type { ContractValidatorService } from '../services/contract-validator.js'
+import type { RobustnessService } from '../services/robustness.js'
 
 export function createApiRouter(deps: {
   agentService: AgentService
@@ -17,9 +23,21 @@ export function createApiRouter(deps: {
   templateService: TemplateService
   authService: AuthService
   gitService: GitService
+  repoIsolationService: RepoIsolationService
+  skillMaterializationService: SkillMaterializationService
+  permissionIsolationService: PermissionIsolationService
+  a2aProtocolService: A2AProtocolService
+  contractValidatorService: ContractValidatorService
+  robustnessService: RobustnessService
 }): Router {
   const router = Router()
-  const { agentService, fileService, skillService, projectService, workflowEngine, templateService, authService, gitService } = deps
+  const {
+    agentService, fileService, skillService, projectService,
+    workflowEngine, templateService, authService, gitService,
+    repoIsolationService, skillMaterializationService,
+    permissionIsolationService, a2aProtocolService,
+    contractValidatorService, robustnessService,
+  } = deps
 
   // ════════════════════════════════════════
   // Auth API (GitHub OAuth)
@@ -586,6 +604,238 @@ export function createApiRouter(deps: {
   })
 
   // ════════════════════════════════════════
+  // Repo Isolation API (仓库隔离)
+  // ════════════════════════════════════════
+
+  /** 获取 Run 的仓库池 */
+  router.get('/runs/:runId/repo-pool', (req, res) => {
+    const pool = repoIsolationService.getPool(req.params.runId)
+    res.json({ success: true, data: { pool } })
+  })
+
+  /** 向仓库池添加仓库 */
+  router.post('/runs/:runId/repo-pool', async (req, res) => {
+    const { name, url, branch } = req.body
+    if (!name || !url) {
+      res.status(400).json({ success: false, error: 'name and url are required' })
+      return
+    }
+    try {
+      const repo = await repoIsolationService.addRepo(req.params.runId, { name, url, branch })
+      res.json({ success: true, data: { repo } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 获取活跃工作空间列表 */
+  router.get('/workspaces', (_req, res) => {
+    const workspaces = repoIsolationService.getActiveWorkspaces()
+    res.json({ success: true, data: { workspaces } })
+  })
+
+  /** 清理 Run 的仓库和工作空间 */
+  router.delete('/runs/:runId/repo-pool', async (req, res) => {
+    await repoIsolationService.cleanupRun(req.params.runId)
+    res.json({ success: true })
+  })
+
+  // ════════════════════════════════════════
+  // A2A Protocol API (Agent 间通信)
+  // ════════════════════════════════════════
+
+  /** 发送 A2A 消息 */
+  router.post('/a2a/send', (req, res) => {
+    const { fromAgentId, toAgentId, runId, nodeId, type, payload, priority, requiresAck } = req.body
+    if (!fromAgentId || !toAgentId || !runId || !nodeId || !type) {
+      res.status(400).json({ success: false, error: 'fromAgentId, toAgentId, runId, nodeId, and type are required' })
+      return
+    }
+    try {
+      const message = a2aProtocolService.send({ fromAgentId, toAgentId, runId, nodeId, type, payload, priority, requiresAck })
+      res.json({ success: true, data: { message } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 委派任务 */
+  router.post('/a2a/delegate', (req, res) => {
+    const { fromAgentId, toAgentId, runId, nodeId, task, priority } = req.body
+    try {
+      const message = a2aProtocolService.delegateTask({ fromAgentId, toAgentId, runId, nodeId, task, priority })
+      res.json({ success: true, data: { message } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 获取 Agent 收件箱 */
+  router.get('/a2a/inbox/:agentId', (req, res) => {
+    const { status, type, runId } = req.query as Record<string, string>
+    const messages = a2aProtocolService.getInbox(req.params.agentId, {
+      status: status as any, type: type as any, runId,
+    })
+    res.json({ success: true, data: { messages } })
+  })
+
+  /** 拉取下一条待处理消息 */
+  router.post('/a2a/pull/:agentId', (req, res) => {
+    const message = a2aProtocolService.pullNext(req.params.agentId)
+    res.json({ success: true, data: { message } })
+  })
+
+  /** 确认消息 */
+  router.post('/a2a/ack/:messageId', (req, res) => {
+    const ok = a2aProtocolService.acknowledge(req.params.messageId)
+    res.json({ success: ok })
+  })
+
+  /** 解决消息 */
+  router.post('/a2a/resolve/:messageId', (req, res) => {
+    const ok = a2aProtocolService.resolve(req.params.messageId, req.body.result)
+    res.json({ success: ok })
+  })
+
+  /** 获取 A2A 统计 */
+  router.get('/a2a/stats', (req, res) => {
+    const runId = req.query.runId as string | undefined
+    const stats = a2aProtocolService.getStats(runId)
+    res.json({ success: true, data: stats })
+  })
+
+  /** 创建通信通道 */
+  router.post('/a2a/channels', (req, res) => {
+    const { runId, participants } = req.body
+    const channel = a2aProtocolService.createChannel(runId, participants)
+    res.json({ success: true, data: { channel } })
+  })
+
+  /** 获取 Run 的所有消息 */
+  router.get('/a2a/messages/:runId', (req, res) => {
+    const messages = a2aProtocolService.getRunMessages(req.params.runId)
+    res.json({ success: true, data: { messages } })
+  })
+
+  // ════════════════════════════════════════
+  // Permission 权限管理 API
+  // ════════════════════════════════════════
+
+  /** 设置 Agent 权限策略 */
+  router.post('/permissions/policy', (req, res) => {
+    const { agentId, runId, repoAccess, filePatterns } = req.body
+    if (!agentId || !runId) {
+      res.status(400).json({ success: false, error: 'agentId and runId are required' })
+      return
+    }
+    permissionIsolationService.setPolicy({ agentId, runId, repoAccess: repoAccess || [], filePatterns })
+    res.json({ success: true })
+  })
+
+  /** 获取 Agent 权限策略 */
+  router.get('/permissions/policy/:agentId/:runId', (req, res) => {
+    const policy = permissionIsolationService.getPolicy(req.params.agentId, req.params.runId)
+    res.json({ success: true, data: { policy } })
+  })
+
+  /** 权限检查 */
+  router.post('/permissions/check', (req, res) => {
+    const result = permissionIsolationService.checkAccess(req.body)
+    res.json({ success: true, data: result })
+  })
+
+  /** 获取审计日志 */
+  router.get('/permissions/audit-log', (req, res) => {
+    const { runId, agentId, level, limit } = req.query as Record<string, string>
+    const log = permissionIsolationService.getAuditLog({
+      runId, agentId,
+      level: level as 'info' | 'warn' | 'error',
+      limit: limit ? parseInt(limit, 10) : undefined,
+    })
+    res.json({ success: true, data: { log } })
+  })
+
+  // ════════════════════════════════════════
+  // Contract Validation API (产出物合同验证)
+  // ════════════════════════════════════════
+
+  /** 验证节点产出物是否满足合同 */
+  router.post('/runs/:runId/nodes/:nodeId/validate-contracts', (req, res) => {
+    const run = workflowEngine.getRun(req.params.runId)
+    if (!run) {
+      res.status(404).json({ success: false, error: 'Run not found' })
+      return
+    }
+    const node = run.nodes.find(n => n.id === req.params.nodeId)
+    if (!node) {
+      res.status(404).json({ success: false, error: 'Node not found' })
+      return
+    }
+
+    // 从模板获取 OutputContracts
+    const template = templateService.getTemplate(run.templateId)
+    const templateNode = template?.nodes.find(tn => req.params.nodeId.endsWith(tn.id))
+    const contracts = templateNode?.outputContracts || []
+
+    const result = contractValidatorService.validate(node.id, contracts, node.artifacts)
+    const report = contractValidatorService.formatReport(result)
+
+    res.json({ success: true, data: { result, report } })
+  })
+
+  // ════════════════════════════════════════
+  // Robustness API (健壮性)
+  // ════════════════════════════════════════
+
+  /** 获取系统健康状态 */
+  router.get('/robustness/health', (_req, res) => {
+    const health = robustnessService.getHealthStatus()
+    res.json({ success: true, data: health })
+  })
+
+  /** 获取死信队列 */
+  router.get('/robustness/dead-letter', (req, res) => {
+    const runId = req.query.runId as string | undefined
+    const queue = robustnessService.getDeadLetterQueue(runId)
+    res.json({ success: true, data: { queue } })
+  })
+
+  /** 解决死信项 */
+  router.post('/robustness/dead-letter/:itemId/resolve', (req, res) => {
+    const { resolution } = req.body
+    const ok = robustnessService.resolveDeadLetter(req.params.itemId, resolution)
+    res.json({ success: ok })
+  })
+
+  /** 获取 Checkpoint 列表 */
+  router.get('/robustness/checkpoints/:runId', (req, res) => {
+    const checkpoints = robustnessService.getCheckpoints(req.params.runId)
+    res.json({ success: true, data: { checkpoints } })
+  })
+
+  /** 创建 Checkpoint */
+  router.post('/robustness/checkpoints/:runId', (req, res) => {
+    const run = workflowEngine.getRun(req.params.runId)
+    if (!run) {
+      res.status(404).json({ success: false, error: 'Run not found' })
+      return
+    }
+    const checkpoint = robustnessService.createCheckpoint(run, req.body.description)
+    res.json({ success: true, data: { checkpoint } })
+  })
+
+  /** 查询审计日志 */
+  router.get('/robustness/audit-log', (req, res) => {
+    const { runId, nodeId, action, level, limit } = req.query as Record<string, string>
+    const log = robustnessService.queryAuditLog({
+      runId, nodeId, action,
+      level: level as 'info' | 'warn' | 'error',
+      limit: limit ? parseInt(limit, 10) : undefined,
+    })
+    res.json({ success: true, data: { log } })
+  })
+
+  // ════════════════════════════════════════
   // Skill 智能推荐 API
   // ════════════════════════════════════════
 
@@ -624,6 +874,40 @@ export function createApiRouter(deps: {
       .map(r => ({ ...r.skill, relevanceScore: r.score }))
 
     res.json({ success: true, data: { recommendations } })
+  })
+
+  // ════════════════════════════════════════
+  // Skill Materialization API (Skill 物化)
+  // ════════════════════════════════════════
+
+  /** 获取节点的物化 Skill（运行时注入到 Agent 的 Skill 内容） */
+  router.get('/skills/materialize/:nodeId', async (req, res) => {
+    try {
+      const skills = await skillMaterializationService.materializeForNode(req.params.nodeId)
+      const prompt = skillMaterializationService.formatSkillsAsPrompt(skills)
+      res.json({ success: true, data: { skills, prompt } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 设置节点的 Skill 白名单 */
+  router.post('/skills/whitelist/:nodeId', (req, res) => {
+    const { allowedSkillIds, denySkillIds } = req.body
+    skillMaterializationService.setWhitelist(req.params.nodeId, allowedSkillIds || [], denySkillIds)
+    res.json({ success: true })
+  })
+
+  /** 获取节点的 Skill 白名单 */
+  router.get('/skills/whitelist/:nodeId', (req, res) => {
+    const whitelist = skillMaterializationService.getWhitelist(req.params.nodeId)
+    res.json({ success: true, data: { whitelist } })
+  })
+
+  /** 获取物化统计 */
+  router.get('/skills/materialization-stats', (_req, res) => {
+    const stats = skillMaterializationService.getStats()
+    res.json({ success: true, data: stats })
   })
 
   return router

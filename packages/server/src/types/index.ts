@@ -265,6 +265,223 @@ export interface TemplateNode {
   outputContracts?: OutputContract[]
 }
 
+// ─── Repo Isolation (仓库隔离) ───
+
+/**
+ * 仓库池配置 — Run 级别共享仓库
+ * 每个 Run 可关联多个仓库，Agent 通过 worktree/symlink 访问隔离的工作副本
+ */
+export interface RepoPool {
+  runId: string
+  repos: RepoEntry[]
+}
+
+export interface RepoEntry {
+  id: string
+  name: string
+  url: string                     // Git clone URL 或本地路径
+  localPath: string              // 本地 clone 的基础路径
+  branch?: string                // 默认分支
+  clonedAt?: number
+}
+
+/**
+ * Agent 工作目录：每个 Agent Turn 获得独立的工作空间
+ * 通过 git worktree 或目录拷贝实现隔离
+ */
+export interface AgentWorkspace {
+  turnId: string
+  agentId: string
+  nodeId: string
+  runId: string
+  basePath: string               // 工作目录根路径
+  repoMounts: RepoMount[]       // 挂载的仓库引用
+  createdAt: number
+  cleanedAt?: number
+}
+
+export interface RepoMount {
+  repoId: string
+  mountPath: string              // 在工作目录中的挂载点
+  mode: 'worktree' | 'symlink' | 'copy'
+  branch?: string
+  permissions: RepoPermission
+}
+
+export type RepoPermission = 'read' | 'read-write' | 'none'
+
+// ─── Skill Materialization (Skill 物化) ───
+
+/**
+ * Skill 物化配置 — 控制哪些 Skill 可被 Agent 在运行时加载
+ */
+export interface SkillWhitelist {
+  nodeId: string
+  allowedSkillIds: string[]      // 白名单：允许使用的 Skill ID 列表
+  denySkillIds?: string[]        // 黑名单（优先级高于白名单）
+}
+
+/**
+ * 运行时 Skill 实例：注入到 Agent 执行上下文中的 Skill 副本
+ */
+export interface MaterializedSkill {
+  skillId: string
+  name: string
+  content: string                // Skill 文件内容副本
+  injectedAt: number
+  expiresAt?: number             // 过期时间（可选，防止 Skill 缓存过久）
+}
+
+// ─── Permission Isolation (权限隔离) ───
+
+/**
+ * Agent 权限策略
+ * 定义 Agent 在 Run 中可访问的资源范围
+ */
+export interface AgentPermissionPolicy {
+  agentId: string
+  runId: string
+  repoAccess: RepoAccessRule[]   // 仓库级别权限
+  filePatterns?: FileAccessRule[] // 文件级别权限（glob 模式）
+  networkAccess?: NetworkRule[]   // 网络访问控制（预留）
+}
+
+export interface RepoAccessRule {
+  repoId: string
+  permission: RepoPermission
+  allowedPaths?: string[]        // 限制只能访问的子目录
+  deniedPaths?: string[]         // 禁止访问的子目录
+}
+
+export interface FileAccessRule {
+  pattern: string                // Glob 模式（如 "src/**/*.ts"）
+  permission: 'read' | 'write' | 'none'
+}
+
+export interface NetworkRule {
+  host: string
+  allowed: boolean
+}
+
+// ─── A2A Protocol (Agent-to-Agent 通信协议增强) ───
+
+/**
+ * A2A 消息类型扩展
+ * 在原有 InboxItem 基础上增加协议级别的消息路由和确认机制
+ */
+export type A2AMessageType =
+  | 'delegated_task'             // 委派任务
+  | 'task_delivery'              // 任务交付
+  | 'user_input'                 // 用户输入
+  | 'coordination'              // 协调消息（Agent 间同步）
+  | 'progress_report'           // 进度汇报
+  | 'resource_request'          // 资源请求（如请求访问某 repo）
+
+export interface A2AMessage {
+  id: string
+  fromAgentId: string
+  toAgentId: string
+  runId: string
+  nodeId: string
+  type: A2AMessageType
+  payload: unknown
+  priority: 'low' | 'normal' | 'high' | 'critical'
+  status: 'queued' | 'delivered' | 'processing' | 'resolved' | 'failed' | 'expired'
+  requiresAck: boolean           // 是否需要接收方确认
+  ackAt?: number
+  createdAt: number
+  deliveredAt?: number
+  resolvedAt?: number
+  expiresAt?: number             // 消息过期时间
+  retryCount: number
+  maxRetries: number
+}
+
+/**
+ * A2A 通信通道：Agent 间建立的逻辑通信链路
+ */
+export interface A2AChannel {
+  id: string
+  runId: string
+  participants: string[]         // Agent IDs
+  createdAt: number
+  lastActivityAt: number
+}
+
+// ─── OutputContract Validation (产出物合同验证) ───
+
+/**
+ * 合同验证结果
+ */
+export interface ContractValidationResult {
+  nodeId: string
+  passed: boolean
+  results: ContractCheckResult[]
+  validatedAt: number
+}
+
+export interface ContractCheckResult {
+  contractId: string
+  title: string
+  required: boolean
+  satisfied: boolean
+  matchedArtifact?: string       // 匹配的 Artifact ID
+  reason?: string                // 不满足的原因
+}
+
+// ─── Robustness (健壮性增强) ───
+
+/**
+ * 重试策略配置
+ */
+export interface RetryPolicy {
+  maxRetries: number
+  backoffType: 'fixed' | 'exponential'
+  baseDelayMs: number
+  maxDelayMs: number
+}
+
+/**
+ * 死信队列项：多次重试仍失败的任务
+ */
+export interface DeadLetterItem {
+  id: string
+  nodeId: string
+  runId: string
+  agentId: string
+  failedAt: number
+  retryCount: number
+  lastError: string
+  originalPrompt: string
+  resolution?: 'manual_retry' | 'skipped' | 'reassigned'
+  resolvedAt?: number
+}
+
+/**
+ * 检查点：Run 的快照，用于灾难恢复
+ */
+export interface Checkpoint {
+  id: string
+  runId: string
+  snapshotAt: number
+  nodeStates: Array<{ nodeId: string; status: TaskNodeStatus }>
+  description?: string
+}
+
+/**
+ * 审计日志条目
+ */
+export interface AuditLogEntry {
+  id: string
+  runId: string
+  nodeId?: string
+  agentId?: string
+  action: string
+  details: Record<string, unknown>
+  timestamp: number
+  level: 'info' | 'warn' | 'error'
+}
+
 // ─── Skill ───
 
 export interface SkillConfig {

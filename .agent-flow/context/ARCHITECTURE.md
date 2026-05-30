@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-05-30（v2.3.1）  
+> 最后更新：2026-05-31（v2.4.0）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -36,7 +36,7 @@ agent-flow/
 │   │   └── index.html
 │   └── server/          # 后端 Express 服务
 │       └── src/
-│           ├── index.ts       # 服务入口（v2.3.1）
+│           ├── index.ts       # 服务入口（v2.4.0）
 │           ├── routes/
 │           │   └── api.ts     # REST API 路由定义（全部 async/await）
 │           ├── services/      # 业务服务层
@@ -48,9 +48,15 @@ agent-flow/
 │           │   ├── skill.ts         # Skills 扫描与管理
 │           │   ├── filesystem.ts    # 文件系统操作（allowedRoots 安全校验）
 │           │   ├── git.ts           # Git 集成（状态/commit/diff）
-│           │   └── terminal.ts      # 终端进程管理
+│           │   ├── terminal.ts      # 终端进程管理
+│           │   ├── repo-isolation.ts       # [v2.4.0] Run 级仓库隔离（Git worktree 池化）
+│           │   ├── skill-materialization.ts # [v2.4.0] Skill 物化（白名单校验 + TTL 缓存）
+│           │   ├── permission-isolation.ts  # [v2.4.0] Agent 权限隔离（RBAC + glob 文件访问控制）
+│           │   ├── a2a-protocol.ts         # [v2.4.0] A2A 通信协议（优先级收件箱 + ACK 确认）
+│           │   ├── contract-validator.ts   # [v2.4.0] OutputContract 验证引擎
+│           │   └── robustness.ts           # [v2.4.0] 健壮性服务（重试/死信队列/Checkpoint/审计）
 │           └── types/
-│               └── index.ts   # 核心类型定义（含 NodeContext、EdgeCondition 等）
+│               └── index.ts   # 核心类型定义（含 NodeContext、EdgeCondition、A2A、RBAC 等）
 ├── .agent-flow/
 │   └── context/         # 项目上下文文档（本目录）
 ├── scripts/
@@ -173,6 +179,71 @@ Agent 通过 CLI 进程方式调用（codex-cli / claude-cli），非阻塞异�
 
 设计原则：URL 即状态，刷新/分享链接可完整恢复视图。
 
+### Repo Isolation（仓库隔离）[v2.4.0]
+
+每个 Run 拥有独立的仓库工作目录，防止多个并行 Run 之间的文件冲突。核心机制：
+
+- **仓库池（RepoPool）**：全局仓库池管理，按 `repoUrl` 聚合，每个仓库维护最大 `maxWorktrees` 个 Git worktree
+- **工作空间创建策略**：优先 Git worktree（轻量），fallback 到 symlink 或 copy
+- **生命周期管理**：Run 结束后自动回收 worktree，`dispose()` 时清理所有临时目录
+
+API：`POST /api/repo-pool/workspace` 创建工作空间，`GET /api/repo-pool/status` 查看池状态
+
+### Skill Materialization（Skill 物化）[v2.4.0]
+
+Agent 执行时，系统根据白名单/黑名单策略将 Skill 文件物化（复制）到 Agent 工作目录：
+
+- **白名单模式**：`SkillWhitelist` 按 agentRole 或 nodeType 声明允许使用的 Skill patterns
+- **物化流程**：`materializeForNode(nodeId)` 读取 Skill 源文件，复制到节点工作目录 `.skills/` 下
+- **TTL 缓存**：物化结果带 TTL 缓存，相同配置在 TTL 内直接复用
+- **Prompt 注入**：`formatSkillsAsPrompt()` 将物化后的 Skill 列表格式化为 Agent system prompt 的一部分
+
+API：`POST /api/skills/materialize/:nodeId` 触发物化
+
+### Permission Isolation（权限隔离）[v2.4.0]
+
+基于 RBAC 的 Agent 粒度权限控制，限制 Agent 对仓库和文件的访问范围：
+
+- **策略模型**：`AgentPermissionPolicy` 按 agentRole 定义 `allowedRepos`（glob）和 `fileAccessRules`（glob + read/write/execute）
+- **双层校验**：`checkRepoAccess()` 仓库级 → `checkFileAccess()` 文件级
+- **审计日志**：每次权限检查结果（allow/deny）记录到内存审计日志，含时间戳和操作上下文
+- **安全默认**：无匹配策略时默认拒绝（deny-by-default）
+
+API：`POST /api/permissions/check` 校验权限，`GET /api/permissions/audit-log` 查看审计日志
+
+### A2A Inbox Protocol（Agent 间通信）[v2.4.0]
+
+运行时 Agent 间的异步消息通信协议，支持任务委派和结果回传：
+
+- **消息类型**：`request`（请求）、`response`（响应）、`delegate`（委派）、`broadcast`（广播）
+- **优先级队列**：每个 Agent 维护一个按优先级排序的收件箱（high > normal > low）
+- **ACK 机制**：接收方确认消息已读，发送方可追踪消息状态（pending → delivered → read → resolved）
+- **Channel 管理**：逻辑通道用于消息分组，支持自动过期清理
+- **Legacy Bridge**：兼容原有 InboxItem 格式，新旧系统平滑过渡
+
+API：`POST /api/a2a/send`、`POST /api/a2a/delegate`、`GET /api/a2a/inbox/:agentId`、`POST /api/a2a/ack`
+
+### Contract Validation（合同验证引擎）[v2.4.0]
+
+节点完成时自动校验 Agent 产出物是否满足 OutputContract 定义：
+
+- **匹配规则**：按 `category` 精确匹配 + `format` 兼容性评估（如 typescript 兼容 code 类 format）
+- **验证报告**：返回 `ContractValidationResult`，包含匹配项、缺失项、多余项、总体 pass/fail
+- **格式兼容矩阵**：内置常见格式的兼容关系映射
+
+API：`POST /api/contracts/validate/:nodeId`
+
+### Robustness（健壮性服务）[v2.4.0]
+
+为工作流执行提供容错和可观测能力：
+
+- **指数退避重试**：`RetryPolicy` 配置最大重试次数、基础延迟、退避因子、可重试错误类型
+- **死信队列（DLQ）**：超过重试上限的失败任务进入 DLQ，保留原始上下文和失败原因
+- **Checkpoint 快照**：在关键时刻保存 Run/Node/Agent 状态快照，支持故障恢复
+- **审计日志**：所有操作（node_start、agent_spawn、retry、dlq_enqueue 等）带时间戳记录，支持导出
+
+API：`POST /api/robustness/retry`、`GET /api/robustness/dlq`、`POST /api/robustness/checkpoint`、`GET /api/robustness/health`
+
 ### 安全机制
 
 - **文件系统**: allowedRoots 白名单，路径穿越防护（规范化 + 前缀匹配）
@@ -181,6 +252,8 @@ Agent 通过 CLI 进程方式调用（codex-cli / claude-cli），非阻塞异�
 - **Agent 取消**: cancelledTurns Set 防止 close handler 重复提交状态
 - **持久化**: 所有状态变更方法 async/await persist() 确保数据不丢失
 - **启动恢复**: 自动重置孤儿 running 节点（服务器重启后进程已丢失）
+- **权限隔离**: [v2.4.0] RBAC deny-by-default + glob 文件访问规则
+- **仓库隔离**: [v2.4.0] Git worktree 池化防止并行 Run 文件冲突
 
 ## 运行方式
 

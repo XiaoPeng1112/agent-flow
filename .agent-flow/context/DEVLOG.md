@@ -1,5 +1,54 @@
 # 开发日志
 
+## 2026-05-31（Day 3）— v2.4.0
+
+本日聚焦 MAF 架构四大缺失能力的实现 + 健壮性全面增强。
+
+### v2.4.0 — MAF 六大服务模块
+
+**新增 6 个服务模块**（共 ~1500 行新代码）：
+
+1. **RepoIsolationService** (`repo-isolation.ts`)
+   - Git worktree 池化管理，支持 worktree / symlink / copy 三种策略
+   - Run 级隔离：每个 Run 获得独立工作目录，防止并行冲突
+   - 自动回收：Run 结束后归还 worktree，dispose 时清理全部
+
+2. **SkillMaterializationService** (`skill-materialization.ts`)
+   - 白名单/黑名单模式：按 agentRole 或 nodeType 控制 Skill 可见性
+   - 运行时物化：Skill 文件复制到节点工作目录 `.skills/`
+   - TTL 缓存：相同配置在 TTL 窗口内直接复用
+
+3. **PermissionIsolationService** (`permission-isolation.ts`)
+   - RBAC 策略：AgentPermissionPolicy 按角色定义仓库和文件访问规则
+   - 双层校验：仓库级 glob + 文件级 glob（read/write/execute）
+   - Deny-by-default + 审计日志
+
+4. **A2AProtocolService** (`a2a-protocol.ts`)
+   - 优先级收件箱：high > normal > low 排序
+   - 消息类型：request / response / delegate / broadcast
+   - ACK + resolve 确认机制，Channel 管理，过期清理
+   - Legacy InboxItem bridge 兼容旧系统
+
+5. **ContractValidatorService** (`contract-validator.ts`)
+   - 按 category 精确匹配 + format 兼容性矩阵
+   - 验证报告：matched / missing / extra / overall pass/fail
+
+6. **RobustnessService** (`robustness.ts`)
+   - 指数退避重试（configurable maxAttempts + backoffFactor）
+   - 死信队列（DLQ）：超限任务保留完整上下文
+   - Checkpoint 快照：关键时刻保存 Run/Node/Agent 状态
+   - 审计日志：全操作带时间戳记录 + JSON 导出
+
+**类型扩展**（`types/index.ts`）：新增 ~220 行类型定义覆盖 RepoPool、MaterializedSkill、AgentPermissionPolicy、A2AMessage、ContractValidationResult、RetryPolicy、DeadLetterItem、Checkpoint、AuditLogEntry 等
+
+**API 路由扩展**（`routes/api.ts`）：新增 ~230 行路由，涵盖 repo-pool、a2a、permissions、contracts、robustness、skill-materialization 六组端点
+
+**服务入口更新**（`index.ts`）：v2.4.0 版本号，所有新服务实例化 + DI 注入 + graceful shutdown 挂载
+
+**编译修复**：解决所有 TS6133/TS6196 未使用变量/导入错误，最终 `tsc --noEmit` 零错误通过
+
+---
+
 ## 2026-05-30（Day 2）— v2.2.0 → v2.3.1
 
 本日主要围绕 Code Review 反馈进行安全加固、架构增强和模板补全。

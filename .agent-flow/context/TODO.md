@@ -1,7 +1,7 @@
 # 待办与后续计划
 
 > 按优先级排列，P0 = 必须做，P1 = 应该做，P2 = 可以做  
-> 最后更新：2026-05-30（v2.3.1）
+> 最后更新：2026-05-31（v2.4.0）
 
 ## 当前阶段已完成 ✅
 
@@ -29,6 +29,12 @@
 - [x] Git 集成（GitService）
 - [x] Skill 智能推荐引擎
 - [x] Skills 多工具目录扫描（CatPaw/Claude/Codex）
+- [x] Repo Isolation（Run 级仓库隔离 + Git worktree 池化）
+- [x] Skill Materialization（白名单校验 + 运行时 Skill 副本注入 + TTL 缓存）
+- [x] Permission Isolation（RBAC + glob 文件访问控制 + 审计日志）
+- [x] A2A Inbox Protocol（优先级收件箱 + ACK 确认 + Channel 管理）
+- [x] OutputContract 验证引擎（category+format 匹配 + 验证报告）
+- [x] Robustness 健壮性服务（指数退避重试 + 死信队列 + Checkpoint + 审计导出）
 
 ## P0 — 核心功能待完善
 
@@ -55,8 +61,10 @@
 - [ ] **数据库迁移**：从 JSON 文件迁移到 SQLite（当数据量增大时）
 - [ ] **Docker 容器化**：CI/CD 流程
 - [ ] **测试覆盖**：单元测试 + E2E 测试（Vitest + Playwright）
-- [ ] **OutputContract 自动校验**：Agent 完成后自动比对产出物与合同
+- [x] ~~**OutputContract 自动校验**~~：已在 v2.4.0 实现（ContractValidatorService）
 - [ ] **Context Chaining 可视化**：在 DAG 视图中显示节点间的上下文传递关系
+- [ ] **A2A 协议前端可视化**：在 Run 详情页展示 Agent 间消息流转
+- [ ] **Checkpoint 恢复 UI**：支持从快照恢复中断的 Run
 
 ## 已知问题 🐛
 

@@ -13,6 +13,9 @@ import {
   DatabaseOutlined,
   HeartOutlined,
   CloudServerOutlined,
+  SafetyCertificateOutlined,
+  SendOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons'
 
 /**
@@ -381,6 +384,56 @@ export function AboutPage() {
               title="Skill 智能推荐"
               desc="根据节点描述和类型，通过关键词匹配和触发词评分自动推荐最相关的 Skills，降低人工配置成本。"
               color="#ec4899"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.4.0 MAF 六大服务 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<SafetyCertificateOutlined />} title="MAF 基础设施（v2.4.0）" color="purple" />
+          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.4.0 补全了 MAF 架构的四大缺失能力，并增加了合同验证引擎和全面的健壮性保障。
+              这些服务构成了 Agent 协作的<strong>基础设施层</strong>，使多 Agent 并行开发从"能跑"升级到"可靠运行"。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="Repo Isolation"
+              desc="Git worktree 池化管理，每个 Run 独立工作目录。支持 worktree / symlink / copy 三种策略，Run 结束自动回收。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<ToolOutlined />}
+              title="Skill Materialization"
+              desc="白名单/黑名单模式控制 Skill 可见性，运行时物化到 .skills/ 目录，TTL 缓存避免重复 IO，自动注入 Prompt。"
+              color="#2563eb"
+            />
+            <ArchCard
+              icon={<SafetyCertificateOutlined />}
+              title="Permission Isolation"
+              desc="RBAC 策略按 agentRole 定义仓库级和文件级访问规则（glob + read/write/execute），deny-by-default + 审计日志。"
+              color="#dc2626"
+            />
+            <ArchCard
+              icon={<SendOutlined />}
+              title="A2A Protocol"
+              desc="Agent 间异步通信：request/response/delegate/broadcast 四种消息，优先级收件箱 + ACK 确认 + Channel 管理。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<CodeOutlined />}
+              title="Contract Validation"
+              desc="节点完成时自动校验产出物满足 OutputContract：category 精确匹配 + format 兼容矩阵，生成 pass/fail 报告。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="Robustness"
+              desc="指数退避重试 + 死信队列（DLQ）+ Checkpoint 快照 + 审计日志。为工作流执行提供容错和全链路可观测。"
+              color="#d97706"
             />
           </div>
         </section>

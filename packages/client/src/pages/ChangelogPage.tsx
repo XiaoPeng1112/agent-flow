@@ -15,6 +15,36 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.4.0',
+    date: '2026-05-31',
+    title: 'MAF 六大服务模块 — 仓库隔离 / Skill 物化 / 权限控制 / A2A 通信 / 合同验证 / 健壮性',
+    type: 'feature',
+    highlights: [
+      'Repo Isolation（Git worktree 池化隔离）',
+      'Skill Materialization（白名单 + TTL 缓存）',
+      'Permission Isolation（RBAC + glob 文件控制）',
+      'A2A Protocol（优先级收件箱 + ACK）',
+      'OutputContract 验证引擎',
+      '健壮性：指数退避重试 + 死信队列',
+      'Checkpoint 快照 + 审计日志',
+      '~220 行新类型定义',
+      '~230 行新 API 路由',
+    ],
+    details: `v2.4.0 是 MAF 架构的一次重大能力补全，新增 6 个核心服务模块（共 ~1500 行新代码），实现了从设计文档到可运行代码的完整落地。
+
+【Repo Isolation】每个 Run 获得独立的 Git worktree 工作目录，防止多个并行 Run 之间的文件冲突。仓库池全局管理，支持 worktree / symlink / copy 三种创建策略，Run 结束后自动回收。
+
+【Skill Materialization】Agent 执行前，系统根据白名单/黑名单策略将 Skill 文件物化到节点工作目录 .skills/ 下。支持 agentRole 和 nodeType 维度的访问控制，物化结果带 TTL 缓存避免重复 IO，并可格式化为 Agent system prompt 注入。
+
+【Permission Isolation】基于 RBAC 的 Agent 粒度权限控制。按 agentRole 定义仓库级（glob）和文件级（glob + read/write/execute）访问规则，deny-by-default 安全默认，每次权限检查结果记录审计日志。
+
+【A2A Protocol】运行时 Agent 间异步通信协议。支持 request/response/delegate/broadcast 四种消息类型，每个 Agent 维护优先级收件箱（high > normal > low），ACK 确认机制追踪消息状态流转，Channel 管理支持消息分组和自动过期清理，Legacy Bridge 兼容原有 InboxItem 格式。
+
+【Contract Validation】节点完成时自动校验 Agent 产出物是否满足 OutputContract 定义。按 category 精确匹配 + format 兼容性矩阵评估，生成包含 matched/missing/extra 的详细验证报告。
+
+【Robustness】指数退避重试（配置化 maxAttempts + backoffFactor + 可重试错误类型过滤）、死信队列（DLQ，超限任务保留完整上下文供人工处理）、Checkpoint 快照（关键时刻保存 Run/Node/Agent 状态支持故障恢复）、审计日志（全操作带时间戳记录 + JSON 导出）。`,
+  },
+  {
     version: 'v2.3.1',
     date: '2026-05-30',
     title: '工作流模板完善 & 异步安全修复',

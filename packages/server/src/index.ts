@@ -12,6 +12,12 @@ import { WorkflowEngine } from './services/workflow-engine.js'
 import { TemplateService } from './services/template.js'
 import { AuthService } from './services/auth.js'
 import { GitService } from './services/git.js'
+import { RepoIsolationService } from './services/repo-isolation.js'
+import { SkillMaterializationService } from './services/skill-materialization.js'
+import { PermissionIsolationService } from './services/permission-isolation.js'
+import { A2AProtocolService } from './services/a2a-protocol.js'
+import { ContractValidatorService } from './services/contract-validator.js'
+import { RobustnessService } from './services/robustness.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -32,6 +38,14 @@ const agentService = new AgentService(workflowEngine)
 const authService = new AuthService()
 const gitService = new GitService()
 
+// === 新增能力服务 ===
+const repoIsolationService = new RepoIsolationService()
+const skillMaterializationService = new SkillMaterializationService(skillService)
+const permissionIsolationService = new PermissionIsolationService()
+const a2aProtocolService = new A2AProtocolService(workflowEngine)
+const contractValidatorService = new ContractValidatorService()
+const robustnessService = new RobustnessService()
+
 // ═══════════════ Express 应用 ═══════════════
 
 const app = express()
@@ -48,19 +62,33 @@ app.use('/api', createApiRouter({
   templateService,
   authService,
   gitService,
+  repoIsolationService,
+  skillMaterializationService,
+  permissionIsolationService,
+  a2aProtocolService,
+  contractValidatorService,
+  robustnessService,
 }))
 
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.3.1',
+    version: '2.4.0',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
       templates: templateService.getTemplates().length,
       runs: workflowEngine.getRuns().length,
       agents: agentService.getAgents().length,
+    },
+    capabilities: {
+      repoIsolation: true,
+      skillMaterialization: true,
+      permissionIsolation: true,
+      a2aProtocol: true,
+      contractValidation: true,
+      robustness: robustnessService.getHealthStatus(),
     },
   })
 })
@@ -162,7 +190,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`
 ┌───────────────────────────────────────────────┐
-│     AgentFlow Server v2.3.1                   │
+│     AgentFlow Server v2.4.0                   │
 │     MAF-inspired Workflow Engine             │
 │                                               │
 │  HTTP API:  http://localhost:${PORT}/api         │
@@ -175,6 +203,12 @@ async function start() {
 │  • Multi-role Agent system                    │
 │  • Agent Turn lifecycle management            │
 │  • Structured artifact delivery               │
+│  • Repo isolation (worktree/symlink)          │
+│  • Skill materialization (whitelist)          │
+│  • Permission isolation (RBAC)                │
+│  • A2A Protocol (Agent communication)         │
+│  • OutputContract validation                  │
+│  • Robustness (retry/DLQ/checkpoint)          │
 └───────────────────────────────────────────────┘
     `)
   })
@@ -183,16 +217,14 @@ async function start() {
 start().catch(console.error)
 
 // 优雅退出
-process.on('SIGTERM', () => {
+function gracefulShutdown() {
   terminalService.closeAll()
   fileService.unwatchAll()
+  a2aProtocolService.dispose()
+  robustnessService.dispose()
   server.close()
   process.exit(0)
-})
+}
 
-process.on('SIGINT', () => {
-  terminalService.closeAll()
-  fileService.unwatchAll()
-  server.close()
-  process.exit(0)
-})
+process.on('SIGTERM', gracefulShutdown)
+process.on('SIGINT', gracefulShutdown)
