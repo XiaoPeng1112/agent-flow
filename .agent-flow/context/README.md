@@ -44,4 +44,4 @@ npm run sync-context
 - 本目录纳入 Git 版本控制，随代码一起推送
 - 修改通过 commit + PR review 流程
 - 冲突解决走 Git 标准 merge 流程
-- 建议每人在 DEVLOG.md 中标注自己的 MIS/GitHub ID
+- 建议每人在 DEVLOG.md 中标注自己的 GitHub ID

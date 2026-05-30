@@ -15,6 +15,28 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.4.1',
+    date: '2026-05-31',
+    title: '工程质量提升 — 代码分割 / ErrorBoundary / 统一请求 Hook / 单元测试',
+    type: 'improvement',
+    highlights: [
+      'React.lazy + Suspense 路由级代码分割',
+      'ErrorBoundary 全局错误隔离',
+      'useRequest Hook（Loading / Toast / 指数退避重试）',
+      'Vitest 单元测试（68 cases 覆盖三大核心服务）',
+      '首屏 JS 体积优化（页面 chunk 独立拆分）',
+    ],
+    details: `v2.4.1 聚焦于工程质量和前端健壮性提升，为项目补全了四大基础能力。
+
+【代码分割】所有 5 个路由页面改为 React.lazy() 动态导入 + Suspense 包裹，首屏不再加载未访问页面的代码。构建产物从单一 ~1.1MB chunk 拆分为 845KB 主包 + 多个独立页面 chunk，显著提升首屏加载速度。
+
+【ErrorBoundary】新增全局 React Error Boundary 组件，包裹在 AppLayout 的 Outlet 外层。任何页面级 JS 崩溃都会被捕获并展示友好的错误 UI（含重试按钮），开发环境额外显示错误堆栈，防止白屏扩散。
+
+【useRequest Hook】实现统一的异步请求管理 Hook，内置 loading 状态追踪、请求成功/失败 Toast 提示、指数退避自动重试（可配置最大次数和延迟）。另提供轻量版 useLoadingAction 用于简单的 loading 按钮场景。
+
+【Vitest 单元测试】为后端三大核心服务（WorkflowEngine、A2A Protocol、Contract Validator）编写共 68 个单元测试用例，覆盖 Run/Node 生命周期、Turn 管理、拓扑排序、消息通信、合同验证等全部核心逻辑，全部通过。`,
+  },
+  {
     version: 'v2.4.0',
     date: '2026-05-30',
     title: 'MAF 六大服务模块 — 仓库隔离 / Skill 物化 / 权限控制 / A2A 通信 / 合同验证 / 健壮性',

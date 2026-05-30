@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.4.0 | 更新日期：2026-05-30  
+> 版本：v2.4.1 | 更新日期：2026-05-31  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -551,19 +551,33 @@ cd packages/server && npx tsc --noEmit
 cd packages/client && npx tsc --noEmit
 ```
 
+### 12.4 运行测试
+
+```bash
+# 运行全部单元测试（需要 Node 20+）
+cd packages/server && npm test
+
+# Watch 模式（文件变更自动重跑）
+npm run test:watch
+
+# 生成覆盖率报告
+npm run test:coverage
+```
+
 ---
 
 ## 13. 故障排查
 
 | 问题 | 原因 | 解决方案 |
 |------|------|----------|
-| 红色"后端服务未连接"横幅 | 后端未启动 | 执行 `npm run dev` |
+| 红色“后端服务未连接”横幅 | 后端未启动 | 执行 `npm run dev` |
 | 前端显示空白 | Node.js 版本过低 | `nvm use 20` |
 | EADDRINUSE 端口冲突 | 旧进程未退出 | `lsof -ti:3001 \| xargs kill -9` |
 | HMR 不生效 | FSEvents 不触发 | 已配置 usePolling，硬刷新 `Cmd+Shift+R` |
 | Agent 执行无响应 | codex-cli/claude-cli 未安装 | 安装对应 CLI 工具 |
 | GitHub 登录报错 | 未配置 OAuth 环境变量 | 设置 `GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET` |
-| 构建单 chunk 过大警告 | 未做代码分割 | 可忽略，不影响功能（后续优化项） |
+| 构建 vendor chunk 过大警告 | antd 体积较大 | 可忽略，页面已通过 React.lazy 独立拆分 |
+| Vitest 报错 styleText | Node.js 版本过低 | 需要 Node 20+，`nvm use 20` |
 
 ---
 
@@ -571,6 +585,7 @@ cd packages/client && npx tsc --noEmit
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.4.1 | 2026-05-31 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
 | v2.4.0 | 2026-05-30 | MAF 六大服务模块（Repo/Skill/Permission/A2A/Contract/Robustness） |
 | v2.3.1 | 2026-05-30 | 模板补全 + 异步安全修复 |
 | v2.3.0 | 2026-05-30 | 安全加固 + DAG 增强 + AI 开发流程优化 |
@@ -585,12 +600,12 @@ cd packages/client && npx tsc --noEmit
 
 基于当前项目状态，以下是软件工程角度的优化建议：
 
-### 短期（建议优先处理）
+### 短期（✅ v2.4.1 已全部完成）
 
-- **代码分割**：当前前端单 chunk ~1.1MB，建议对 pages 使用 `React.lazy()` + `Suspense` 拆分
-- **单元测试**：核心服务（WorkflowEngine、A2AProtocol、ContractValidator）应有 Vitest 单元测试覆盖
-- **错误边界**：前端添加 React Error Boundary，防止单个组件崩溃导致全局白屏
-- **API 请求错误统一处理**：Toast 提示 + Loading 状态 + 请求重试
+- ✅ **代码分割**：React.lazy + Suspense 路由级分割，页面 chunk 独立拆分
+- ✅ **单元测试**：Vitest 68 cases 覆盖 WorkflowEngine、A2AProtocol、ContractValidator
+- ✅ **错误边界**：React ErrorBoundary 全局错误隔离，防止白屏扩散
+- ✅ **API 请求错误统一处理**：useRequest Hook（Toast + Loading + 指数退避重试）
 
 ### 中期
 

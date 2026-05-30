@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-05-30（v2.4.0）  
+> 最后更新：2026-05-31（v2.4.1）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -25,16 +25,22 @@ agent-flow/
 │   │   ├── src/
 │   │   │   ├── api/         # API 客户端（REST 请求封装）
 │   │   │   ├── components/  # UI 组件
+│   │   │   │   ├── common/    # 通用组件（ErrorBoundary / RouteLoadingFallback）
 │   │   │   │   ├── detail/    # 项目详情面板（Runs/Workflow/Skills/Agents/Settings）
 │   │   │   │   ├── layout/   # 布局组件（AppLayout）
 │   │   │   │   └── sidebar/  # 侧边栏（Sidebar/AddProjectModal/UserPanel）
+│   │   │   ├── hooks/       # 自定义 Hooks（useRequest / useLoadingAction）
 │   │   │   ├── pages/       # 路由页面（Home/Project/RunDetail/Changelog/About）
-│   │   │   ├── router/      # React Router 配置
+│   │   │   ├── router/      # React Router 配置（React.lazy 代码分割）
 │   │   │   ├── store/       # Zustand 状态管理
 │   │   │   └── types/       # TypeScript 类型定义
 │   │   ├── vite.config.ts
 │   │   └── index.html
 │   └── server/          # 后端 Express 服务
+│       ├── tests/         # Vitest 单元测试（68 cases）
+│       │   ├── workflow-engine.test.ts
+│       │   ├── a2a-protocol.test.ts
+│       │   └── contract-validator.test.ts
 │       └── src/
 │           ├── index.ts       # 服务入口（v2.4.0）
 │           ├── routes/
@@ -87,6 +93,7 @@ agent-flow/
 | Express | 5 | HTTP 框架 |
 | ws | - | WebSocket 实时通信 |
 | tsx | - | TypeScript 直接运行 + watch 热更新 |
+| Vitest | latest | 单元测试框架 |
 | Node.js | 20+ | 运行时（Vite 8 强制要求） |
 
 ### 数据持久化

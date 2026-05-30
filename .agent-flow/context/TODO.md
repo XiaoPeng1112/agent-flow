@@ -1,7 +1,7 @@
 # 待办与后续计划
 
 > 按优先级排列，P0 = 必须做，P1 = 应该做，P2 = 可以做  
-> 最后更新：2026-05-30（v2.4.0）
+> 最后更新：2026-05-31（v2.4.1）
 
 ## 当前阶段已完成 ✅
 
@@ -35,6 +35,10 @@
 - [x] A2A Inbox Protocol（优先级收件箱 + ACK 确认 + Channel 管理）
 - [x] OutputContract 验证引擎（category+format 匹配 + 验证报告）
 - [x] Robustness 健壮性服务（指数退避重试 + 死信队列 + Checkpoint + 审计导出）
+- [x] 路由级代码分割（React.lazy + Suspense，页面 chunk 独立拆分）
+- [x] React ErrorBoundary 全局错误隔离
+- [x] useRequest Hook（Loading / Toast / 指数退避重试）
+- [x] Vitest 单元测试（68 cases 覆盖三大核心服务）
 
 ## P0 — 核心功能待完善
 
@@ -45,10 +49,10 @@
 
 ## P1 — 体验优化
 
-- [ ] **错误处理统一化**：API 请求失败时的 Toast 提示、Loading 状态
+- [x] ~~**错误处理统一化**~~：已在 v2.4.1 实现（useRequest Hook + ErrorBoundary）
 - [ ] **Sidebar 项目右键菜单**：重命名、打开文件夹、复制路径
 - [ ] **深色主题一致性**：部分页面（Changelog/About）背景为白色，与 Sidebar 深色不协调
-- [ ] **代码分割**：Vite 构建单 chunk 过大，对 pages 做 lazy import
+- [x] ~~**代码分割**~~：已在 v2.4.1 实现（React.lazy + Suspense 路由级分割）
 - [ ] **移动端适配**：当前仅桌面端布局
 - [ ] **Vite strictPort 配置**：建议加上 `strictPort: true` 避免端口静默切换
 
@@ -60,7 +64,8 @@
 - [ ] **执行历史回放**：Turn 级别的执行录像回放
 - [ ] **数据库迁移**：从 JSON 文件迁移到 SQLite（当数据量增大时）
 - [ ] **Docker 容器化**：CI/CD 流程
-- [ ] **测试覆盖**：单元测试 + E2E 测试（Vitest + Playwright）
+- [x] ~~**单元测试**~~：已在 v2.4.1 实现（Vitest 68 cases 覆盖三大核心服务）
+- [ ] **E2E 测试**：Playwright 覆盖核心用户路径
 - [x] ~~**OutputContract 自动校验**~~：已在 v2.4.0 实现（ContractValidatorService）
 - [ ] **Context Chaining 可视化**：在 DAG 视图中显示节点间的上下文传递关系
 - [ ] **A2A 协议前端可视化**：在 Run 详情页展示 Agent 间消息流转
@@ -69,7 +74,7 @@
 ## 已知问题 🐛
 
 - Vite 8 要求 Node.js 20+，需要通过 `nvm use --delete-prefix v20.19.2` 切换
-- 生产构建单 chunk 过大（~1.1MB），需做代码分割
+- ~~生产构建单 chunk 过大（~1.1MB），需做代码分割~~ → 已在 v2.4.1 通过 React.lazy 解决，页面 chunk 已独立拆分
 - Vite dev server 未配置 strictPort，端口被占用时会静默递增到下一个可用端口
 - GitHub OAuth 需要配置环境变量，未配置时登录按钮点击会报错（需加友好提示）
 - `tsx watch` 仅监听 server 端代码变更，client 端依赖 Vite HMR 独立热更新

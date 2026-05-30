@@ -1,5 +1,53 @@
 # 开发日志
 
+## 2026-05-31 — v2.4.1
+
+本日聚焦工程质量提升：代码分割、全局错误隔离、统一请求 Hook 和单元测试覆盖。
+
+### v2.4.1 — 工程质量提升
+
+**完成内容**:
+
+1. **路由级代码分割**
+   - 所有 5 个路由页面（Home/Project/RunDetail/Changelog/About）改为 `React.lazy()` 动态导入
+   - 新增 `SuspenseWrapper` 组件统一包裹 lazy 路由
+   - 新增 `RouteLoadingFallback` 组件提供加载中 UI
+   - 构建产物从单一 ~1.1MB chunk 拆分为 845KB 主包 + 独立页面 chunk
+
+2. **React ErrorBoundary**
+   - 新增 `components/common/ErrorBoundary.tsx`（class 组件，getDerivedStateFromError）
+   - 包裹在 AppLayout 的 `<Outlet />` 外层，捕获页面级崩溃
+   - 提供友好错误 UI + 重试按钮，开发环境额外显示错误堆栈
+
+3. **useRequest Hook**
+   - 新增 `hooks/useRequest.ts`
+   - `useRequest`：完整版，内置 loading 状态、成功/失败 Toast、指数退避重试（可配置最大次数和延迟）
+   - `useLoadingAction`：轻量版，仅包含 loading + try/catch 包裹
+
+4. **Vitest 单元测试**
+   - 新增 `packages/server/vitest.config.ts`
+   - 新增 `packages/server/tests/` 目录，包含三个测试文件：
+     - `workflow-engine.test.ts`（26 cases）：Run/Node 生命周期、Turn 管理、拓扑排序
+     - `a2a-protocol.test.ts`（26 cases）：消息收发、Channel、broadcast、retry/fail
+     - `contract-validator.test.ts`（16 cases）：format 匹配、验证报告
+   - 共 68 个测试用例，全部通过
+   - `package.json` 添加 `test` / `test:watch` / `test:coverage` 脚本
+
+**遇到的问题**:
+- Vitest 在 Node 16 下报错 `styleText is not exported from node:util` → 需要 Node 20+（`nvm use 20`）
+- 构建后 vendor chunk（antd）仍有 500KB+ 警告 → 预期行为，页面 chunk 已独立拆分
+
+**新增文件**:
+- `packages/client/src/components/common/RouteLoadingFallback.tsx`
+- `packages/client/src/components/common/ErrorBoundary.tsx`
+- `packages/client/src/hooks/useRequest.ts`
+- `packages/server/vitest.config.ts`
+- `packages/server/tests/workflow-engine.test.ts`
+- `packages/server/tests/a2a-protocol.test.ts`
+- `packages/server/tests/contract-validator.test.ts`
+
+---
+
 ## 2026-05-30 — v2.4.0
 
 本日聚焦 MAF 架构四大缺失能力的实现 + 健壮性全面增强。

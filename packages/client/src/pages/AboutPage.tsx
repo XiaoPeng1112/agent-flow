@@ -191,6 +191,7 @@ export function AboutPage() {
                 'Node.js 20+ (tsx 热更新)',
                 'JSON 文件持久化',
                 'CLI 进程管理 (Codex/Claude)',
+                'Vitest (单元测试框架)',
               ]}
             />
           </div>
