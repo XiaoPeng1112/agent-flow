@@ -15,6 +15,8 @@ import {
   StopOutlined,
   LoadingOutlined,
   WarningOutlined,
+  EditOutlined,
+  FieldTimeOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { runApi, nodeApi, agentApi } from '../../api'
@@ -50,6 +52,7 @@ const roleConfig: Record<string, { label: string; color: string }> = {
 
 export function RunDetail({ run, onBack }: Props) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [tokenStats, setTokenStats] = useState<{ totalTokens: number; estimatedCost?: { usd: number } } | null>(null)
   const updateRun = useAppStore((s) => s.updateRun)
   const updateNode = useAppStore((s) => s.updateNode)
   const agents = useAppStore((s) => s.agents)
@@ -58,6 +61,19 @@ export function RunDetail({ run, onBack }: Props) {
   const { message } = App.useApp()
 
   const selectedNode = run.nodes.find((n) => n.id === selectedNodeId)
+
+  // 定期刷新 Token 统计
+  useEffect(() => {
+    if (run.status === 'created') return
+    const fetchStats = () => {
+      runApi.getTokenStats(run.id)
+        .then((res) => setTokenStats(res.data))
+        .catch(() => {})
+    }
+    fetchStats()
+    const timer = setInterval(fetchStats, 10000) // 每 10 秒刷新
+    return () => clearInterval(timer)
+  }, [run.id, run.status])
 
   const handleStartRun = async () => {
     try {
@@ -68,6 +84,9 @@ export function RunDetail({ run, onBack }: Props) {
       message.error(`启动失败: ${err.message}`)
     }
   }
+
+  // 完成的节点数
+  const completedNodes = run.nodes.filter((n) => n.status === 'completed').length
 
   return (
     <div className="h-full flex flex-col -mx-7 -my-5 px-7 py-5">
@@ -89,9 +108,20 @@ export function RunDetail({ run, onBack }: Props) {
             </Tag>
           </div>
           <p className="text-[12px] text-gray-400 mt-0.5">
-            {run.nodes.length} 节点 · 创建于 {new Date(run.createdAt).toLocaleString('zh-CN')}
+            {run.nodes.length} 节点 · 已完成 {completedNodes}/{run.nodes.length} · 创建于 {new Date(run.createdAt).toLocaleString('zh-CN')}
           </p>
         </div>
+
+        {/* Token 统计徽章 */}
+        {tokenStats && tokenStats.totalTokens > 0 && (
+          <Tooltip title={tokenStats.estimatedCost ? `预估费用: $${tokenStats.estimatedCost.usd}` : 'Token 消耗'}>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] text-indigo-600 font-medium">
+              <ThunderboltOutlined />
+              <span>{tokenStats.totalTokens.toLocaleString()} tokens</span>
+            </div>
+          </Tooltip>
+        )}
+
         {run.status === 'created' && (
           <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStartRun}>
             启动 Run
@@ -123,6 +153,56 @@ export function RunDetail({ run, onBack }: Props) {
           />
         )}
       </div>
+    </div>
+  )
+}
+
+// ═══════════════ 节点计时器 ═══════════════
+
+function NodeTimer({ startedAt, completedAt, status }: {
+  startedAt?: number
+  completedAt?: number
+  status: TaskNodeStatus
+}) {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    if (!startedAt) return
+
+    if (completedAt) {
+      // 已完成，显示固定耗时
+      setElapsed(Math.round((completedAt - startedAt) / 1000))
+      return
+    }
+
+    if (status !== 'running' && status !== 'wait_user_review') return
+
+    // running 状态实时更新
+    setElapsed(Math.round((Date.now() - startedAt) / 1000))
+    const timer = setInterval(() => {
+      setElapsed(Math.round((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [startedAt, completedAt, status])
+
+  if (!startedAt || elapsed === 0) return null
+
+  const formatTime = (s: number) => {
+    if (s < 60) return `${s}s`
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return `${m}m ${sec}s`
+  }
+
+  const isActive = status === 'running'
+  return (
+    <div className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${
+      isActive
+        ? 'text-amber-600 bg-amber-50'
+        : 'text-gray-400 bg-gray-50'
+    }`}>
+      <FieldTimeOutlined className={isActive ? 'animate-pulse' : ''} />
+      <span>{formatTime(elapsed)}</span>
     </div>
   )
 }
@@ -197,6 +277,15 @@ function DAGView({ run, selectedNodeId, onSelectNode, activeTurns }: {
                   <p className="text-[11px] text-gray-400 mt-0.5 truncate">{node.description}</p>
                 </div>
 
+                {/* 计时器 */}
+                {node.startedAt && (
+                  <NodeTimer
+                    startedAt={node.startedAt}
+                    completedAt={node.completedAt}
+                    status={node.status}
+                  />
+                )}
+
                 {/* 产出物 */}
                 {node.artifacts.length > 0 && (
                   <Tooltip title={`${node.artifacts.length} 个产出物`}>
@@ -254,6 +343,8 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
   const [userInput, setUserInput] = useState(node.userInput || '')
   const [loading, setLoading] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [feedbackText, setFeedbackText] = useState('')
   const { message } = App.useApp()
 
   // ★ Agent 列表：所有可用的排前面，默认选通用 Codex
@@ -379,12 +470,20 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
     }
   }
 
-  const handleApprove = async () => {
+  const handleApprove = async (withFeedback = false) => {
     try {
-      const res = await nodeApi.approve(run.id, node.id)
+      const feedback = withFeedback ? feedbackText.trim() : undefined
+      const res = await nodeApi.approve(run.id, node.id, feedback)
       onUpdate(res.node)
-      message.success('验收通过')
-      appendTaskLog(`[${node.name}] 验收通过 ✓`)
+      if (feedback) {
+        message.success('已通过，修改意见将传递给后续节点')
+        appendTaskLog(`[${node.name}] 验收通过 ✓ (附修改意见)`)
+      } else {
+        message.success('验收通过')
+        appendTaskLog(`[${node.name}] 验收通过 ✓`)
+      }
+      setShowFeedback(false)
+      setFeedbackText('')
     } catch (err: any) {
       message.error(err.message)
     }
@@ -516,6 +615,45 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
         <AgentOutputPanel turn={currentTurn} />
       )}
 
+      {/* ★ Agent 最终输出展示（wait_user_review 时显示） */}
+      {node.status === 'wait_user_review' && node.artifacts.length === 0 && (
+        <AgentResultPreview nodeId={node.id} />
+      )}
+
+      {/* ★ 修改后继续 — 输入区域 */}
+      {node.status === 'wait_user_review' && showFeedback && (
+        <div className="mb-3">
+          <label className="text-[12px] text-gray-600 mb-1.5 block font-medium">
+            修改意见（将传递给后续节点）
+          </label>
+          <Input.TextArea
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            rows={3}
+            placeholder="描述需要调整的地方，例如：\n· 请增加对边界情况的考虑\n· 方案二更优，请按方案二执行"
+            className="!text-[12px] !bg-white"
+            autoFocus
+          />
+          <div className="flex gap-2 mt-2">
+            <Button
+              type="primary"
+              size="small"
+              disabled={!feedbackText.trim()}
+              onClick={() => handleApprove(true)}
+              className="flex-1"
+            >
+              确认并继续
+            </Button>
+            <Button
+              size="small"
+              onClick={() => { setShowFeedback(false); setFeedbackText('') }}
+            >
+              取消
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* 操作按钮 */}
       <Space direction="vertical" className="w-full" size="small">
         {node.status === 'ready' && (
@@ -545,16 +683,24 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
           </Button>
         )}
 
-        {node.status === 'wait_user_review' && (
+        {node.status === 'wait_user_review' && !showFeedback && (
           <>
             <Button
               type="primary"
               icon={<CheckCircleOutlined />}
-              onClick={handleApprove}
+              onClick={() => handleApprove(false)}
               block
               style={{ backgroundColor: '#10b981' }}
             >
               确认通过
+            </Button>
+            <Button
+              icon={<EditOutlined />}
+              onClick={() => setShowFeedback(true)}
+              block
+              className="!text-blue-600 !border-blue-200 !bg-blue-50 hover:!bg-blue-100"
+            >
+              修改后继续
             </Button>
             <Button
               icon={<CloseCircleOutlined />}
@@ -668,6 +814,46 @@ function AgentOutputPanel({ turn }: { turn: AgentTurn }) {
         <span className="text-[10px] text-gray-400">
           {Math.round((Date.now() - turn.startedAt) / 1000)}s 已运行
         </span>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════ Agent 结果预览（审批时展示） ═══════════════
+
+function AgentResultPreview({ nodeId }: { nodeId: string }) {
+  const [output, setOutput] = useState<string>('')
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    // 从 API 获取该节点最后一个 turn 的输出
+    agentApi.getNodeTurns(nodeId)
+      .then(({ turns }) => {
+        const lastCompleted = [...turns].reverse().find((t: any) => t.status === 'completed')
+        if (lastCompleted?.output) setOutput(lastCompleted.output)
+      })
+      .catch(() => {})
+  }, [nodeId])
+
+  if (!output) return null
+
+  const preview = output.length > 500 && !expanded ? output.slice(0, 500) + '...' : output
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-[12px] text-gray-500 font-medium">Agent 输出结果</label>
+        {output.length > 500 && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-[10px] text-indigo-500 hover:text-indigo-700"
+          >
+            {expanded ? '收起' : '展开全部'}
+          </button>
+        )}
+      </div>
+      <div className="px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-lg text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+        {preview}
       </div>
     </div>
   )

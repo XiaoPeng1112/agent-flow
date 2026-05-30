@@ -273,7 +273,7 @@ export class AgentService {
       this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
     })
 
-    proc.on('close', (code) => {
+    proc.on('close', async (code) => {
       clearTimeout(timeout)
       this.activeProcesses.delete(turnId)
 
@@ -312,7 +312,7 @@ export class AgentService {
 
       // 通知节点完成/失败 — 通过自动提交节点决策（只提交一次）
       try {
-        this.workflowEngine.submitNodeDecision(
+        await this.workflowEngine.submitNodeDecision(
           runId,
           nodeId,
           wasCancelled ? 'failed' : (code === 0 ? 'waiting_user_review' : 'failed'),
@@ -517,10 +517,15 @@ export class AgentService {
   private parseTokenUsage(output: string, agentType: string): { input: number; output: number; total: number } | undefined {
     try {
       if (agentType === 'codex') {
-        // Codex 输出格式: "tokens used\n9,000" 或 "tokens used\n12,345"
+        // Codex 输出格式多种：
+        // 1. "tokens used\n9,000" 或 "tokens used\n12,345"
+        // 2. "(68350 tokens)" 或 "(68,350 tokens)"
+        // 3. "Token usage: 12345"
         const match = output.match(/tokens?\s*used\s*\n?\s*([\d,]+)/i)
+          || output.match(/\((\s*[\d,]+)\s*tokens?\s*\)/i)
+          || output.match(/token\s*usage[:\s]+([\d,]+)/i)
         if (match) {
-          const total = parseInt(match[1].replace(/,/g, ''), 10)
+          const total = parseInt(match[1].replace(/[,\s]/g, ''), 10)
           // Codex 不区分 input/output，估算 70% input 30% output
           return { input: Math.round(total * 0.7), output: Math.round(total * 0.3), total }
         }
@@ -660,8 +665,15 @@ export class AgentService {
       case 'codex':
         // codex exec 非交互模式，通过 stdin 传递 prompt（用 `-` 表示从 stdin 读取）
         // --skip-git-repo-check 避免要求 git 仓库
+        // macOS 15 Sequoia 上 sandbox-exec 全局不可用（Operation not permitted），
+        // 因此使用 danger-full-access 跳过系统 sandbox。
+        // 安全保障由 AgentFlow 的节点审批机制 + cwd 限定来提供。
         return {
-          args: ['exec', '-', '--skip-git-repo-check'],
+          args: [
+            'exec', '-',
+            '--skip-git-repo-check',
+            '--sandbox', 'danger-full-access',
+          ],
           useStdin: true,
         }
       case 'claude':

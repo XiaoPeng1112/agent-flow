@@ -80,6 +80,9 @@ export const runApi = {
 
   delete: (id: string) =>
     request<void>(`/runs/${id}`, { method: 'DELETE' }),
+
+  getTokenStats: (id: string) =>
+    request<{ data: { totalInput: number; totalOutput: number; totalTokens: number; byNode: any[]; estimatedCost?: { usd: number; breakdown: string } } }>(`/runs/${id}/token-stats`),
 }
 
 // ═══════════════ Node API ═══════════════
@@ -94,8 +97,11 @@ export const nodeApi = {
       body: JSON.stringify({ decision, error }),
     }),
 
-  approve: (runId: string, nodeId: string) =>
-    request<{ node: any }>(`/runs/${runId}/nodes/${nodeId}/approve`, { method: 'POST' }),
+  approve: (runId: string, nodeId: string, feedback?: string) =>
+    request<{ node: any }>(`/runs/${runId}/nodes/${nodeId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ feedback }),
+    }),
 
   reject: (runId: string, nodeId: string, feedback?: string) =>
     request<{ node: any }>(`/runs/${runId}/nodes/${nodeId}/reject`, {

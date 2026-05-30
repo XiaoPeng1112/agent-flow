@@ -383,15 +383,29 @@ export class WorkflowEngine {
   }
 
   /**
-   * 用户确认节点（wait_user_review → completed）
-   */
-  async approveNode(runId: string, nodeId: string): Promise<TaskNode> {
+  * 用户确认节点（wait_user_review → completed）
+  * @param feedback 可选的修改意见，会附加到节点 artifacts 中传递给后续节点
+  */
+  async approveNode(runId: string, nodeId: string, feedback?: string): Promise<TaskNode> {
     const run = this.getRun(runId)
     if (!run) throw new Error(`Run not found: ${runId}`)
 
     const node = run.nodes.find((n) => n.id === nodeId)
     if (!node) throw new Error(`Node not found: ${nodeId}`)
     if (node.status !== 'wait_user_review') throw new Error(`Node ${nodeId} is not waiting for review`)
+
+    // 如果用户提供了修改意见，附加到 artifacts 中供后续节点 Context Chaining 消费
+    if (feedback && feedback.trim()) {
+      node.artifacts.push({
+        id: `feedback-${Date.now()}`,
+        nodeId,
+        title: '用户修改意见',
+        category: 'document',
+        format: 'markdown',
+        content: feedback.trim(),
+        createdAt: Date.now(),
+      })
+    }
 
     node.status = 'completed'
     node.completedAt = Date.now()

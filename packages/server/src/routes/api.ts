@@ -277,10 +277,11 @@ export function createApiRouter(deps: {
     }
   })
 
-  /** 用户确认节点（wait_user_review → completed） */
+  /** 用户确认节点（wait_user_review → completed），可附带修改意见 */
   router.post('/runs/:runId/nodes/:nodeId/approve', async (req, res) => {
+    const { feedback } = req.body || {}
     try {
-      const node = await workflowEngine.approveNode(req.params.runId, req.params.nodeId)
+      const node = await workflowEngine.approveNode(req.params.runId, req.params.nodeId, feedback)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
