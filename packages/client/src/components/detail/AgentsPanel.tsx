@@ -11,7 +11,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { agentApi } from '../../api'
+import { agentApi, runApi } from '../../api'
 import type { AgentConfig, AgentTurn } from '../../types'
 
 interface Props {
@@ -40,7 +40,46 @@ export function AgentsPanel({ project: _project }: Props) {
     }
   }
 
-  // Token 统计（从 WebSocket 事件中收集的 activeTurns 完成后的 tokenUsage）
+  // 从后端拉取所有 Run 的 Token 统计（持久化数据，刷新不丢失）
+  const [backendTokenStats, setBackendTokenStats] = useState<{
+    totalInput: number; totalOutput: number; totalTokens: number;
+    byNode: Array<{ nodeId: string; nodeName: string; input: number; output: number; total: number; turnCount: number }>
+  } | null>(null)
+
+  const fetchTokenStats = async () => {
+    try {
+      // 获取当前项目的所有 runs，汇总 token
+      const runsRes = await runApi.list(_project.id)
+      const runs = (runsRes as any)?.runs || (runsRes as any)?.data?.runs || []
+      let totalInput = 0, totalOutput = 0, totalTokens = 0
+      const byNode: any[] = []
+
+      for (const run of runs) {
+        try {
+          const statsRes = await runApi.getTokenStats(run.id)
+          const data = (statsRes as any)?.data || statsRes
+          if (data && data.totalTokens > 0) {
+            totalInput += data.totalInput || 0
+            totalOutput += data.totalOutput || 0
+            totalTokens += data.totalTokens || 0
+            if (data.byNode) byNode.push(...data.byNode)
+          }
+        } catch {
+          // 单个 run 获取失败不影响整体
+        }
+      }
+
+      setBackendTokenStats({ totalInput, totalOutput, totalTokens, byNode })
+    } catch {
+      // 静默失败
+    }
+  }
+
+  useEffect(() => {
+    fetchTokenStats()
+  }, [_project.id])
+
+  // Token 统计：合并后端持久化数据 + 本次会话 WS 实时数据
   const tokenStats = useMemo(() => {
     const stats: Record<string, { input: number; output: number; total: number; turnCount: number }> = {}
 
@@ -62,8 +101,9 @@ export function AgentsPanel({ project: _project }: Props) {
     return stats
   }, [agents, turnHistory])
 
-  // 汇总统计
+  // 汇总统计：后端数据 + 实时数据
   const totalStats = useMemo(() => {
+    // 实时 WS 数据
     let input = 0, output = 0, total = 0, turnCount = 0
     Object.values(tokenStats).forEach((s) => {
       input += s.input
@@ -71,8 +111,17 @@ export function AgentsPanel({ project: _project }: Props) {
       total += s.total
       turnCount += s.turnCount
     })
+
+    // 加上后端持久化数据
+    if (backendTokenStats && backendTokenStats.totalTokens > 0) {
+      input += backendTokenStats.totalInput
+      output += backendTokenStats.totalOutput
+      total += backendTokenStats.totalTokens
+      turnCount += backendTokenStats.byNode.reduce((sum, n) => sum + n.turnCount, 0)
+    }
+
     return { input, output, total, turnCount }
-  }, [tokenStats])
+  }, [tokenStats, backendTokenStats])
 
   // 监听 store 中完成的 turn（从 WS 收到 turn_completed 时记录）
   useEffect(() => {
