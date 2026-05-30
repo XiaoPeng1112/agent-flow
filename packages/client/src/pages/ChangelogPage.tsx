@@ -15,6 +15,29 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.4.2',
+    date: '2026-05-31',
+    title: '体验优化 — 节点计时器 / 审批交互增强 / Token 统计面板',
+    type: 'feature',
+    highlights: [
+      '节点实时计时器（running 秒表 + completed 总耗时）',
+      '审批交互「修改后继续」按钮',
+      '反馈意见通过 Context Chaining 传递',
+      'Token 消耗实时统计徽章',
+      '修复 parseTokenUsage 正则匹配',
+      '新增 12 项 MRF 对标优化清单',
+    ],
+    details: `v2.4.2 针对实际使用中发现的三个痛点进行了快速修复，显著提升执行过程的可观测性和操控灵活度。
+
+【节点计时器】DAG 卡片在 running 状态时显示实时秒表（每秒刷新），completed 后显示总耗时。用户可直观感知每个节点的执行进度，不再需要盲等。
+
+【审批交互优化】wait_user_review 状态新增「修改后继续」按钮，用户可输入修改意见后继续流程，意见作为 artifact 通过 Context Chaining 自动注入后续节点上下文，无需打回重做整个节点，节省 token 和时间。
+
+【Token 统计面板】修复了 parseTokenUsage 正则无法匹配 Codex 实际输出格式（如 "(68350 tokens)"、"token usage: 12345"）的问题；Run 头部新增 Token 累计统计徽章，定期轮询 /token-stats API 展示已消耗 token 总量。
+
+【优化清单】新增 OPTIMIZATION-TODO.md 文档，记录 12 项对标 MRF 设计文档的优化计划，按优先级分三层（体验修复 / 产品感提升 / 架构演进），为后续迭代提供清晰路线图。`,
+  },
+  {
     version: 'v2.4.1',
     date: '2026-05-31',
     title: '工程质量提升 — 代码分割 / ErrorBoundary / 统一请求 Hook / 单元测试',
