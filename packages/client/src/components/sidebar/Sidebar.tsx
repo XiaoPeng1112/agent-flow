@@ -148,8 +148,19 @@ export function Sidebar({ serverStatus }: SidebarProps) {
 
       {/* 底部区域 */}
       <div className="border-t border-white/5">
-        {/* 导航链接 */}
-        <div className="px-3 pt-3 pb-1 flex flex-col gap-0.5">
+        {/* 添加项目按钮 */}
+        <div className="px-3 pt-3 pb-2">
+          <button
+            onClick={() => setShowAdd(true)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-medium text-indigo-300 bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/20 rounded-lg transition-colors"
+          >
+            <PlusOutlined className="text-[11px]" />
+            添加项目
+          </button>
+        </div>
+
+        {/* 导航链接 + GitHub 登录 */}
+        <div className="px-3 pb-1 flex flex-col gap-0.5">
           <button
             onClick={() => navigate('/changelog')}
             className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
@@ -172,26 +183,12 @@ export function Sidebar({ serverStatus }: SidebarProps) {
             <InfoCircleOutlined className="text-[13px]" />
             <span>项目介绍</span>
           </button>
-        </div>
-
-        {/* 添加项目按钮 */}
-        <div className="px-3 py-2">
-          <button
-            onClick={() => setShowAdd(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-medium text-indigo-300 bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/20 rounded-lg transition-colors"
-          >
-            <PlusOutlined className="text-[11px]" />
-            添加项目
-          </button>
-        </div>
-
-        {/* 用户面板 */}
-        <div className="px-3 pb-2">
+          {/* 用户面板（GitHub 登录） */}
           <UserPanel />
         </div>
 
         {/* 服务状态指示 */}
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-3 pt-1">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/5">
             <div className={`w-2 h-2 rounded-full ${
               serverStatus === 'online'
