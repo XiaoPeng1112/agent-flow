@@ -258,3 +258,5 @@ export function ChangelogPage() {
     </div>
   )
 }
+
+export default ChangelogPage

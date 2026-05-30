@@ -560,3 +560,5 @@ function CollapseLabel({ icon, text }: { icon: React.ReactNode; text: string }) 
     </span>
   )
 }
+
+export default AboutPage

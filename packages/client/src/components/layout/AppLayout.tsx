@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from '../sidebar/Sidebar'
+import { ErrorBoundary } from '../common/ErrorBoundary'
 import { useAppStore } from '../../store/appStore'
 import { projectApi, agentApi, templateApi, createWebSocket } from '../../api'
 import { useServerStatus } from '../../hooks/useServerStatus'
@@ -88,8 +89,10 @@ export function AppLayout() {
           </div>
         )}
 
-        {/* 路由页面 */}
-        <Outlet />
+        {/* 路由页面（ErrorBoundary 隔离，防止单页面崩溃导致全局白屏） */}
+        <ErrorBoundary fallbackTitle="页面加载异常">
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   )

@@ -71,3 +71,5 @@ export function RunDetailPage() {
     </div>
   )
 }
+
+export default RunDetailPage
