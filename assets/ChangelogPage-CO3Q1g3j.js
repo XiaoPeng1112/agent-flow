@@ -1,4 +1,4 @@
-import{n as e,t}from"./ThunderboltOutlined-D2eyMaBd.js";import{t as n}from"./BranchesOutlined-Cz3sxQZh.js";import{t as r}from"./index-Crt-oeck.js";var i=r(),a=[{version:`v2.4.3`,date:`2026-05-31`,title:`实时性修复 — WebSocket 事件广播 / Token 持久化统计`,type:`fix`,highlights:[`修复审批后需刷新才能看到下一节点的 Bug`,`computeReadyNodes 状态变更广播 WS 事件`,`Agents 页面 Token 统计改为后端持久化拉取`,`Token 数据刷新页面不再丢失`],details:`v2.4.3 修复了两个影响使用体验的关键问题。
+import{n as e,t}from"./ThunderboltOutlined-DzJr8v9y.js";import{t as n}from"./BranchesOutlined-AzApDQwk.js";import{t as r}from"./index-99nwAgyX.js";var i=r(),a=[{version:`v2.4.3`,date:`2026-05-31`,title:`实时性修复 — WebSocket 事件广播 / Token 持久化统计`,type:`fix`,highlights:[`修复审批后需刷新才能看到下一节点的 Bug`,`computeReadyNodes 状态变更广播 WS 事件`,`Agents 页面 Token 统计改为后端持久化拉取`,`Token 数据刷新页面不再丢失`],details:`v2.4.3 修复了两个影响使用体验的关键问题。
 
 【节点流转实时性】修复了 approve 节点后前端需要手动刷新浏览器才能看到下一节点变为 ready 的 Bug。根因是 computeReadyNodes() 将后续节点从 pending 改为 ready 时，没有通过 WebSocket 广播状态变更事件。修复后每次节点状态变化（ready/skipped）都会立即 emit run:node_updated 事件，前端实时响应更新 UI。
 
