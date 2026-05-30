@@ -228,6 +228,7 @@ export class WorkflowEngine {
       if (incomingEdges.length === 0) {
         // 无前置依赖，直接 ready
         node.status = 'ready'
+        this.emit('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
       } else {
         // 过滤满足条件的边（条件分支支持）
         const activeEdges = incomingEdges.filter(edge => this.evaluateEdgeCondition(run, edge))
@@ -235,6 +236,7 @@ export class WorkflowEngine {
         if (activeEdges.length === 0 && incomingEdges.some(e => e.condition)) {
           // 所有边都有条件但都不满足 → 跳过该节点
           node.status = 'skipped'
+          this.emit('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
           continue
         }
 
@@ -248,6 +250,7 @@ export class WorkflowEngine {
           node.status = 'ready'
           // Context Chaining: 自动聚合前置节点的产出物到当前节点上下文
           node.context = this.buildNodeContext(run, node, edgesToCheck)
+          this.emit('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
         }
       }
     }
