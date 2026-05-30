@@ -223,8 +223,34 @@ export function ChangelogPage() {
                 ))}
               </div>
 
-              {/* 详细描述 */}
-              <p className="text-[13px] text-gray-600 leading-relaxed">{entry.details}</p>
+              {/* 详细描述 — 按段落渲染，【标题】作为列表项 */}
+              <div className="text-[13px] text-gray-600 leading-[1.8]">
+                {(() => {
+                  const paragraphs = entry.details.split('\n\n')
+                  const intro = paragraphs.filter(p => !p.startsWith('【'))
+                  const items = paragraphs.filter(p => p.startsWith('【'))
+                  return (
+                    <>
+                      {intro.map((p, i) => (
+                        <p key={`intro-${i}`} className="mb-3">{p}</p>
+                      ))}
+                      {items.length > 0 && (
+                        <ul className="mt-2 space-y-2 list-none pl-0">
+                          {items.map((item, i) => {
+                            const match = item.match(/^【(.+?)】(.*)/)
+                            return (
+                              <li key={`item-${i}`} className="flex items-start gap-2 pl-1">
+                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-[8px] shrink-0" />
+                                <span><strong className="text-gray-800">{match?.[1]}</strong><span className="mx-1 text-gray-400">—</span>{match?.[2]?.trimStart()}</span>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
             </div>
           ))}
         </div>
