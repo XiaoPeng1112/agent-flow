@@ -16,7 +16,7 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: 'v2.4.0',
-    date: '2026-05-31',
+    date: '2026-05-30',
     title: 'MAF 六大服务模块 — 仓库隔离 / Skill 物化 / 权限控制 / A2A 通信 / 合同验证 / 健壮性',
     type: 'feature',
     highlights: [
