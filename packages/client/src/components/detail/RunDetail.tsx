@@ -20,6 +20,7 @@ import {
   CopyOutlined,
   ExpandOutlined,
   CompressOutlined,
+  PauseCircleOutlined,
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -92,6 +93,26 @@ export function RunDetail({ run, onBack }: Props) {
     }
   }
 
+  const handlePauseRun = async () => {
+    try {
+      const res = await runApi.pause(run.id)
+      updateRun(res.run)
+      message.success('Run 已暂停，当前执行中的节点会继续完成，但不再调度新节点')
+    } catch (err: any) {
+      message.error(`暂停失败: ${err.message}`)
+    }
+  }
+
+  const handleResumeRun = async () => {
+    try {
+      const res = await runApi.resume(run.id)
+      updateRun(res.run)
+      message.success('Run 已恢复运行')
+    } catch (err: any) {
+      message.error(`恢复失败: ${err.message}`)
+    }
+  }
+
   // 完成的节点数
   const completedNodes = run.nodes.filter((n) => n.status === 'completed').length
   const runningNodes = run.nodes.filter((n) => n.status === 'running').length
@@ -141,8 +162,8 @@ export function RunDetail({ run, onBack }: Props) {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-[15px] font-semibold text-gray-900">{run.name}</h3>
-            <Tag color={run.status === 'running' ? 'processing' : run.status === 'completed' ? 'success' : run.status === 'failed' ? 'error' : 'default'}>
-              {run.status}
+            <Tag color={run.status === 'running' ? 'processing' : run.status === 'paused' ? 'warning' : run.status === 'completed' ? 'success' : run.status === 'failed' ? 'error' : 'default'}>
+              {run.status === 'paused' ? '已暂停' : run.status}
             </Tag>
           </div>
         </div>
@@ -160,6 +181,26 @@ export function RunDetail({ run, onBack }: Props) {
         {run.status === 'created' && (
           <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStartRun}>
             启动 Run
+          </Button>
+        )}
+
+        {run.status === 'running' && (
+          <Button
+            icon={<PauseCircleOutlined />}
+            onClick={handlePauseRun}
+            className="!text-amber-600 !border-amber-200 !bg-amber-50 hover:!bg-amber-100"
+          >
+            暂停
+          </Button>
+        )}
+
+        {run.status === 'paused' && (
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            onClick={handleResumeRun}
+          >
+            恢复运行
           </Button>
         )}
       </div>
@@ -508,7 +549,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
   agents: AgentConfig[]
   activeTurns: AgentTurn[]
   onUpdate: (node: TaskNode) => void
-  appendTaskLog: (line: string) => void
+  appendTaskLog: (line: string, level?: 'info' | 'success' | 'warning' | 'error') => void
 }) {
   const [userInput, setUserInput] = useState(node.userInput || '')
   const [loading, setLoading] = useState(false)
@@ -581,7 +622,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
       // 注意：不再 await 完成，节点状态变更由后端通过 WebSocket 推送
     } catch (err: any) {
       message.error(`执行失败: ${err.message}`)
-      appendTaskLog(`[${node.name}] 执行失败: ${err.message}`)
+      appendTaskLog(`[${node.name}] 执行失败: ${err.message}`, 'error')
       // 尝试将节点标记为失败
       try {
         const submitRes = await nodeApi.submit(run.id, node.id, 'failed', err.message)
@@ -615,7 +656,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
       const res = await agentApi.cancelTurn(turnId)
       if (res.cancelled) {
         message.success('已发送取消信号，进程将在数秒内终止')
-        appendTaskLog(`[${node.name}] 用户取消执行`)
+        appendTaskLog(`[${node.name}] 用户取消执行`, 'warning')
       } else {
         // 进程已结束但节点卡住 → 也强制重置
         message.warning('进程已结束，正在重置节点状态...')
@@ -634,7 +675,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
       const res = await nodeApi.forceReset(run.id, node.id)
       onUpdate(res.node)
       message.success('节点已强制重置为就绪状态')
-      appendTaskLog(`[${node.name}] 节点已强制重置`)
+      appendTaskLog(`[${node.name}] 节点已强制重置`, 'warning')
     } catch (err: any) {
       message.error(`强制重置失败: ${err.message}`)
     }
@@ -647,10 +688,10 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
       onUpdate(res.node)
       if (feedback) {
         message.success('已通过，修改意见将传递给后续节点')
-        appendTaskLog(`[${node.name}] 验收通过 ✓ (附修改意见)`)
+        appendTaskLog(`[${node.name}] 验收通过 ✓ (附修改意见)`, 'success')
       } else {
         message.success('验收通过')
-        appendTaskLog(`[${node.name}] 验收通过 ✓`)
+        appendTaskLog(`[${node.name}] 验收通过 ✓`, 'success')
       }
       setShowFeedback(false)
       setFeedbackText('')
@@ -666,7 +707,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
       const res = await nodeApi.reject(run.id, node.id, feedback)
       onUpdate(res.node)
       message.warning('已打回重做')
-      appendTaskLog(`[${node.name}] 已打回: ${feedback}`)
+      appendTaskLog(`[${node.name}] 已打回: ${feedback}`, 'warning')
     } catch (err: any) {
       message.error(err.message)
     }
@@ -676,7 +717,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
     try {
       const res = await nodeApi.skip(run.id, node.id)
       onUpdate(res.node)
-      appendTaskLog(`[${node.name}] 已跳过`)
+      appendTaskLog(`[${node.name}] 已跳过`, 'info')
     } catch (err: any) {
       message.error(err.message)
     }
@@ -685,7 +726,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
   const handleRollback = async () => {
     try {
       await nodeApi.rollback(run.id, node.id)
-      appendTaskLog(`[${node.name}] 已回滚`)
+      appendTaskLog(`[${node.name}] 已回滚`, 'warning')
       message.info('节点已回滚')
     } catch (err: any) {
       message.error(err.message)

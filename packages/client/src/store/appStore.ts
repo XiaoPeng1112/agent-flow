@@ -4,6 +4,25 @@ import type {
   SkillInfo, WorkflowTemplate, RunDetailTab,
 } from '../types'
 
+// ═══════════════ Task Log 结构化类型 ═══════════════
+
+export type TaskLogLevel = 'info' | 'success' | 'warning' | 'error'
+
+export interface TaskLogEntry {
+  id: string
+  timestamp: number
+  level: TaskLogLevel
+  message: string
+  /** 可选：关联的节点/turn 信息 */
+  meta?: {
+    turnIndex?: number
+    agentId?: string
+    nodeId?: string
+    nodeName?: string
+    tokens?: number
+  }
+}
+
 // ═══════════════ Store 接口 ═══════════════
 
 interface AppState {
@@ -26,7 +45,7 @@ interface AppState {
 
   // ─── UI 状态 ───
   showTaskLog: boolean
-  taskLogContent: string[]
+  taskLogEntries: TaskLogEntry[]
 
   // ─── Actions: 项目 ───
   setProjects: (projects: Project[]) => void
@@ -55,7 +74,7 @@ interface AppState {
 
   // ─── Actions: UI ───
   toggleTaskLog: () => void
-  appendTaskLog: (line: string) => void
+  appendTaskLog: (line: string, level?: TaskLogLevel, meta?: TaskLogEntry['meta']) => void
   clearTaskLog: () => void
 
   // ─── Actions: WebSocket 事件处理 ───
@@ -72,9 +91,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   skills: [],
   templates: [],
   showTaskLog: false,
-  taskLogContent: (() => {
+  taskLogEntries: (() => {
     try {
-      const saved = localStorage.getItem('agentflow_task_log')
+      const saved = localStorage.getItem('agentflow_task_log_v2')
       return saved ? JSON.parse(saved) : []
     } catch { return [] }
   })(),
@@ -139,14 +158,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // ─── UI ───
   toggleTaskLog: () => set({ showTaskLog: !get().showTaskLog }),
-  appendTaskLog: (line) => {
-    const newLog = [...get().taskLogContent, line].slice(-200) // 保留最近200条
-    set({ taskLogContent: newLog })
-    try { localStorage.setItem('agentflow_task_log', JSON.stringify(newLog)) } catch {}
+
+  appendTaskLog: (message, level = 'info', meta) => {
+    const entry: TaskLogEntry = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: Date.now(),
+      level,
+      message,
+      meta,
+    }
+    const newEntries = [...get().taskLogEntries, entry].slice(-100) // 保留最近 100 条结构化日志
+    set({ taskLogEntries: newEntries })
+    try { localStorage.setItem('agentflow_task_log_v2', JSON.stringify(newEntries)) } catch {}
   },
+
   clearTaskLog: () => {
-    set({ taskLogContent: [] })
-    try { localStorage.removeItem('agentflow_task_log') } catch {}
+    set({ taskLogEntries: [] })
+    try { localStorage.removeItem('agentflow_task_log_v2') } catch {}
   },
 
   // ─── WebSocket 事件处理 ───
@@ -158,6 +186,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         const run = get().runs.find((r) => r.id === payload.runId)
         if (run) {
           get().updateRun({ ...run, status: payload.status })
+          // 记录 Run 状态变化日志
+          const statusLabels: Record<string, string> = {
+            running: '开始运行',
+            paused: '已暂停',
+            completed: '运行完成',
+            failed: '运行失败',
+          }
+          const label = statusLabels[payload.status]
+          if (label) {
+            const level = payload.status === 'failed' ? 'error'
+              : payload.status === 'completed' ? 'success'
+              : payload.status === 'paused' ? 'warning' : 'info'
+            get().appendTaskLog(`Run ${label}`, level)
+          }
         }
         break
       }
@@ -177,7 +219,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       case 'agent:turn_started': {
         const { turn } = payload
         get().addActiveTurn(turn)
-        get().appendTaskLog(`[Turn ${turn.turnIndex}] Agent ${turn.agentId} 开始执行`)
+        get().appendTaskLog(
+          `Agent ${turn.agentId} 开始执行`,
+          'info',
+          { turnIndex: turn.turnIndex, agentId: turn.agentId, nodeId: turn.nodeId }
+        )
         break
       }
 
@@ -186,7 +232,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().updateActiveTurn(turnId, {
           output: (get().activeTurns.find((t) => t.id === turnId)?.output || '') + chunk,
         })
-        get().appendTaskLog(chunk)
+        // 不再将每个 chunk 写入任务日志——实时输出面板已单独展示
         break
       }
 
@@ -197,22 +243,34 @@ export const useAppStore = create<AppState>((set, get) => ({
           get().updateActiveTurn(turn.id, { tokenUsage: turn.tokenUsage, status: 'completed', result: turn.result })
         }
         get().removeActiveTurn(turn.id)
-        const tokenInfo = turn.tokenUsage ? ` (${turn.tokenUsage.total} tokens)` : ''
-        get().appendTaskLog(`[Turn ${turn.turnIndex}] 执行完成 ✓${tokenInfo}`)
+        const tokenInfo = turn.tokenUsage ? ` · ${turn.tokenUsage.total.toLocaleString()} tokens` : ''
+        get().appendTaskLog(
+          `Agent ${turn.agentId} 执行完成${tokenInfo}`,
+          'success',
+          { turnIndex: turn.turnIndex, agentId: turn.agentId, nodeId: turn.nodeId, tokens: turn.tokenUsage?.total }
+        )
         break
       }
 
       case 'agent:turn_paused': {
         const { turn, question } = payload
         get().updateActiveTurn(turn.id, { status: 'paused', question })
-        get().appendTaskLog(`[Turn ${turn.turnIndex}] Agent 暂停，提问: ${question}`)
+        get().appendTaskLog(
+          `Agent 暂停提问: ${question}`,
+          'warning',
+          { turnIndex: turn.turnIndex, agentId: turn.agentId, nodeId: turn.nodeId }
+        )
         break
       }
 
       case 'agent:turn_error': {
         const { turn } = payload
         get().removeActiveTurn(turn.id)
-        get().appendTaskLog(`[Turn ${turn.turnIndex}] 执行失败 ✗`)
+        get().appendTaskLog(
+          `Agent ${turn.agentId} 执行失败`,
+          'error',
+          { turnIndex: turn.turnIndex, agentId: turn.agentId, nodeId: turn.nodeId }
+        )
         break
       }
     }

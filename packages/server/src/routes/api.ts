@@ -232,6 +232,26 @@ export function createApiRouter(deps: {
     }
   })
 
+  /** 暂停 Run */
+  router.post('/runs/:id/pause', async (req, res) => {
+    try {
+      const run = await workflowEngine.pauseRun(req.params.id)
+      res.json({ success: true, data: { run } })
+    } catch (err) {
+      res.status(400).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 恢复 Run */
+  router.post('/runs/:id/resume', async (req, res) => {
+    try {
+      const run = await workflowEngine.resumeRun(req.params.id)
+      res.json({ success: true, data: { run } })
+    } catch (err) {
+      res.status(400).json({ success: false, error: (err as Error).message })
+    }
+  })
+
   /** 删除 Run */
   router.delete('/runs/:id', async (req, res) => {
     const success = await workflowEngine.deleteRun(req.params.id)

@@ -187,6 +187,41 @@ export class WorkflowEngine {
   }
 
   /**
+   * 暂停 Run
+   * 暂停后不再推进新节点（computeReadyNodes 会跳过 paused 状态的 Run），
+   * 已在 running 的节点会继续执行完当前 Turn，但后续不再调度新的 ready 节点。
+   */
+  async pauseRun(runId: string): Promise<Run> {
+    const run = this.getRun(runId)
+    if (!run) throw new Error(`Run not found: ${runId}`)
+    if (run.status !== 'running') throw new Error(`Run ${runId} is not in 'running' state (current: ${run.status})`)
+
+    run.status = 'paused'
+    this.emit('run:status_changed', { runId, status: run.status })
+    await this.persist()
+    return run
+  }
+
+  /**
+   * 恢复 Run
+   * 恢复后重新计算 ready 节点，允许继续推进
+   */
+  async resumeRun(runId: string): Promise<Run> {
+    const run = this.getRun(runId)
+    if (!run) throw new Error(`Run not found: ${runId}`)
+    if (run.status !== 'paused') throw new Error(`Run ${runId} is not in 'paused' state (current: ${run.status})`)
+
+    run.status = 'running'
+    // 重新计算 ready 节点（暂停期间可能有节点完成了）
+    this.computeReadyNodes(run)
+    this.checkRunCompletion(run)
+
+    this.emit('run:status_changed', { runId, status: run.status })
+    await this.persist()
+    return run
+  }
+
+  /**
    * 获取所有 Runs
    */
   getRuns(projectId?: string): Run[] {
@@ -217,8 +252,11 @@ export class WorkflowEngine {
    * 计算并设置 ready 节点
    * 规则：如果一个节点的所有前置节点都已 completed，则标记为 ready
    * 同时自动构建 Context Chaining —— 将前置节点的产出物注入到后续节点
+   * 注意：如果 Run 处于 paused 状态，不推进新节点为 ready
    */
   private computeReadyNodes(run: Run): void {
+    if (run.status === 'paused') return  // 暂停时不推进
+
     for (const node of run.nodes) {
       if (node.status !== 'pending') continue
 

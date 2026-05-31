@@ -78,6 +78,12 @@ export const runApi = {
   start: (id: string) =>
     request<{ run: any }>(`/runs/${id}/start`, { method: 'POST' }),
 
+  pause: (id: string) =>
+    request<{ run: any }>(`/runs/${id}/pause`, { method: 'POST' }),
+
+  resume: (id: string) =>
+    request<{ run: any }>(`/runs/${id}/resume`, { method: 'POST' }),
+
   delete: (id: string) =>
     request<void>(`/runs/${id}`, { method: 'DELETE' }),
 
