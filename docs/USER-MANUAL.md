@@ -12,6 +12,8 @@ AgentFlow 是一个 AI 驱动的多 Agent 协作开发工作流引擎，核心�
 
 核心理念是 **MAF（Multi-Agent Flow）**——将软件开发拆解为多个角色（规划者、管理者、执行者），每个角色由专门的 Agent 承担，通过 DAG（有向无环图）编排实现高效协作。
 
+![项目介绍页面](./screenshots/about-page.png)
+
 ---
 
 ## 2. 环境准备与安装
@@ -110,6 +112,10 @@ Run（工作流实例）
 
 任务节点通过有向无环图（DAG）定义执行顺序。当一个节点的所有前置依赖完成后，自动进入 `ready` 状态。支持条件分支（EdgeCondition）实现动态路由。
 
+v2.5.0 引入了基于 `@xyflow/react` 的 DAG 可视化渲染，节点以卡片形式展示状态、描述和角色信息，边连线动态展示依赖关系。
+
+![DAG 可视化视图](./screenshots/dag-view.png)
+
 ### 4.3 多角色 Agent
 
 | 角色 | 职责 | 典型工具 |
@@ -118,13 +124,44 @@ Run（工作流实例）
 | Manager | 协调资源、分配节点 | Claude CLI |
 | Executor | 调用 CLI 工具编写代码 | Codex CLI |
 
-### 4.4 Context Chaining
+### 4.4 执行模式（Execution Mode）
+
+v2.5.0 新增了三种执行模式，可在工作流模板的节点定义中指定：
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `llm` | 传统 LLM Agent 执行（默认） | 需要创造性推理的任务 |
+| `det` | 确定性脚本执行（Deterministic） | 有明确脚本可直接运行的任务 |
+| `hyb` | 混合模式（脚本优先，失败回退 LLM） | 脚本可能失败需要兜底的任务 |
+
+**DET 模式**直接执行节点模板中定义的 `script` 字段，具有以下特点：5 分钟执行超时、进程自动清理、执行完毕自动标记节点完成，无需 LLM 介入。
+
+**HYB 模式**先尝试以 DET 模式执行脚本，若脚本执行失败（退出码非 0），自动回退到 LLM 模式由 Agent 接手处理。
+
+### 4.5 Context Chaining
 
 节点执行前，引擎自动聚合所有前置节点的产出（Turn 输出 + Artifacts），作为当前节点的输入上下文。无需手动指定信息来源，DAG 拓扑自动决定上下文流向。
 
-### 4.5 OutputContracts（产出物合同）
+### 4.6 Context DB（四层上下文管理）
+
+v2.5.0 引入了层次化上下文数据库，按作用域分为四层：
+
+| 层级 | 标识 | 作用域 | 说明 |
+|------|------|--------|------|
+| SYS | 系统级 | 全局 | 系统配置、全局规则 |
+| L0 | 项目级 | 单项目 | 项目元信息、架构约束 |
+| L1 | Run 级 | 单次运行 | 本次运行的上下文累积 |
+| L2 | Node 级 | 单节点 | 节点局部上下文 |
+
+Context DB 以文件为载体，支持热加载，Agent 执行时自动注入对应层级的上下文。通过 `context-db.ts` 服务管理。
+
+### 4.7 OutputContracts（产出物合同）
 
 每个模板节点声明应产出什么（category + format + required），节点完成后系统自动校验 Agent 产出物是否满足合同。
+
+### 4.8 Dynamic Agent（动态 Agent 实例）
+
+v2.5.0 的 `dynamic-agent-factory.ts` 支持按角色动态创建 Agent 实例。系统根据节点角色、项目配置和可用 Provider 自动选择并实例化最合适的 Agent，支持运行时动态扩缩。
 
 ---
 
@@ -149,6 +186,8 @@ Run（工作流实例）
 4. 在第一个 `ready` 节点中填写需求描述
 5. 点击 **「启动执行」** 按钮触发 Agent 执行
 
+![项目 Runs 列表](./screenshots/project-runs.png)
+
 ### 5.3 节点操作
 
 | 操作 | 说明 |
@@ -161,6 +200,10 @@ Run（工作流实例）
 | 强制重置 | 将节点状态强制恢复为 `ready` |
 | 节点回滚 | 回滚到前一状态 |
 
+点击 DAG 图中的任意节点，可打开节点详情面板，查看节点状态、输入输出、执行历史和产出物：
+
+![节点详情面板](./screenshots/node-detail.png)
+
 ### 5.4 查看 Skills
 
 进入项目 → **Skills** 标签，查看系统自动扫描发现的 Skills 列表。扫描路径包括：
@@ -170,15 +213,38 @@ Run（工作流实例）
 
 ### 5.5 配置项目 Agent
 
-进入项目 → **Agents** 标签，在顶部「项目 Agent 配置」卡片中：
+进入项目 → **Agents** 标签，在「Agent 管理」面板中：
 
 1. 查看所有可用 Agent 列表（含 Provider 信息）
 2. 通过 Switch 开关启用/禁用每个 Agent
-3. 点击「保存配置」持久化
+3. 点击「保存」持久化配置
 
 保存后，DAG 节点详情中的 Agent 下拉列表将自动过滤，仅展示当前项目已启用的 Agent。这样用户只需关注自己拥有 API Key 的 Provider。
 
-### 5.6 GitHub 登录
+![项目 Agent 配置](./screenshots/agents-config.png)
+
+### 5.6 Agent Tree 面板
+
+Run 详情页顶部切换到 **Agent Tree** 标签，可以以树形结构查看当前 Run 的 Agent 实例分布：
+
+- 按角色（Planner / Manager / Executor）分组
+- 展示每个 Agent 实例的状态（空闲 / 执行中 / 已完成）
+- 支持刷新实时状态
+
+![Agent Tree 面板](./screenshots/agent-tree.png)
+
+### 5.7 Checkpoint 快照与恢复
+
+Run 详情页顶部切换到 **Checkpoint** 标签，管理工作流快照：
+
+- 查看 Timeline 时间线上的所有快照点
+- 支持手动创建快照（记录当前 Run 完整状态）
+- 从任意快照点恢复 Run（回退到历史状态）
+- 实时健康监控（节点完成率、失败率）
+
+![Checkpoint 面板](./screenshots/checkpoint.png)
+
+### 5.8 GitHub 登录
 
 侧边栏底部用户面板 → 点击 **「登录」** → 跳转 GitHub 授权 → 授权后自动返回并显示用户信息。
 
@@ -249,9 +315,11 @@ PUT /api/projects/proj-001/enabled-agents
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/runs/:runId/nodes/:nodeId/execute` | 启动 Agent 执行节点 |
+| POST | `/runs/:runId/nodes/:nodeId/execute` | 启动 Agent 执行节点（支持 executionMode 参数） |
 | POST | `/runs/:runId/auto-execute` | 批量启动所有 ready 节点 |
 | POST | `/turns/:turnId/cancel` | 取消正在执行的 Turn |
+
+`execute` 接口支持 `executionMode` 参数，可选值为 `"llm"`（默认）、`"det"`、`"hyb"`。DET 模式下会直接调用 `AgentService.executeDET()` 执行节点模板中的脚本。
 
 ### 6.6 Repo Isolation（仓库隔离）
 
@@ -415,7 +483,27 @@ POST /api/robustness/checkpoints/run-001
 }
 ```
 
-### 6.12 其他 API
+### 6.12 Dynamic Agent（动态 Agent）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/agents` | 获取所有已注册 Agent |
+| GET | `/agents/instances/:runId` | 获取 Run 的动态 Agent 实例树 |
+| POST | `/agents/spawn` | 手动触发 Agent 实例创建 |
+
+Dynamic Agent Factory 根据节点角色和项目 Agent 配置自动实例化 Agent，无需手动管理。通过 Agent Tree 面板可查看当前 Run 所有活跃实例。
+
+### 6.13 Context DB
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/context/:level` | 获取指定层级上下文（sys/l0/l1/l2） |
+| PUT | `/context/:level` | 更新指定层级上下文 |
+| GET | `/context/merged/:nodeId` | 获取节点合并后的完整上下文 |
+
+Context DB 自动管理四层上下文文件，Agent 执行时注入合并后的上下文。
+
+### 6.14 其他 API
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -444,6 +532,9 @@ POST /api/robustness/checkpoints/run-001
 | `turn_error` | Agent 执行出错 |
 | `node_status_changed` | 节点状态变更 |
 | `run_status_changed` | Run 状态变更 |
+| `det_execution_start` | DET 模式脚本执行开始 |
+| `det_execution_complete` | DET 模式脚本执行完成 |
+| `checkpoint_created` | 新 Checkpoint 快照已创建 |
 
 ### 7.2 消息格式
 
@@ -471,6 +562,8 @@ POST /api/robustness/checkpoints/run-001
 | `~/.agent-flow/templates.json` | 工作流模板 |
 | `~/.agent-flow/runs/index.json` | Run 历史记录 |
 | `~/.agent-flow/auth.json` | OAuth 认证信息 |
+| `~/.agent-flow/context/` | Context DB 四层上下文文件 |
+| `~/.agent-flow/checkpoints/` | Checkpoint 快照数据 |
 
 ---
 
@@ -483,16 +576,22 @@ agent-flow/
 │   │   └── src/
 │   │       ├── api/         # REST API 客户端封装
 │   │       ├── components/  # UI 组件（detail/ layout/ sidebar/）
-│   │       ├── pages/       # 路由页面
+│   │       │   └── detail/  # DAG 视图、AgentTree、Checkpoint、ContextDB 面板
+│   │       ├── pages/       # 路由页面（About、Changelog 等）
 │   │       ├── store/       # Zustand 状态管理
 │   │       └── types/       # TypeScript 类型
 │   └── server/              # 后端 Express 5 + WebSocket
 │       └── src/
-│           ├── index.ts             # 服务入口 (v2.4.0)
+│           ├── index.ts             # 服务入口
 │           ├── routes/api.ts        # REST API 路由
-│           ├── services/            # 业务服务层（15 个模块）
+│           ├── services/            # 业务服务层（18 个模块）
+│           │   ├── agent.ts         # Agent 执行（含 DET/HYB 模式）
+│           │   ├── dynamic-agent-factory.ts  # 动态 Agent 实例工厂
+│           │   ├── context-db.ts    # 四层上下文管理
+│           │   ├── robustness.ts    # Checkpoint + 健壮性
+│           │   └── ...              # 其他服务
 │           └── types/index.ts       # 核心类型定义
-├── docs/                    # 文档（本手册）
+├── docs/                    # 文档（本手册 + 截图）
 ├── .agent-flow/context/     # 项目上下文文档
 └── scripts/                 # 工具脚本
 ```
@@ -543,6 +642,7 @@ cd agent-flow && nvm use 20 && npm run dev
 | 仓库隔离 | Git worktree 池化防止并行 Run 文件冲突 |
 | 数据持久化 | 所有状态变更 async/await persist() |
 | 启动恢复 | 自动重置孤儿 running 节点 |
+| DET 进程沙箱 | 5 分钟超时 + 进程组自动 kill |
 
 ---
 
@@ -595,7 +695,7 @@ npm run test:coverage
 
 | 问题 | 原因 | 解决方案 |
 |------|------|----------|
-| 红色“后端服务未连接”横幅 | 后端未启动 | 执行 `npm run dev` |
+| 红色"后端服务未连接"横幅 | 后端未启动 | 执行 `npm run dev` |
 | 前端显示空白 | Node.js 版本过低 | `nvm use 20` |
 | EADDRINUSE 端口冲突 | 旧进程未退出 | `lsof -ti:3001 \| xargs kill -9` |
 | HMR 不生效 | FSEvents 不触发 | 已配置 usePolling，硬刷新 `Cmd+Shift+R` |
@@ -603,6 +703,7 @@ npm run test:coverage
 | GitHub 登录报错 | 未配置 OAuth 环境变量 | 设置 `GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET` |
 | 构建 vendor chunk 过大警告 | antd 体积较大 | 可忽略，页面已通过 React.lazy 独立拆分 |
 | Vitest 报错 styleText | Node.js 版本过低 | 需要 Node 20+，`nvm use 20` |
+| DET 脚本超时 | 脚本执行超过 5 分钟 | 优化脚本或改用 HYB 模式 |
 
 ---
 
@@ -610,7 +711,9 @@ npm run test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
-| v2.5.0 | 2026-05-31 | Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤） |
+| v2.5.0 | 2026-05-31 | DAG 可视化 + DET/HYB 执行模式 + Dynamic Agent + Context DB + Agent Tree + Checkpoint UI + Per-Project Agent 配置 |
+| v2.4.3 | 2026-05-31 | Markdown 渲染 + Overview 面板 + ChangelogPage 增强 |
+| v2.4.2 | 2026-05-31 | DAG 视图基础实现（@xyflow/react） |
 | v2.4.1 | 2026-05-30 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
 | v2.4.0 | 2026-05-30 | MAF 六大服务模块（Repo/Skill/Permission/A2A/Contract/Robustness） |
 | v2.3.1 | 2026-05-30 | 模板补全 + 异步安全修复 |
@@ -626,22 +729,26 @@ npm run test:coverage
 
 基于当前项目状态，以下是软件工程角度的优化建议：
 
-### 短期（✅ v2.5.0 已全部完成）
+### 已完成（v2.5.0）
 
 - ✅ **Per-Project Agent 配置**：项目级 Agent 启用/禁用，DAG 节点自动过滤
-- ✅ **代码分割**：React.lazy + Suspense 路由级分割，页面 chunk 独立拆分
-- ✅ **单元测试**：Vitest 68 cases 覆盖 WorkflowEngine、A2AProtocol、ContractValidator
-- ✅ **错误边界**：React ErrorBoundary 全局错误隔离，防止白屏扩散
-- ✅ **API 请求错误统一处理**：useRequest Hook（Toast + Loading + 指数退避重试）
+- ✅ **DAG 可视化**：基于 @xyflow/react 的节点图形渲染，边连线动态展示
+- ✅ **DET/HYB 执行模式**：确定性脚本执行 + 混合模式兜底
+- ✅ **Dynamic Agent**：按角色动态创建 Agent 实例
+- ✅ **Context DB**：SYS/L0/L1/L2 四层上下文管理
+- ✅ **Agent Tree**：树形可视化 Agent 实例分布
+- ✅ **Checkpoint UI**：Timeline 快照 + 恢复 + 健康监控
+- ✅ **代码分割**：React.lazy + Suspense 路由级分割
+- ✅ **单元测试**：Vitest 68 cases 覆盖核心服务
+- ✅ **错误边界**：React ErrorBoundary 全局错误隔离
 
-### 中期
+### 中期规划
 
-- **Run 详情页 DAG 可视化**：集成 ReactFlow 或 dagre 实现节点图形渲染
 - **数据库迁移**：项目/Run 数据量增大后从 JSON 文件迁移到 SQLite
 - **A2A 前端可视化**：在 Run 详情页展示 Agent 间消息流转拓扑
-- **Checkpoint 恢复 UI**：支持用户从快照恢复中断的 Run
+- **Context DB 编辑器**：前端可视化编辑四层上下文内容
 
-### 长期
+### 长期规划
 
 - **多人协作**：WebSocket 多客户端同步 + 乐观更新 + 冲突解决
 - **插件体系**：支持自定义 Agent 类型和节点类型
