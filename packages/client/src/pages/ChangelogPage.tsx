@@ -29,8 +29,9 @@ const changelog: ChangelogEntry[] = [
       'Context DB 基础版 — SYS/L0/L1/L2 四层上下文管理（MRF §8）',
       'Agent Tree 可视化 — Run 内 Agent 实例树形展示（MRF §4.6）',
       'Checkpoint 恢复 UI — 快照创建/恢复 + 系统健康监控（MRF §2.5）',
+      '确定性执行层 DET 模式 — 脚本直执行 + HYB 混合回退（MRF §2.1）',
     ],
-    details: `v2.5.0 完成第二优先级全部 4 项优化 + Per-Project Agent 配置 + 第三优先级 4 项 MRF 架构演进能力。
+    details: `v2.5.0 完成第二优先级全部 4 项优化 + Per-Project Agent 配置 + 第三优先级全部 5 项 MRF 架构演进能力。
 
 【Per-Project Agent 配置】支持按项目维度启用/禁用 Agent，解决用户不一定拥有所有 Provider API Key 的问题。Agents 面板新增 ProjectAgentConfig 组件（Switch 开关逐个控制），保存后 DAG 节点详情的 Agent 下拉列表自动过滤，仅展示已启用的 Agent。数据模型向后兼容：enabledAgentIds 为 undefined 时所有 Agent 均可用。
 
@@ -48,7 +49,9 @@ const changelog: ChangelogEntry[] = [
 
 【Agent Tree 可视化】实现 MRF §4.6：Run 详情中新增 Agent Tree 面板，以树形结构展示所有动态 Agent 实例。根节点为 Run，按角色分组（规划层/管理层/执行层），显示每个实例的状态、关联节点和生命周期时间。
 
-【Checkpoint 恢复 UI】实现 MRF §2.5 实时可观测：Run 详情中新增 Checkpoint 面板，Timeline 展示所有快照。支持手动创建快照（保存当前所有节点状态），恢复到任意历史快照（含确认弹窗）。底部显示系统健康状态：死信队列数、待重试数、审计日志量。`,
+【Checkpoint 恢复 UI】实现 MRF §2.5 实时可观测：Run 详情中新增 Checkpoint 面板，Timeline 展示所有快照。支持手动创建快照（保存当前所有节点状态），恢复到任意历史快照（含确认弹窗）。底部显示系统健康状态：死信队列数、待重试数、审计日志量。
+
+【确定性执行层 DET 模式】实现 MRF §2.1 代码优先原则：模板节点新增 executionMode 字段（'det' | 'hyb' | 'llm'）。DET 模式下节点直接执行预设脚本命令（如跑测试、lint、构建），不调用 LLM Agent，成功自动完成无需人工审批，节省 token。HYB 混合模式先执行脚本，失败后自动回退到 LLM Agent 兜底。前端节点详情显示⚡DET/🔄HYB标签，5分钟超时保护。`,
   },
   {
     version: 'v2.4.3',

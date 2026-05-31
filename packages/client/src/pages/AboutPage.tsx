@@ -450,8 +450,9 @@ export function AboutPage() {
           <SectionTitle icon={<AppstoreOutlined />} title="DAG 可视化 & 体验升级（v2.5.0）" color="cyan" />
           <div className="bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-100 rounded-xl p-6 mb-5">
             <p className="text-[14px] text-gray-700 leading-[1.8]">
-              v2.5.0 聚焦<strong>可视化与用户体验</strong>：引入 @xyflow/react 实现 DAG 交互式画布，新增 Run Overview 统计面板、
-              Markdown 渲染引擎、Per-Project Agent 配置以及全局键盘快捷键体系，大幅提升工作流编辑效率和信息展示密度。
+              v2.5.0 聚焦<strong>可视化与用户体验</strong>及<strong>MRF 架构演进</strong>：引入 @xyflow/react 实现 DAG 交互式画布，新增 Run Overview、
+              Markdown 渲染、Per-Project Agent 配置；同时完成第三优先级全部 5 项 MRF 能力——DET 确定性执行、动态 Agent 创建、
+              Context DB 四层管理、Agent Tree 可视化、Checkpoint 恢复。
             </p>
           </div>
 
@@ -503,6 +504,12 @@ export function AboutPage() {
               title="Checkpoint 恢复"
               desc="Timeline 展示快照列表，支持手动创建/恢复快照，系统健康监控面板（死信队列/待重试/审计日志）。"
               color="#059669"
+            />
+            <ArchCard
+              icon={<CodeOutlined />}
+              title="确定性执行层 (DET)"
+              desc="DET 模式直接执行脚本不调 LLM（节省 token），HYB 混合模式脚本失败自动回退 LLM，5 分钟超时保护。"
+              color="#0d9488"
             />
           </div>
         </section>

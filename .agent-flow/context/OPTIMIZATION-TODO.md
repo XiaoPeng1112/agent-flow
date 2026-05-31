@@ -55,11 +55,16 @@
 
 ## 第三优先级：向 MRF 架构演进
 
-### 8. ⬜ 确定性执行层（DET 模式）
+### 8. ✅ 确定性执行层（DET 模式）
 - **问题**：所有节点都通过 LLM Agent 执行，某些简单任务（跑测试、lint）浪费 token
 - **方案**：模板节点定义增加 `executionMode: 'det' | 'hyb' | 'llm'`，DET 模式直接执行脚本
+- **实现**：
+  - 后端：`AgentService.executeDET()` + `spawnDETProcess()` — 子进程执行脚本，5分钟超时，成功自动 completed 无需人工审批
+  - 后端：`AgentService.executeHYB()` — HYB 混合模式，脚本失败自动回退 LLM Agent
+  - 前端：节点详情显示执行模式标签（⚡ DET / 🔄 HYB），DET 模式不需用户输入/不需选择 Agent
+  - API：`agentApi.executeDET()` 端点支持 `executionMode: 'det' | 'hyb'`
 - **MRF 对标**：§2.1 代码优先，推理兜底 — "凡是确定性代码能做的，用代码实现"
-- **预估工时**：3-4 天 | AI 辅助：1-2 天
+- **完成日期**：2026-05-31
 
 ### 9. ✅ 动态 Agent 创建
 - **问题**：Agent 预注册为静态全局实例，上下文不会针对任务动态装配

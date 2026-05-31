@@ -2,7 +2,7 @@
 
 ## 2026-05-31 — v2.5.0
 
-本日完成第二优先级全部 4 项产品感优化 + Per-Project Agent 配置 + 第三优先级 4 项 MRF 架构演进能力。
+本日完成第二优先级全部 4 项产品感优化 + Per-Project Agent 配置 + 第三优先级全部 5 项 MRF 架构演进能力（DET/动态Agent/ContextDB/AgentTree/Checkpoint）。
 
 ### v2.5.0 — 产品感提升 + Per-Project Agent 配置 + MRF 架构演进
 
@@ -57,6 +57,13 @@
    - `CheckpointPanel.tsx` — Timeline 展示快照列表
    - 支持手动创建快照、恢复到指定 Checkpoint（含确认弹窗）
    - 系统健康状态监控面板（死信队列/待重试/总快照数/审计日志）
+
+10. **确定性执行层 DET 模式（MRF §2.1）**
+    - `AgentService.executeDET()` + `spawnDETProcess()` — 子进程直接执行脚本命令
+    - DET 模式成功自动 completed（不需人工审批），失败标记 failed
+    - HYB 混合模式：先执行脚本，失败自动回退到 LLM Agent
+    - 前端节点详情：执行模式标签（⚡ DET / 🔄 HYB），DET 不需用户输入、不需选择 Agent
+    - 5 分钟超时保护，超时自动终止进程
 
 **修复的问题**:
 - **"保存失败" HTML 错误响应**：Server 代码更新后未重启 → 重启 Server 解决
