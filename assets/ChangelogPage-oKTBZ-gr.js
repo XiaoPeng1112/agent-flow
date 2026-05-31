@@ -1,4 +1,12 @@
-import{n as e,t}from"./ThunderboltOutlined-DzJr8v9y.js";import{t as n}from"./BranchesOutlined-AzApDQwk.js";import{t as r}from"./index-99nwAgyX.js";var i=r(),a=[{version:`v2.4.3`,date:`2026-05-31`,title:`实时性修复 — WebSocket 事件广播 / Token 持久化统计`,type:`fix`,highlights:[`修复审批后需刷新才能看到下一节点的 Bug`,`computeReadyNodes 状态变更广播 WS 事件`,`Agents 页面 Token 统计改为后端持久化拉取`,`Token 数据刷新页面不再丢失`],details:`v2.4.3 修复了两个影响使用体验的关键问题。
+import{n as e,t}from"./ThunderboltOutlined-Bipb0qst.js";import{t as n}from"./BranchesOutlined-BVIIDADi.js";import{t as r}from"./index-DSoWI1PT.js";var i=r(),a=[{version:`v2.5.0`,date:`2026-06-01`,title:`产品感提升 — DAG 图形化 / Markdown 渲染 / Run Overview / Provider 配置`,type:`feature`,highlights:[`Agent 输出结果 Markdown 渲染 + 代码高亮（react-markdown + react-syntax-highlighter）`,`DAG 图形化可视化（@xyflow/react）— 拓扑分层自动布局`,`Run Overview 信息栏 — 进度条 / 阶段指示器 / 活跃 Agent 数`,`多 Provider 配置面板 — Runtime Registry`],details:`v2.5.0 完成第二优先级全部 4 项优化，大幅提升产品感。
+
+【Agent 输出 Markdown 渲染】审批面板中 Agent 输出结果现在支持完整的 Markdown 渲染，包括代码块语法高亮（oneDark 主题）、GFM 表格、引用块等。提供 MD/TXT 模式切换、一键复制、展开收起功能，代码块悬停显示复制按钮。
+
+【DAG 图形化可视化】引入 @xyflow/react 替代原有的垂直列表视图。基于拓扑排序自动分层布局，并行分支一目了然。自定义节点组件显示状态、角色、计时、产出物。边线根据节点状态着色：已完成绿色、活跃紫色动画、未激活灰色。支持拖拽平移和鼠标滚轮缩放。
+
+【Run Overview 增强】Run 详情页头部新增 Overview 信息栏，包含渐变色进度条（完成/失败/进行中三色态）、当前阶段指示器（自动检测执行中/待验收/就绪节点）、完成率百分比、活跃 Agent 计数（带动画）、总耗时统计。
+
+【多 Provider 配置面板】Agents 页面底部新增 ProviderConfigPanel，自动识别 Codex/Claude/自定义 CLI 三大 Provider，展示可用性、关联 Agent 数量、默认配置预览。可展开详细配置：环境变量（API Key 密码类型）、默认模型、启用/禁用开关等。对标 MRF §4.9 Runtime Registry。`},{version:`v2.4.3`,date:`2026-05-31`,title:`实时性修复 — WebSocket 事件广播 / Token 持久化统计`,type:`fix`,highlights:[`修复审批后需刷新才能看到下一节点的 Bug`,`computeReadyNodes 状态变更广播 WS 事件`,`Agents 页面 Token 统计改为后端持久化拉取`,`Token 数据刷新页面不再丢失`],details:`v2.4.3 修复了两个影响使用体验的关键问题。
 
 【节点流转实时性】修复了 approve 节点后前端需要手动刷新浏览器才能看到下一节点变为 ready 的 Bug。根因是 computeReadyNodes() 将后续节点从 pending 改为 ready 时，没有通过 WebSocket 广播状态变更事件。修复后每次节点状态变化（ready/skipped）都会立即 emit run:node_updated 事件，前端实时响应更新 UI。
 
