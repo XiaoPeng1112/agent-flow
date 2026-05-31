@@ -16,16 +16,19 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: 'v2.5.0',
-    date: '2026-06-01',
-    title: '产品感提升 — DAG 图形化 / Markdown 渲染 / Run Overview / Provider 配置',
+    date: '2026-05-31',
+    title: '产品感提升 + Per-Project Agent 配置',
     type: 'feature',
     highlights: [
+      'Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤）',
       'Agent 输出结果 Markdown 渲染 + 代码高亮（react-markdown + react-syntax-highlighter）',
       'DAG 图形化可视化（@xyflow/react）— 拓扑分层自动布局',
       'Run Overview 信息栏 — 进度条 / 阶段指示器 / 活跃 Agent 数',
       '多 Provider 配置面板 — Runtime Registry',
     ],
-    details: `v2.5.0 完成第二优先级全部 4 项优化，大幅提升产品感。
+    details: `v2.5.0 完成第二优先级全部 4 项优化 + 新增 Per-Project Agent 配置能力。
+
+【Per-Project Agent 配置】支持按项目维度启用/禁用 Agent，解决用户不一定拥有所有 Provider API Key 的问题。Agents 面板新增 ProjectAgentConfig 组件（Switch 开关逐个控制），保存后 DAG 节点详情的 Agent 下拉列表自动过滤，仅展示已启用的 Agent。数据模型向后兼容：enabledAgentIds 为 undefined 时所有 Agent 均可用。
 
 【Agent 输出 Markdown 渲染】审批面板中 Agent 输出结果现在支持完整的 Markdown 渲染，包括代码块语法高亮（oneDark 主题）、GFM 表格、引用块等。提供 MD/TXT 模式切换、一键复制、展开收起功能，代码块悬停显示复制按钮。
 
@@ -37,7 +40,7 @@ const changelog: ChangelogEntry[] = [
   },
   {
     version: 'v2.4.3',
-    date: '2026-05-31',
+    date: '2026-05-30',
     title: '实时性修复 — WebSocket 事件广播 / Token 持久化统计',
     type: 'fix',
     highlights: [
@@ -54,7 +57,7 @@ const changelog: ChangelogEntry[] = [
   },
   {
     version: 'v2.4.2',
-    date: '2026-05-31',
+    date: '2026-05-30',
     title: '体验优化 — 节点计时器 / 审批交互增强 / Token 统计面板',
     type: 'feature',
     highlights: [
@@ -77,7 +80,7 @@ const changelog: ChangelogEntry[] = [
   },
   {
     version: 'v2.4.1',
-    date: '2026-05-31',
+    date: '2026-05-30',
     title: '工程质量提升 — 代码分割 / ErrorBoundary / 统一请求 Hook / 单元测试',
     type: 'improvement',
     highlights: [
