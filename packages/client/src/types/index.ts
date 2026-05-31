@@ -226,4 +226,4 @@ export interface ScopedContext {
 
 export type ProjectTab = 'runs' | 'workflow' | 'skills' | 'agents' | 'settings'
 
-export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree'
+export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree' | 'context-db' | 'checkpoint'

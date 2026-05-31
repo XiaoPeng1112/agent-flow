@@ -155,6 +155,10 @@ v2.5.0 引入了层次化上下文数据库，按作用域分为四层：
 
 Context DB 以文件为载体，支持热加载，Agent 执行时自动注入对应层级的上下文。通过 `context-db.ts` 服务管理。
 
+v2.5.0 提供了前端 Context DB 编辑器面板，可在 Run 详情页的 **Context DB** 标签中直接可视化编辑四层上下文内容，支持新建/编辑/删除上下文文件、层级切换和装配预览。
+
+![Context DB 编辑器](./screenshots/context-db.png)
+
 ### 4.7 OutputContracts（产出物合同）
 
 每个模板节点声明应产出什么（category + format + required），节点完成后系统自动校验 Agent 产出物是否满足合同。
@@ -738,6 +742,7 @@ npm run test:coverage
 - ✅ **Context DB**：SYS/L0/L1/L2 四层上下文管理
 - ✅ **Agent Tree**：树形可视化 Agent 实例分布
 - ✅ **Checkpoint UI**：Timeline 快照 + 恢复 + 健康监控
+- ✅ **Context DB 编辑器**：前端可视化编辑四层上下文，支持 CRUD + 装配预览
 - ✅ **代码分割**：React.lazy + Suspense 路由级分割
 - ✅ **单元测试**：Vitest 68 cases 覆盖核心服务
 - ✅ **错误边界**：React ErrorBoundary 全局错误隔离
@@ -746,8 +751,6 @@ npm run test:coverage
 
 - **数据库迁移**：项目/Run 数据量增大后从 JSON 文件迁移到 SQLite
 - **A2A 前端可视化**：在 Run 详情页展示 Agent 间消息流转拓扑
-- **Context DB 编辑器**：前端可视化编辑四层上下文内容
-
 ### 长期规划
 
 - **多人协作**：WebSocket 多客户端同步 + 乐观更新 + 冲突解决
