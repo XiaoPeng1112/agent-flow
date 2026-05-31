@@ -226,4 +226,54 @@ export interface ScopedContext {
 
 export type ProjectTab = 'runs' | 'workflow' | 'skills' | 'agents' | 'settings'
 
-export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree' | 'context-db' | 'checkpoint'
+export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree' | 'context-db' | 'checkpoint' | 'a2a'
+
+// ─── A2A Protocol (Agent-to-Agent 通信) ───
+
+export type A2AMessageType =
+  | 'delegated_task'
+  | 'task_delivery'
+  | 'user_input'
+  | 'progress_report'
+  | 'resource_request'
+
+export type A2AMessageStatus = 'queued' | 'delivered' | 'processing' | 'resolved' | 'failed' | 'expired'
+
+export type A2APriority = 'low' | 'normal' | 'high' | 'critical'
+
+export interface A2AMessage {
+  id: string
+  fromAgentId: string
+  toAgentId: string
+  runId: string
+  nodeId: string
+  type: A2AMessageType
+  payload: unknown
+  priority: A2APriority
+  status: A2AMessageStatus
+  requiresAck: boolean
+  createdAt: number
+  expiresAt?: number
+  deliveredAt?: number
+  ackAt?: number
+  resolvedAt?: number
+  retryCount: number
+  maxRetries: number
+}
+
+export interface A2AChannel {
+  id: string
+  runId: string
+  participants: string[]
+  createdAt: number
+  lastActivityAt: number
+}
+
+export interface A2AStats {
+  total: number
+  queued: number
+  processing: number
+  resolved: number
+  failed: number
+  expired: number
+}

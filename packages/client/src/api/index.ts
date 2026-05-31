@@ -319,6 +319,76 @@ export const contextDBApi = {
     }),
 }
 
+// ═══════════════ A2A Protocol API (Agent-to-Agent 通信) ═══════════════
+
+export const a2aApi = {
+  /** 获取 Run 的所有 A2A 消息 */
+  getMessages: (runId: string) =>
+    request<{ messages: any[] }>(`/a2a/messages/${runId}`),
+
+  /** 获取 A2A 统计 */
+  getStats: (runId?: string) =>
+    request<any>(`/a2a/stats${runId ? `?runId=${runId}` : ''}`),
+
+  /** 获取 Agent 收件箱 */
+  getInbox: (agentId: string, filters?: { status?: string; type?: string; runId?: string }) => {
+    const params = new URLSearchParams()
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.type) params.set('type', filters.type)
+    if (filters?.runId) params.set('runId', filters.runId)
+    const qs = params.toString()
+    return request<{ messages: any[] }>(`/a2a/inbox/${agentId}${qs ? `?${qs}` : ''}`)
+  },
+
+  /** 发送 A2A 消息 */
+  send: (data: {
+    fromAgentId: string
+    toAgentId: string
+    runId: string
+    nodeId: string
+    type: string
+    payload: unknown
+    priority?: string
+    requiresAck?: boolean
+  }) =>
+    request<{ message: any }>('/a2a/send', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /** 委派任务 */
+  delegate: (data: {
+    fromAgentId: string
+    toAgentId: string
+    runId: string
+    nodeId: string
+    task: { title: string; intent: string; context?: string }
+    priority?: string
+  }) =>
+    request<{ message: any }>('/a2a/delegate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /** 确认消息 */
+  acknowledge: (messageId: string) =>
+    request<{ success: boolean }>(`/a2a/ack/${messageId}`, { method: 'POST' }),
+
+  /** 解决消息 */
+  resolve: (messageId: string, result?: unknown) =>
+    request<{ success: boolean }>(`/a2a/resolve/${messageId}`, {
+      method: 'POST',
+      body: JSON.stringify({ result }),
+    }),
+
+  /** 创建通信通道 */
+  createChannel: (runId: string, participants: string[]) =>
+    request<{ channel: any }>('/a2a/channels', {
+      method: 'POST',
+      body: JSON.stringify({ runId, participants }),
+    }),
+}
+
 // ═══════════════ WebSocket（带生命周期管理的重连机制） ═══════════════
 
 /**

@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.5.0 | 更新日期：2026-05-31  
+> 版本：v2.6.0 | 更新日期：2026-06-01  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -248,7 +248,21 @@ Run 详情页顶部切换到 **Checkpoint** 标签，管理工作流快照：
 
 ![Checkpoint 面板](./screenshots/checkpoint.png)
 
-### 5.8 GitHub 登录
+### 5.8 A2A 消息面板
+
+Run 详情页顶部切换到 **A2A 消息** 标签，可视化展示当前 Run 中所有 Agent 之间的消息流转情况。面板提供三种视图模式：
+
+**拓扑图视图（默认）**：以 SVG 网络图形式呈现 Agent 间通信关系。每个 Agent 显示为带角色标识的圆形节点（不同角色颜色区分：Planner 蓝色、Executor 绿色、Manager 紫色），节点之间的连线表示消息通道，线条粗细和标注数字反映消息数量。上方卡片区显示每个 Agent 的发送/接收消息统计，下方列出所有通信链路及其消息类型标签（委派任务、进度汇报、任务交付、资源请求等）。
+
+**时间线视图**：以时间顺序展示所有 A2A 消息列表。每条消息显示发送方、接收方、消息类型、优先级和时间戳，支持按消息类型（request / response / notify / delegate / report）和优先级筛选。点击消息卡片可展开查看完整 payload 内容。
+
+**统计视图**：展示 A2A 通信的量化指标，包括总消息数、活跃 Agent 数、平均响应时间、通道数等统计卡片，以及消息类型分布柱状图、优先级分布饼图和各 Agent 活跃度排行。
+
+面板右上角提供「刷新」按钮手动拉取最新消息数据。
+
+![A2A 消息面板](./screenshots/a2a-panel.png)
+
+### 5.9 GitHub 登录
 
 侧边栏底部用户面板 → 点击 **「登录」** → 跳转 GitHub 授权 → 授权后自动返回并显示用户信息。
 
@@ -580,7 +594,7 @@ agent-flow/
 │   │   └── src/
 │   │       ├── api/         # REST API 客户端封装
 │   │       ├── components/  # UI 组件（detail/ layout/ sidebar/）
-│   │       │   └── detail/  # DAG 视图、AgentTree、Checkpoint、ContextDB 面板
+│   │       │   └── detail/  # DAG 视图、AgentTree、Checkpoint、ContextDB、A2A 面板
 │   │       ├── pages/       # 路由页面（About、Changelog 等）
 │   │       ├── store/       # Zustand 状态管理
 │   │       └── types/       # TypeScript 类型
@@ -715,6 +729,7 @@ npm run test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.6.0 | 2026-06-01 | A2A 消息面板（拓扑图 + 时间线 + 统计三视图）|
 | v2.5.0 | 2026-05-31 | DAG 可视化 + DET/HYB 执行模式 + Dynamic Agent + Context DB + Agent Tree + Checkpoint UI + Per-Project Agent 配置 |
 | v2.4.3 | 2026-05-31 | Markdown 渲染 + Overview 面板 + ChangelogPage 增强 |
 | v2.4.2 | 2026-05-31 | DAG 视图基础实现（@xyflow/react） |
@@ -743,6 +758,7 @@ npm run test:coverage
 - ✅ **Agent Tree**：树形可视化 Agent 实例分布
 - ✅ **Checkpoint UI**：Timeline 快照 + 恢复 + 健康监控
 - ✅ **Context DB 编辑器**：前端可视化编辑四层上下文，支持 CRUD + 装配预览
+- ✅ **A2A 消息面板**：拓扑图 + 时间线 + 统计三视图，全面展示 Agent 间消息流转
 - ✅ **代码分割**：React.lazy + Suspense 路由级分割
 - ✅ **单元测试**：Vitest 68 cases 覆盖核心服务
 - ✅ **错误边界**：React ErrorBoundary 全局错误隔离
@@ -750,7 +766,6 @@ npm run test:coverage
 ### 中期规划
 
 - **数据库迁移**：项目/Run 数据量增大后从 JSON 文件迁移到 SQLite
-- **A2A 前端可视化**：在 Run 详情页展示 Agent 间消息流转拓扑
 ### 长期规划
 
 - **多人协作**：WebSocket 多客户端同步 + 乐观更新 + 冲突解决

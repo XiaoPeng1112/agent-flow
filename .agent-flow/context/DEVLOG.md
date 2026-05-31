@@ -1,5 +1,36 @@
 # 开发日志
 
+## 2026-06-01 — v2.6.0
+
+### A2A 消息面板前端可视化
+
+**完成内容**：
+
+1. **前端 A2A API 客户端封装**（`packages/client/src/api/index.ts`）
+   - `a2aApi` 对象，包含 getMessages、getStats、getInbox、send、delegate、acknowledge、resolve、createChannel 方法
+   - 对接后端 `/api/a2a/*` 路由
+
+2. **A2APanel 组件**（`packages/client/src/components/detail/A2APanel.tsx`，~700 行）
+   - **拓扑图视图**：SVG 力导向布局，Agent 节点按角色着色（Planner 蓝色、Executor 绿色、Manager 紫色），连线粗细反映消息量，Agent 卡片展示收发统计，通信链路列表展示类型标签
+   - **时间线视图**：按时间倒序展示消息列表，支持类型/优先级筛选，点击展开 payload 详情
+   - **统计视图**：总消息数、活跃 Agent 数、平均响应时间、通道数统计卡片 + 消息类型分布柱状图 + 优先级分布 + Agent 活跃度排行
+
+3. **Tab 集成**（`packages/client/src/components/detail/RunDetail.tsx`）
+   - `RunDetailTab` 类型新增 `'a2a'`
+   - Tab 栏新增「A2A 消息」按钮
+   - 对应 render 分支渲染 A2APanel
+
+4. **类型定义**（`packages/client/src/types/index.ts`）
+   - 新增 A2AMessage、A2AStats、A2AChannel、A2AMessageType、A2AMessageStatus、A2APriority 类型
+
+**技术亮点**：
+- 纯 SVG 实现拓扑图（环形布局算法），无外部图形库依赖
+- 三种视图模式无缝切换，共享数据层
+- 消息类型标签自动颜色映射
+- 通信链路自动聚合统计
+
+---
+
 ## 2026-05-31 — v2.5.0
 
 本日完成第二优先级全部 4 项产品感优化 + Per-Project Agent 配置 + 第三优先级全部 5 项 MRF 架构演进能力（DET/动态Agent/ContextDB/AgentTree/Checkpoint）。

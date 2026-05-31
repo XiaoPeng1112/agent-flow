@@ -31,6 +31,7 @@ import { runApi, nodeApi, agentApi } from '../../api'
 import { AgentTreePanel } from './AgentTreePanel'
 import { CheckpointPanel } from './CheckpointPanel'
 import { ContextDBPanel } from './ContextDBPanel'
+import { A2APanel } from './A2APanel'
 import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab } from '../../types'
 
 interface Props {
@@ -345,6 +346,7 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
           { key: 'agent-tree', label: 'Agent Tree' },
           { key: 'checkpoint', label: 'Checkpoint' },
           { key: 'context-db', label: 'Context DB' },
+          { key: 'a2a', label: 'A2A 消息' },
         ] as { key: RunDetailTab; label: string }[]).map((tab) => (
           <button
             key={tab.key}
@@ -372,6 +374,10 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
       ) : runDetailTab === 'context-db' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <ContextDBPanel projectId={run.projectId} templateId={run.templateId} />
+        </div>
+      ) : runDetailTab === 'a2a' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <A2APanel run={run} />
         </div>
       ) : (
         <div className="flex-1 flex overflow-hidden">

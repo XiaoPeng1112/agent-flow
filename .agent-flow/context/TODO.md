@@ -68,7 +68,7 @@
 - [ ] **E2E 测试**：Playwright 覆盖核心用户路径
 - [x] ~~**OutputContract 自动校验**~~：已在 v2.4.0 实现（ContractValidatorService）
 - [ ] **Context Chaining 可视化**：在 DAG 视图中显示节点间的上下文传递关系
-- [ ] **A2A 协议前端可视化**：在 Run 详情页展示 Agent 间消息流转
+- [x] ~~**A2A 协议前端可视化**~~：已在 v2.6.0 实现（拓扑图 + 时间线 + 统计三视图面板）
 - [ ] **Checkpoint 恢复 UI**：支持从快照恢复中断的 Run
 
 ## 已知问题 🐛
