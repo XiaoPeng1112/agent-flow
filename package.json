@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "description": "AI Agent Workflow Orchestrator - 总控平台",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "workspaces": [
     "packages/client",
     "packages/server"

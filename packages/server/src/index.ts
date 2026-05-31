@@ -80,7 +80,7 @@ app.use('/api', createApiRouter({
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.4.0',
+    version: '2.5.0',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
@@ -97,6 +97,13 @@ app.get('/health', (_req, res) => {
       robustness: robustnessService.getHealthStatus(),
     },
   })
+})
+
+// 全局错误处理中间件（必须在所有路由之后注册，捕获未处理的异常统一返回 JSON）
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[API Error]', err.message, err.stack?.split('\n').slice(0, 3).join('\n'))
+  const statusCode = (err as any).statusCode || 500
+  res.status(statusCode).json({ success: false, error: err.message || 'Internal Server Error' })
 })
 
 // ═══════════════ HTTP + WebSocket 服务 ═══════════════
@@ -197,7 +204,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`
 ┌───────────────────────────────────────────────┐
-│     AgentFlow Server v2.4.0                   │
+│     AgentFlow Server v2.5.0                   │
 │     MAF-inspired Workflow Engine             │
 │                                               │
 │  HTTP API:  http://localhost:${PORT}/api         │

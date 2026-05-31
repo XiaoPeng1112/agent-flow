@@ -42,10 +42,10 @@ agent-flow/
 │       │   ├── a2a-protocol.test.ts
 │       │   └── contract-validator.test.ts
 │       └── src/
-│           ├── index.ts       # 服务入口（v2.4.0）
+│           ├── index.ts       # 服务入口（v2.5.0）
 │           ├── routes/
 │           │   └── api.ts     # REST API 路由定义（全部 async/await）
-│           ├── services/      # 业务服务层
+│           ├── services/      # 业务服务层（17 个模块）
 │           │   ├── project.ts       # 项目 CRUD
 │           │   ├── template.ts      # 工作流模板管理（4 个内置模板，含 deliver 节点）
 │           │   ├── workflow-engine.ts # DAG 工作流引擎（三层状态机 + Context Chaining）
@@ -55,6 +55,8 @@ agent-flow/
 │           │   ├── filesystem.ts    # 文件系统操作（allowedRoots 安全校验）
 │           │   ├── git.ts           # Git 集成（状态/commit/diff）
 │           │   ├── terminal.ts      # 终端进程管理
+│           │   ├── dynamic-agent-factory.ts # [v2.5.0] 动态 Agent 实例工厂（按节点创建 scoped Agent）
+│           │   ├── context-db.ts           # [v2.5.0] 四层上下文数据库（SYS/L0/L1/L2）
 │           │   ├── repo-isolation.ts       # [v2.4.0] Run 级仓库隔离（Git worktree 池化）
 │           │   ├── skill-materialization.ts # [v2.4.0] Skill 物化（白名单校验 + TTL 缓存）
 │           │   ├── permission-isolation.ts  # [v2.4.0] Agent 权限隔离（RBAC + glob 文件访问控制）

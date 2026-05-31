@@ -1,7 +1,7 @@
 # 待办与后续计划
 
 > 按优先级排列，P0 = 必须做，P1 = 应该做，P2 = 可以做  
-> 最后更新：2026-05-31（v2.4.1）
+> 最后更新：2026-05-31（v2.5.0）
 
 ## 当前阶段已完成 ✅
 
@@ -44,7 +44,7 @@
 
 - [ ] **GitHub OAuth 前端完整流程**：OAuth 回调页面处理（前端从 URL 提取 code 并交换 token，或后端直接处理完重定向）
 - [ ] **GitHub 仓库关联 UI**：在项目 Settings Tab 中添加 GitHub 仓库选择器
-- [ ] **Run 详情页 DAG 可视化**：当前有数据但 DAG 图形渲染待实现（可用 reactflow 或 dagre）
+- [x] ~~**Run 详情页 DAG 可视化**~~：已在 v2.5.0 实现（@xyflow/react 自定义节点 + 拓扑分层布局）
 - [ ] **Agent 执行端到端联调**：确保 codex-cli / claude-cli 安装后可以通过 UI 触发节点执行
 
 ## P1 — 体验优化
@@ -54,7 +54,7 @@
 - [ ] **深色主题一致性**：部分页面（Changelog/About）背景为白色，与 Sidebar 深色不协调
 - [x] ~~**代码分割**~~：已在 v2.4.1 实现（React.lazy + Suspense 路由级分割）
 - [ ] **移动端适配**：当前仅桌面端布局
-- [ ] **Vite strictPort 配置**：建议加上 `strictPort: true` 避免端口静默切换
+- [x] ~~**Vite strictPort 配置**~~：已在 v2.5.0 修复
 
 ## P2 — 长期规划
 
@@ -69,12 +69,12 @@
 - [x] ~~**OutputContract 自动校验**~~：已在 v2.4.0 实现（ContractValidatorService）
 - [ ] **Context Chaining 可视化**：在 DAG 视图中显示节点间的上下文传递关系
 - [x] ~~**A2A 协议前端可视化**~~：已在 v2.5.0 实现（拓扑图 + 时间线 + 统计三视图面板）
-- [ ] **Checkpoint 恢复 UI**：支持从快照恢复中断的 Run
+- [x] ~~**Checkpoint 恢复 UI**~~：已在 v2.5.0 实现（CheckpointPanel — Timeline 展示 + 创建/恢复快照）
 
 ## 已知问题 🐛
 
 - Vite 8 要求 Node.js 20+，需要通过 `nvm use --delete-prefix v20.19.2` 切换
 - ~~生产构建单 chunk 过大（~1.1MB），需做代码分割~~ → 已在 v2.4.1 通过 React.lazy 解决，页面 chunk 已独立拆分
-- Vite dev server 未配置 strictPort，端口被占用时会静默递增到下一个可用端口
+- ~~Vite dev server 未配置 strictPort，端口被占用时会静默递增到下一个可用端口~~ → 已在 v2.5.0 修复
 - GitHub OAuth 需要配置环境变量，未配置时登录按钮点击会报错（需加友好提示）
 - `tsx watch` 仅监听 server 端代码变更，client 端依赖 Vite HMR 独立热更新
