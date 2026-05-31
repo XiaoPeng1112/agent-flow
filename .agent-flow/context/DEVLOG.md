@@ -1,5 +1,56 @@
 # 开发日志
 
+## 2026-05-31 — v2.7.0 反馈闭环 + 周报摘要
+
+### 设计决策
+
+在 v2.6.0 实现了 Metrics 可观测性后，面临"如何保证后续使用中发现问题再迭代"的课题。经过分析，放弃了"完整自演进系统"（自动发现→自动决策→自动执行→自动验证），选择了**轻量采集 + 人工决策**模式。
+
+核心原因：
+- 自动化决策在数据量不足时容易误判，"元循环"（系统改进自身）容易失控
+- AgentFlow 的核心价值是"编排 Agent 完成开发任务"，不是"管理自己"
+- 用户 + AI 对话本身就是最高效的改进执行方式
+
+约束规则写入 ADR-016，作为后续迭代的护栏。
+
+### FeedbackCollector（~250 行）
+
+新增反馈采集器服务，在三个触发点自动记录结构化反馈：
+- `review_reject`：审批打回时记录原因、重试次数、关联节点
+- `diff_discard`：Diff Review 丢弃时记录被丢弃的文件数
+- `execution_failure`：执行失败时记录错误类型（timeout/crash/error）和堆栈
+
+数据持久化为 JSON Lines 格式（`~/.agent-flow/feedback/YYYY-MM-DD.jsonl`），每天一个文件，支持按时间范围/类型/严重度查询。
+
+### WeeklyDigest（~260 行）
+
+新增周报摘要生成器，手动触发或定期调用，汇总 feedback + metrics 数据输出 Markdown 摘要到 `~/.agent-flow/context/WEEKLY-DIGEST.md`。包含：
+- 执行概览（Run 数/完成率/平均耗时/Token 消耗）
+- 反馈统计（打回/丢弃/失败次数 + 严重度分布）
+- 高频问题 Top 5（按模式归类 + 改进建议）
+- Agent 表现排行（一次通过率 + 平均 Token）
+
+### 前端变更
+
+MetricsPanel 新增「反馈」子 Tab，复用现有面板容器不新增顶级入口。显示：
+- 4 个统计卡片（总反馈/打回/失败/Diff 丢弃）
+- 反馈记录列表（按时间倒序，显示类型/严重度/摘要）
+- "生成周报摘要"按钮
+
+### API 路由
+
+新增 4 条路由：
+- `POST /api/feedback` — 查询反馈记录
+- `GET /api/feedback/stats` — 获取反馈统计
+- `POST /api/feedback/digest` — 触发生成周报摘要
+- `POST /api/feedback/note` — 记录手动备注
+
+### 服务数量
+
+后端服务 19 → 21（+FeedbackCollector, +WeeklyDigest）
+
+---
+
 ## 2026-05-31 — v2.6.0 产出物闭环 + 可观测性增强
 
 ### 产出物闭环（ArtifactMergeService + DiffReviewPanel）

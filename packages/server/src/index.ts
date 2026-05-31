@@ -22,6 +22,8 @@ import { DynamicAgentFactory } from './services/dynamic-agent-factory.js'
 import { ContextDBService } from './services/context-db.js'
 import { ArtifactMergeService } from './services/artifact-merge.js'
 import { MetricsCollector } from './services/metrics-collector.js'
+import { FeedbackCollector } from './services/feedback-collector.js'
+import { WeeklyDigest } from './services/weekly-digest.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -52,6 +54,8 @@ const robustnessService = new RobustnessService()
 const contextDBService = new ContextDBService()
 const artifactMergeService = new ArtifactMergeService(repoIsolationService, gitService)
 const metricsCollector = new MetricsCollector()
+const feedbackCollector = new FeedbackCollector()
+const weeklyDigest = new WeeklyDigest(feedbackCollector, metricsCollector)
 const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService)
 
 // ═══════════════ Express 应用 ═══════════════
@@ -80,13 +84,15 @@ app.use('/api', createApiRouter({
   contextDBService,
   artifactMergeService,
   metricsCollector,
+  feedbackCollector,
+  weeklyDigest,
 }))
 
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.5.0',
+    version: '2.7.0',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,

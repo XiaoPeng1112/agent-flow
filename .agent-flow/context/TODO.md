@@ -1,7 +1,7 @@
 # 待办与后续计划
 
 > 按优先级排列，P0 = 必须做，P1 = 应该做，P2 = 可以做  
-> 最后更新：2026-05-31（v2.6.0）
+> 最后更新：2026-05-31（v2.7.0）
 
 ## 当前阶段已完成 ✅
 
@@ -76,6 +76,7 @@
 - [x] ~~**Checkpoint 恢复 UI**~~：已在 v2.5.0 实现（CheckpointPanel — Timeline 展示 + 创建/恢复快照）
 - [x] ~~**产出物闭环**~~：已在 v2.6.0 实现（ArtifactMergeService + DiffReviewPanel）
 - [x] ~~**可观测性增强**~~：已在 v2.6.0 实现（MetricsCollector + MetricsPanel）
+- [x] ~~**反馈闭环**~~：已在 v2.7.0 实现（FeedbackCollector + WeeklyDigest + Feedback Tab）
 
 ## 已知问题 🐛
 

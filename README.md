@@ -70,7 +70,7 @@ agent-flow/
 │   └── server/          # 后端 Express 服务
 │       ├── tests/       # Vitest 单元测试（68 cases）
 │       └── src/
-│           └── services/    # 业务服务层（19 个模块）
+│           └── services/    # 业务服务层（21 个模块）
 ├── docs/                # 使用手册
 └── .agent-flow/context/ # 项目上下文文档
 ```
@@ -108,6 +108,7 @@ npm run deploy
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.7.0 | 2026-05-31 | 反馈闭环（FeedbackCollector + WeeklyDigest）+ 轻量迭代机制 |
 | v2.6.0 | 2026-05-31 | 产出物闭环（Diff Review + Merge）+ 可观测性增强（Metrics 指标采集 + 可视化） |
 | v2.5.0 | 2026-05-31 | Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤） |
 | v2.4.1 | 2026-05-30 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |

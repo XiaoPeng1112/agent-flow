@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Tag, Tooltip, Empty, Spin, Progress, Table } from 'antd'
+import { Tag, Tooltip, Empty, Spin, Progress, Table, Button } from 'antd'
 import {
   ClockCircleOutlined,
   ThunderboltOutlined,
@@ -8,8 +8,9 @@ import {
   RiseOutlined,
   FieldTimeOutlined,
   FireOutlined,
+  MessageOutlined,
 } from '@ant-design/icons'
-import { metricsApi } from '../../api'
+import { metricsApi, feedbackApi } from '../../api'
 import type { Run } from '../../types'
 
 interface Props {
@@ -87,20 +88,26 @@ export function MetricsPanel({ run }: Props) {
   const [tokenDist, setTokenDist] = useState<TokenDistribution[]>([])
   const [efficiency, setEfficiency] = useState<EfficiencyEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'tokens' | 'efficiency'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'tokens' | 'efficiency' | 'feedback'>('overview')
+  const [feedbackEntries, setFeedbackEntries] = useState<any[]>([])
+  const [feedbackStats, setFeedbackStats] = useState<any>(null)
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
       try {
-        const [metricsRes, tokenRes, effRes] = await Promise.all([
+        const [metricsRes, tokenRes, effRes, fbRes, statsRes] = await Promise.all([
           metricsApi.getRunMetrics(run.id),
           metricsApi.getTokenDistribution(run.id),
           metricsApi.getEfficiency(run.id),
+          feedbackApi.query({ runId: run.id, limit: 50 }),
+          feedbackApi.getStats(7),
         ])
         setMetrics(metricsRes.metrics)
         setTokenDist(tokenRes.distribution || [])
         setEfficiency(effRes.table || [])
+        setFeedbackEntries(fbRes.entries || [])
+        setFeedbackStats(statsRes.stats || null)
       } catch {
         // 数据不可用
       } finally {
@@ -137,6 +144,7 @@ export function MetricsPanel({ run }: Props) {
           { key: 'timeline', label: '时间线', icon: <FieldTimeOutlined /> },
           { key: 'tokens', label: 'Token 分布', icon: <ThunderboltOutlined /> },
           { key: 'efficiency', label: '效率', icon: <FireOutlined /> },
+          { key: 'feedback', label: '反馈', icon: <MessageOutlined /> },
         ] as { key: typeof activeTab; label: string; icon: React.ReactNode }[]).map(tab => (
           <button
             key={tab.key}
@@ -159,6 +167,7 @@ export function MetricsPanel({ run }: Props) {
         {activeTab === 'timeline' && <TimelineSection metrics={metrics} />}
         {activeTab === 'tokens' && <TokenSection distribution={tokenDist} total={metrics.tokenUsage} />}
         {activeTab === 'efficiency' && <EfficiencySection entries={efficiency} />}
+        {activeTab === 'feedback' && <FeedbackSection entries={feedbackEntries} stats={feedbackStats} runId={run.id} />}
       </div>
     </div>
   )
@@ -531,6 +540,113 @@ function EfficiencySection({ entries }: { entries: EfficiencyEntry[] }) {
           record.efficiencyScore < 40 ? '!bg-red-50/30' : ''
         }
       />
+    </div>
+  )
+}
+
+// ═══════════════ Feedback Section ═══════════════
+
+function FeedbackSection({ entries, stats, runId }: { entries: any[]; stats: any; runId: string }) {
+  const [generating, setGenerating] = useState(false)
+
+  const handleGenerateDigest = async () => {
+    setGenerating(true)
+    try {
+      await feedbackApi.generateDigest(7)
+      // 成功后提示
+    } catch {
+      // 失败静默
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const severityColors: Record<string, string> = {
+    critical: 'red',
+    high: 'orange',
+    medium: 'gold',
+    low: 'default',
+  }
+
+  const typeLabels: Record<string, string> = {
+    review_reject: '审批打回',
+    diff_discard: 'Diff 丢弃',
+    execution_failure: '执行失败',
+    manual_note: '备注',
+  }
+
+  const formatTime = (ts: number) => {
+    const d = new Date(ts)
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+
+  return (
+    <div>
+      {/* 统计卡片 */}
+      {stats && (
+        <div className="grid grid-cols-4 gap-3 mb-5">
+          <div className="bg-gray-50 rounded-lg p-3 text-center">
+            <div className="text-[18px] font-bold text-gray-800">{stats.total || 0}</div>
+            <div className="text-[10px] text-gray-500 mt-0.5">总反馈</div>
+          </div>
+          <div className="bg-red-50 rounded-lg p-3 text-center">
+            <div className="text-[18px] font-bold text-red-600">{stats.byType?.review_reject || 0}</div>
+            <div className="text-[10px] text-gray-500 mt-0.5">打回</div>
+          </div>
+          <div className="bg-orange-50 rounded-lg p-3 text-center">
+            <div className="text-[18px] font-bold text-orange-600">{stats.byType?.execution_failure || 0}</div>
+            <div className="text-[10px] text-gray-500 mt-0.5">失败</div>
+          </div>
+          <div className="bg-amber-50 rounded-lg p-3 text-center">
+            <div className="text-[18px] font-bold text-amber-600">{stats.byType?.diff_discard || 0}</div>
+            <div className="text-[10px] text-gray-500 mt-0.5">Diff 丢弃</div>
+          </div>
+        </div>
+      )}
+
+      {/* 操作栏 */}
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-[11px] text-gray-500">
+          {entries.length > 0 ? `本 Run 共 ${entries.length} 条反馈` : '暂无反馈记录'}
+        </span>
+        <Button
+          size="small"
+          type="primary"
+          ghost
+          loading={generating}
+          onClick={handleGenerateDigest}
+          className="!text-[11px]"
+        >
+          生成周报摘要
+        </Button>
+      </div>
+
+      {/* 反馈列表 */}
+      {entries.length === 0 ? (
+        <Empty description="执行过程中的打回、丢弃、失败事件将自动记录在此" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry: any) => (
+            <div key={entry.id} className="bg-white border border-gray-100 rounded-lg p-3 hover:border-gray-200 transition-colors">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <Tag color={severityColors[entry.severity] || 'default'} className="!text-[10px] !px-1.5">
+                    {entry.severity}
+                  </Tag>
+                  <Tag className="!text-[10px] !px-1.5">
+                    {typeLabels[entry.type] || entry.type}
+                  </Tag>
+                </div>
+                <span className="text-[10px] text-gray-400">{formatTime(entry.timestamp)}</span>
+              </div>
+              <div className="text-[12px] text-gray-700 font-medium">{entry.summary}</div>
+              {entry.details && (
+                <div className="text-[11px] text-gray-500 mt-1 line-clamp-2">{entry.details}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

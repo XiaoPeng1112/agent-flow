@@ -283,6 +283,22 @@ export const metricsApi = {
     request<{ trend: any[] }>(`/metrics/trend/${templateId}`),
 }
 
+// ═══════════════ Feedback API (反馈闭环) ═══════════════
+
+export const feedbackApi = {
+  /** 查询反馈记录 */
+  query: (params?: { type?: string; runId?: string; limit?: number }) =>
+    request<{ entries: any[] }>('/feedback', { method: 'POST', body: JSON.stringify(params || {}) }),
+
+  /** 获取反馈统计 */
+  getStats: (days = 7) =>
+    request<{ stats: any }>(`/feedback/stats?days=${days}`),
+
+  /** 生成周报摘要 */
+  generateDigest: (days = 7) =>
+    request<{ digest: any }>(`/feedback/digest`, { method: 'POST', body: JSON.stringify({ days }) }),
+}
+
 // ═══════════════ Skill API ═══════════════
 
 export const skillApi = {

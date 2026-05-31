@@ -15,6 +15,29 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.7.0',
+    date: '2026-05-31',
+    title: '反馈闭环（FeedbackCollector + WeeklyDigest）+ 轻量迭代机制',
+    type: 'feature',
+    highlights: [
+      'FeedbackCollector 反馈采集器（审批打回/Diff 丢弃/执行失败自动记录）',
+      'WeeklyDigest 周报摘要生成器（汇总 feedback + metrics → Markdown）',
+      'MetricsPanel 新增「反馈」子 Tab（复用现有面板，不新增顶级入口）',
+      '新增 4 条 API 路由（feedback 查询/统计/digest 生成/手动备注）',
+      'ADR-016：信息收集可以自动化，决策执行必须人在回路',
+      '后端服务 19 → 21 个模块',
+    ],
+    details: `v2.7.0 建立了"发现问题 → 记录 → 改进"的最小反馈闭环，同时明确拒绝了完整自演进系统，确定了系统边界。
+
+【FeedbackCollector】新增反馈采集器服务（~250 行），在三个关键触发点自动记录结构化反馈：review_reject（审批打回，记录原因和重试次数）、diff_discard（Diff Review 丢弃，记录被丢弃文件数）、execution_failure（执行失败，记录错误类型和堆栈）。数据持久化为 JSON Lines 格式（~/.agent-flow/feedback/YYYY-MM-DD.jsonl），每天一个文件，支持按时间范围/类型/严重度查询和统计。
+
+【WeeklyDigest】新增周报摘要生成器（~260 行），手动触发或定期调用，汇总 feedback + metrics 数据输出 Markdown 摘要到 ~/.agent-flow/context/WEEKLY-DIGEST.md。包含执行概览（Run 数/完成率/平均耗时/Token 消耗）、反馈统计（打回/丢弃/失败次数 + 严重度分布）、高频问题 Top 5（按模式归类 + 改进建议）、Agent 表现排行（一次通过率 + 平均 Token）。
+
+【前端集成】MetricsPanel 新增「反馈」子 Tab，复用现有面板容器不新增顶级入口。显示 4 个统计卡片（总反馈/打回/失败/Diff 丢弃）、反馈记录列表（按时间倒序）、"生成周报摘要"按钮。
+
+【设计决策 ADR-016】明确拒绝"完整自演进系统"（自动发现→自动决策→自动执行→自动验证），选择轻量采集 + 人工决策模式。核心原则：数据采集类服务只收集不决策，决策权归用户；系统改进的执行方式是"用户 + AI 对话"，不是系统自动修改自身代码。`,
+  },
+  {
     version: 'v2.6.0',
     date: '2026-05-31',
     title: '产出物闭环（Diff Review + Merge）+ 可观测性增强（Metrics 指标采集 + 可视化）',

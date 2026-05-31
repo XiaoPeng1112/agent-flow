@@ -17,6 +17,8 @@ import type { DynamicAgentFactory } from '../services/dynamic-agent-factory.js'
 import type { ContextDBService } from '../services/context-db.js'
 import type { ArtifactMergeService } from '../services/artifact-merge.js'
 import type { MetricsCollector } from '../services/metrics-collector.js'
+import type { FeedbackCollector } from '../services/feedback-collector.js'
+import type { WeeklyDigest } from '../services/weekly-digest.js'
 
 export function createApiRouter(deps: {
   agentService: AgentService
@@ -37,6 +39,8 @@ export function createApiRouter(deps: {
   contextDBService: ContextDBService
   artifactMergeService: ArtifactMergeService
   metricsCollector: MetricsCollector
+  feedbackCollector: FeedbackCollector
+  weeklyDigest: WeeklyDigest
 }): Router {
   const router = Router()
   const {
@@ -46,6 +50,7 @@ export function createApiRouter(deps: {
     permissionIsolationService, a2aProtocolService,
     contractValidatorService, robustnessService, dynamicAgentFactory,
     contextDBService, artifactMergeService, metricsCollector,
+    feedbackCollector, weeklyDigest,
   } = deps
 
   // ════════════════════════════════════════
@@ -1337,6 +1342,58 @@ export function createApiRouter(deps: {
     try {
       const trend = metricsCollector.getTrend(templateId)
       res.json({ success: true, data: { trend } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  // ════════════════════════════════════════
+  // Feedback API (反馈闭环)
+  // ════════════════════════════════════════
+
+  /** 查询反馈记录 */
+  router.post('/feedback', async (req, res) => {
+    try {
+      const { type, runId, severity, limit } = req.body || {}
+      const entries = await feedbackCollector.query({ type, runId, severity, limit })
+      res.json({ success: true, data: { entries } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 获取反馈统计 */
+  router.get('/feedback/stats', async (req, res) => {
+    try {
+      const days = Number(req.query.days) || 7
+      const stats = await feedbackCollector.getStats(days)
+      res.json({ success: true, data: { stats } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 生成周报摘要 */
+  router.post('/feedback/digest', async (req, res) => {
+    try {
+      const { days } = req.body || {}
+      const digest = await weeklyDigest.generate(days || 7)
+      res.json({ success: true, data: { digest } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 记录手动备注 */
+  router.post('/feedback/note', (req, res) => {
+    try {
+      const { runId, nodeId, note } = req.body
+      if (!note) {
+        res.status(400).json({ success: false, error: 'note is required' })
+        return
+      }
+      const entry = feedbackCollector.recordManualNote({ runId, nodeId, note })
+      res.json({ success: true, data: { entry } })
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message })
     }

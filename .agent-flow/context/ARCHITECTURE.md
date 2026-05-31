@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-05-31（v2.6.0 — 产出物闭环 + 可观测性增强）  
+> 最后更新：2026-05-31（v2.7.0 — 反馈闭环 + 周报摘要）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -45,7 +45,7 @@ agent-flow/
 │           ├── index.ts       # 服务入口（v2.6.0）
 │           ├── routes/
 │           │   └── api.ts     # REST API 路由定义（全部 async/await）
-│           ├── services/      # 业务服务层（19 个模块）
+│           ├── services/      # 业务服务层（21 个模块）
 │           │   ├── project.ts       # 项目 CRUD
 │           │   ├── template.ts      # 工作流模板管理（4 个内置模板，含 deliver 节点）
 │           │   ├── workflow-engine.ts # DAG 工作流引擎（三层状态机 + Context Chaining）
@@ -64,7 +64,9 @@ agent-flow/
 │           │   ├── contract-validator.ts   # [v2.4.0] OutputContract 验证引擎
 │           │   ├── robustness.ts           # [v2.4.0] 健壮性服务（重试/死信队列/Checkpoint/审计）
 │           │   ├── artifact-merge.ts      # [v2.6.0] 产出物闭环（Git worktree Diff Review + Merge/Discard）
-│           │   └── metrics-collector.ts   # [v2.6.0] 可观测性指标采集（时间/Token/质量评分）
+│           │   ├── metrics-collector.ts   # [v2.6.0] 可观测性指标采集（时间/Token/质量评分）
+│           │   ├── feedback-collector.ts  # [v2.7.0] 反馈采集器（审批打回/Discard/失败 自动记录）
+│           │   └── weekly-digest.ts       # [v2.7.0] 周报摘要生成器（汇总指标+反馈→Markdown）
 │           └── types/
 │               └── index.ts   # 核心类型定义（含 NodeContext、EdgeCondition、A2A、RBAC 等）
 ├── .agent-flow/
