@@ -546,7 +546,7 @@ function EfficiencySection({ entries }: { entries: EfficiencyEntry[] }) {
 
 // ═══════════════ Feedback Section ═══════════════
 
-function FeedbackSection({ entries, stats, runId }: { entries: any[]; stats: any; runId: string }) {
+function FeedbackSection({ entries, stats, runId: _runId }: { entries: any[]; stats: any; runId: string }) {
   const [generating, setGenerating] = useState(false)
 
   const handleGenerateDigest = async () => {
