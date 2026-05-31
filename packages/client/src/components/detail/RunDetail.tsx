@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Button, Tag, Card, Select, Input, Space, Tooltip, Popconfirm, App, Alert } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -252,19 +252,102 @@ export function RunDetail({ run, onBack }: Props) {
         </div>
       </div>
 
-      <div className="flex-1 flex gap-5 overflow-hidden">
-        {/* 左侧：DAG 可视化 */}
-        <div className="flex-1 overflow-y-auto pr-4 pl-4">
-          <DAGView
-            run={run}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={setSelectedNodeId}
-            activeTurns={activeTurns}
-          />
-        </div>
+      <ResizableSplitPane
+        run={run}
+        selectedNodeId={selectedNodeId}
+        setSelectedNodeId={setSelectedNodeId}
+        activeTurns={activeTurns}
+        selectedNode={selectedNode}
+        agents={agents}
+        updateNode={updateNode}
+        appendTaskLog={appendTaskLog}
+      />
+    </div>
+  )
+}
 
-        {/* 右侧：节点详情面板 — key 保证切换节点时重新挂载 */}
-        {selectedNode && (
+// ═══════════════ 可拖拽分割面板 ═══════════════
+
+function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurns, selectedNode, agents, updateNode, appendTaskLog }: {
+  run: Run
+  selectedNodeId: string | null
+  setSelectedNodeId: (id: string | null) => void
+  activeTurns: AgentTurn[]
+  selectedNode: TaskNode | undefined
+  agents: AgentConfig[]
+  updateNode: (runId: string, node: TaskNode) => void
+  appendTaskLog: (line: string, level?: 'info' | 'success' | 'warning' | 'error') => void
+}) {
+  // 右侧面板宽度（px），默认 380px，可拖拽调整
+  const [rightWidth, setRightWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agentflow_split_width')
+      return saved ? Math.max(280, Math.min(600, parseInt(saved, 10))) : 380
+    } catch { return 380 }
+  })
+  const isDragging = useRef(false)
+  const startX = useRef(0)
+  const startWidth = useRef(0)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    startX.current = e.clientX
+    startWidth.current = rightWidth
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [rightWidth])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return
+      // 向左拖 → 右面板变宽（startX - currentX > 0 表示鼠标左移）
+      const delta = startX.current - e.clientX
+      const newWidth = Math.max(280, Math.min(600, startWidth.current + delta))
+      setRightWidth(newWidth)
+    }
+    const handleMouseUp = () => {
+      if (!isDragging.current) return
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      // 持久化
+      try { localStorage.setItem('agentflow_split_width', String(rightWidth)) } catch {}
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [rightWidth])
+
+  return (
+    <div ref={containerRef} className="flex-1 flex overflow-hidden">
+      {/* 左侧：DAG 可视化 */}
+      <div className="flex-1 overflow-y-auto px-4 min-w-[300px]">
+        <DAGView
+          run={run}
+          selectedNodeId={selectedNodeId}
+          onSelectNode={setSelectedNodeId}
+          activeTurns={activeTurns}
+        />
+      </div>
+
+      {/* 拖拽分隔条 */}
+      {selectedNode && (
+        <div
+          className="w-[5px] shrink-0 cursor-col-resize relative group flex items-center justify-center hover:bg-indigo-50 transition-colors"
+          onMouseDown={handleMouseDown}
+        >
+          <div className="w-[3px] h-8 rounded-full bg-gray-200 group-hover:bg-indigo-400 transition-colors" />
+        </div>
+      )}
+
+      {/* 右侧：节点详情面板 */}
+      {selectedNode && (
+        <div style={{ width: rightWidth }} className="shrink-0 overflow-y-auto">
           <NodeDetailPanel
             key={selectedNode.id}
             node={selectedNode}
@@ -274,8 +357,8 @@ export function RunDetail({ run, onBack }: Props) {
             onUpdate={(node) => updateNode(run.id, node)}
             appendTaskLog={appendTaskLog}
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -735,7 +818,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
 
   return (
     <Card
-      className="w-[380px] shrink-0 !shadow-lg !border-0 overflow-y-auto !rounded-2xl"
+      className="w-full h-full !shadow-lg !border-0 overflow-y-auto !rounded-2xl"
       styles={{ body: { padding: '20px 22px' } }}
     >
       {/* 节点头部 */}
