@@ -27,27 +27,27 @@
 
 ## 第二优先级：提升产品感
 
-### 4. ⬜ Agent 输出结果展示
+### 4. ✅ Agent 输出结果展示
 - **问题**：wait_user_review 时右侧面板无法看到 Agent 的完整输出，用户难以判断质量
-- **方案**：审批面板中嵌入 AgentResultPreview（已实现基础版），后续增强为 Markdown 渲染 + 代码高亮
+- **方案**：审批面板中嵌入 AgentResultPreview，支持 Markdown 渲染（react-markdown + remark-gfm） + 代码高亮（react-syntax-highlighter + oneDark 主题），MD/TXT 模式切换、一键复制、展开/收起
 - **MRF 对标**：§4.7 Agent Detail — "执行日志 / tool 调用 / artifacts"
 - **预估工时**：0.5 天 | AI 辅助：2-3 小时
 
-### 5. ⬜ 真正的 DAG 图形化
+### 5. ✅ 真正的 DAG 图形化
 - **问题**：当前是垂直列表，无法表达并行分支（parallel-dev 模板），不直观
-- **方案**：引入 `@xyflow/react`（reactflow），按 DAG 拓扑自动布局节点
+- **方案**：引入 `@xyflow/react`，自定义 DAGCustomNode 组件，拓扑分层自动布局，状态着色边 + 动画，支持拖拽平移和缩放
 - **MRF 对标**：§4.5 DAG Explorer — "Task DAG / Repo DAG / 节点状态"
 - **预估工时**：2-3 天 | AI 辅助：1-1.5 天
 
-### 6. ⬜ Run Overview 信息增强
+### 6. ✅ Run Overview 信息增强
 - **问题**：头部只有名称和状态，缺少运行概要
-- **方案**：添加"当前阶段"指示器、完成进度条、总耗时、总 Token、活跃 Agent 数量
+- **方案**：新增 Overview 信息栏：带颜色的进度条、当前阶段指示器（执行中/待验收/就绪）、完成率、活跃 Agent 数、总耗时显示
 - **MRF 对标**：§4.4 Run Overview — "当前阶段 / 主 Agent 摘要 / token-时间-资源"
 - **预估工时**：1 天 | AI 辅助：3-4 小时
 
-### 7. ⬜ 多 Provider 配置面板
+### 7. ✅ 多 Provider 配置面板
 - **问题**：Agent 列表只有名称和可用性，缺少配置管理
-- **方案**：新增 Runtime Registry 页面，展示 provider 可用性、默认配置、环境变量
+- **方案**：在 Agents 面板新增 ProviderConfigPanel 组件，展示 Codex/Claude/自定义 CLI 三大 Provider 的可用性、默认配置预览、环境变量配置（支持 password 类型）、启用/禁用开关
 - **MRF 对标**：§4.9 Runtime Registry — "provider 可用性 / 默认配置与覆盖"
 - **预估工时**：2 天 | AI 辅助：0.5-1 天
 

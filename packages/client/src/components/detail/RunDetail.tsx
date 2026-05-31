@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button, Tag, Card, Select, Input, Space, Tooltip, Popconfirm, App, Alert } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -17,7 +17,14 @@ import {
   WarningOutlined,
   EditOutlined,
   FieldTimeOutlined,
+  CopyOutlined,
+  ExpandOutlined,
+  CompressOutlined,
 } from '@ant-design/icons'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAppStore } from '../../store/appStore'
 import { runApi, nodeApi, agentApi } from '../../api'
 import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn } from '../../types'
@@ -87,11 +94,42 @@ export function RunDetail({ run, onBack }: Props) {
 
   // 完成的节点数
   const completedNodes = run.nodes.filter((n) => n.status === 'completed').length
+  const runningNodes = run.nodes.filter((n) => n.status === 'running').length
+  const waitingNodes = run.nodes.filter((n) => n.status === 'wait_user_review').length
+  const skippedNodes = run.nodes.filter((n) => n.status === 'skipped').length
+  const progressPercent = run.nodes.length > 0 ? Math.round(((completedNodes + skippedNodes) / run.nodes.length) * 100) : 0
+
+  // 计算总耗时
+  const totalElapsed = useMemo(() => {
+    if (!run.startedAt) return null
+    const end = run.completedAt || Date.now()
+    const seconds = Math.round((end - run.startedAt) / 1000)
+    if (seconds < 60) return `${seconds}s`
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
+  }, [run.startedAt, run.completedAt])
+
+  // 当前阶段（正在运行或等待的节点名）
+  const currentStage = useMemo(() => {
+    const running = run.nodes.find((n) => n.status === 'running')
+    if (running) return `执行中：${running.name}`
+    const waiting = run.nodes.find((n) => n.status === 'wait_user_review')
+    if (waiting) return `待验收：${waiting.name}`
+    const ready = run.nodes.find((n) => n.status === 'ready')
+    if (ready) return `就绪：${ready.name}`
+    if (run.status === 'completed') return '全部完成'
+    return null
+  }, [run.nodes, run.status])
+
+  // 活跃 Agent 数量
+  const activeAgentCount = activeTurns.filter((t) =>
+    run.nodes.some((n) => n.id === t.nodeId)
+  ).length
 
   return (
     <div className="h-full flex flex-col -mx-7 -my-5 px-7 py-5">
       {/* 头部 */}
-      <div className="flex items-center gap-4 mb-4">
+      <div className="flex items-center gap-4 mb-2">
         <Button
           type="text"
           icon={<ArrowLeftOutlined />}
@@ -103,13 +141,10 @@ export function RunDetail({ run, onBack }: Props) {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-[15px] font-semibold text-gray-900">{run.name}</h3>
-            <Tag color={run.status === 'running' ? 'processing' : run.status === 'completed' ? 'success' : 'default'}>
+            <Tag color={run.status === 'running' ? 'processing' : run.status === 'completed' ? 'success' : run.status === 'failed' ? 'error' : 'default'}>
               {run.status}
             </Tag>
           </div>
-          <p className="text-[12px] text-gray-400 mt-0.5">
-            {run.nodes.length} 节点 · 已完成 {completedNodes}/{run.nodes.length} · 创建于 {new Date(run.createdAt).toLocaleString('zh-CN')}
-          </p>
         </div>
 
         {/* Token 统计徽章 */}
@@ -127,6 +162,53 @@ export function RunDetail({ run, onBack }: Props) {
             启动 Run
           </Button>
         )}
+      </div>
+
+      {/* ★ Run Overview 信息栏 */}
+      <div className="mb-4 px-4 py-3 bg-gradient-to-r from-gray-50 to-white rounded-xl border border-gray-100">
+        {/* 进度条 */}
+        <div className="flex items-center gap-3 mb-2">
+          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                run.status === 'completed' ? 'bg-green-500'
+                  : run.status === 'failed' ? 'bg-red-400'
+                  : 'bg-indigo-500'
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <span className="text-[11px] font-medium text-gray-600 w-10 text-right">{progressPercent}%</span>
+        </div>
+
+        {/* 概要信息行 */}
+        <div className="flex items-center gap-4 text-[11px] text-gray-500 flex-wrap">
+          {/* 当前阶段 */}
+          {currentStage && (
+            <div className="flex items-center gap-1">
+              <div className={`w-1.5 h-1.5 rounded-full ${
+                runningNodes > 0 ? 'bg-amber-400 animate-pulse' : waitingNodes > 0 ? 'bg-orange-400' : 'bg-green-400'
+              }`} />
+              <span className="font-medium text-gray-700">{currentStage}</span>
+            </div>
+          )}
+          {/* 统计指标 */}
+          <div className="flex items-center gap-3 ml-auto">
+            <span>{completedNodes}/{run.nodes.length} 已完成</span>
+            {runningNodes > 0 && <span className="text-amber-600">{runningNodes} 执行中</span>}
+            {waitingNodes > 0 && <span className="text-orange-600">{waitingNodes} 待验收</span>}
+            {activeAgentCount > 0 && (
+              <span className="text-indigo-600 flex items-center gap-0.5">
+                <LoadingOutlined spin className="text-[9px]" /> {activeAgentCount} Agent 活跃
+              </span>
+            )}
+            {totalElapsed && (
+              <span className="flex items-center gap-0.5">
+                <FieldTimeOutlined className="text-[10px]" /> {totalElapsed}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 flex gap-5 overflow-hidden">
@@ -207,7 +289,93 @@ function NodeTimer({ startedAt, completedAt, status }: {
   )
 }
 
-// ═══════════════ DAG 可视化 ═══════════════
+// ═══════════════ DAG 图形化可视化（@xyflow/react） ═══════════════
+
+import {
+  ReactFlow,
+  Background,
+  type Node as FlowNode,
+  type Edge as FlowEdge,
+  Position,
+  Handle,
+  BackgroundVariant,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+
+// 自定义节点组件
+function DAGCustomNode({ data }: { data: any }) {
+  const { node, config, role, isSelected, nodeTurn, onClick } = data
+  return (
+    <div
+      onClick={onClick}
+      className={`dag-node relative px-4 py-3 rounded-xl border cursor-pointer transition-all min-w-[200px] max-w-[260px] ${
+        isSelected
+          ? 'border-indigo-400 bg-indigo-50/50 shadow-lg ring-2 ring-indigo-100'
+          : 'border-gray-200/80 hover:shadow-md hover:border-gray-300'
+      } ${node.status === 'running' ? 'node-running' : ''}`}
+      style={{
+        backgroundColor: isSelected ? undefined : config.bgColor,
+        borderColor: isSelected ? undefined : config.borderColor,
+      }}
+    >
+      <Handle type="target" position={Position.Top} className="!bg-gray-300 !border-gray-400 !w-2 !h-2" />
+      <Handle type="source" position={Position.Bottom} className="!bg-gray-300 !border-gray-400 !w-2 !h-2" />
+
+      <div className="flex items-center gap-2.5">
+        {/* 状态图标 */}
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-[14px] shrink-0"
+          style={{ backgroundColor: `${config.color}18`, color: config.color }}
+        >
+          {node.status === 'running' ? <LoadingOutlined spin /> : config.icon}
+        </div>
+
+        {/* 节点信息 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[12px] font-semibold text-gray-800 truncate">{node.name}</span>
+            <Tag color={config.tagColor} className="!text-[9px] !px-1 !py-0 !mr-0 !leading-3.5 !rounded">
+              {config.label}
+            </Tag>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-0.5 truncate">{node.description}</p>
+        </div>
+      </div>
+
+      {/* 底部信息栏 */}
+      <div className="flex items-center gap-2 mt-2 pt-1.5 border-t border-gray-100/80">
+        {role && (
+          <Tag color={role.color} className="!text-[9px] !px-1 !py-0 !m-0 !leading-3.5 !rounded">
+            {role.label}
+          </Tag>
+        )}
+        {node.startedAt && (
+          <NodeTimer startedAt={node.startedAt} completedAt={node.completedAt} status={node.status} />
+        )}
+        {node.artifacts.length > 0 && (
+          <div className="flex items-center gap-0.5 text-[9px] text-gray-400 ml-auto">
+            <FileTextOutlined className="text-[9px]" />
+            <span>{node.artifacts.length}</span>
+          </div>
+        )}
+      </div>
+
+      {/* 运行中动画提示 */}
+      {node.status === 'running' && (
+        <div className="mt-1.5">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-[9px] text-amber-600">
+              执行中{nodeTurn && nodeTurn.output.length > 0 && ` · ${nodeTurn.output.length}字符`}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const nodeTypes = { dagNode: DAGCustomNode }
 
 function DAGView({ run, selectedNodeId, onSelectNode, activeTurns }: {
   run: Run
@@ -215,117 +383,116 @@ function DAGView({ run, selectedNodeId, onSelectNode, activeTurns }: {
   onSelectNode: (id: string) => void
   activeTurns: AgentTurn[]
 }) {
+  // 基于拓扑分层构建布局
+  const { flowNodes, flowEdges } = useMemo(() => {
+    // 拓扑分层
+    const inDegree = new Map<string, number>()
+    const adjList = new Map<string, string[]>()
+    for (const node of run.nodes) {
+      inDegree.set(node.id, 0)
+      adjList.set(node.id, [])
+    }
+    for (const edge of run.edges) {
+      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+      adjList.get(edge.source)?.push(edge.target)
+    }
+
+    const layers: string[][] = []
+    let queue = [...inDegree.entries()].filter(([, d]) => d === 0).map(([id]) => id)
+    while (queue.length > 0) {
+      layers.push([...queue])
+      const nextQueue: string[] = []
+      for (const curr of queue) {
+        for (const neighbor of adjList.get(curr) || []) {
+          const newDeg = (inDegree.get(neighbor) || 1) - 1
+          inDegree.set(neighbor, newDeg)
+          if (newDeg === 0) nextQueue.push(neighbor)
+        }
+      }
+      queue = nextQueue
+    }
+
+    // 自动布局：垂直分层，水平居中
+    const NODE_WIDTH = 240
+    const NODE_HEIGHT = 100
+    const LAYER_GAP_Y = 80
+    const NODE_GAP_X = 40
+
+    const nodes: FlowNode[] = []
+    for (let layerIdx = 0; layerIdx < layers.length; layerIdx++) {
+      const layer = layers[layerIdx]
+      const totalWidth = layer.length * NODE_WIDTH + (layer.length - 1) * NODE_GAP_X
+      const startX = -totalWidth / 2
+
+      for (let nodeIdx = 0; nodeIdx < layer.length; nodeIdx++) {
+        const nodeId = layer[nodeIdx]
+        const taskNode = run.nodes.find((n) => n.id === nodeId)
+        if (!taskNode) continue
+
+        const config = nodeStatusConfig[taskNode.status]
+        const role = roleConfig[taskNode.agentRole]
+        const nodeTurn = activeTurns.find((t) => t.nodeId === taskNode.id)
+
+        nodes.push({
+          id: nodeId,
+          type: 'dagNode',
+          position: {
+            x: startX + nodeIdx * (NODE_WIDTH + NODE_GAP_X),
+            y: layerIdx * (NODE_HEIGHT + LAYER_GAP_Y),
+          },
+          data: {
+            node: taskNode,
+            config,
+            role,
+            isSelected: nodeId === selectedNodeId,
+            nodeTurn,
+            onClick: () => onSelectNode(nodeId),
+          },
+        })
+      }
+    }
+
+    // 构建边
+    const edges: FlowEdge[] = run.edges.map((edge, idx) => {
+      const sourceNode = run.nodes.find((n) => n.id === edge.source)
+      const targetNode = run.nodes.find((n) => n.id === edge.target)
+      const isActive = sourceNode?.status === 'completed' && (targetNode?.status === 'running' || targetNode?.status === 'ready')
+      const isCompleted = sourceNode?.status === 'completed' && targetNode?.status === 'completed'
+
+      return {
+        id: `e-${idx}`,
+        source: edge.source,
+        target: edge.target,
+        animated: isActive,
+        style: {
+          stroke: isCompleted ? '#10b981' : isActive ? '#6366f1' : '#d1d5db',
+          strokeWidth: isActive ? 2.5 : 1.5,
+        },
+      }
+    })
+
+    return { flowNodes: nodes, flowEdges: edges }
+  }, [run.nodes, run.edges, selectedNodeId, activeTurns, onSelectNode])
+
   return (
-    <div className="space-y-1">
-      {run.nodes.map((node, idx) => {
-        const config = nodeStatusConfig[node.status]
-        const isSelected = node.id === selectedNodeId
-        const hasIncoming = run.edges.some((e) => e.target === node.id)
-        const role = roleConfig[node.agentRole]
-        const nodeTurn = activeTurns.find((t) => t.nodeId === node.id)
-
-        return (
-          <div key={node.id}>
-            {/* 连接线 */}
-            {hasIncoming && (
-              <div className="flex justify-center">
-                <div className="w-[2px] h-4 bg-gradient-to-b from-gray-200 to-gray-300 rounded-full" />
-              </div>
-            )}
-
-            {/* 节点卡片 */}
-            <div
-              onClick={() => onSelectNode(node.id)}
-              className={`dag-node relative px-5 py-3.5 rounded-xl border cursor-pointer transition-all ${
-                isSelected
-                  ? 'border-indigo-400 bg-indigo-50/50 shadow-md ring-2 ring-indigo-100'
-                  : 'border-gray-200/80 hover:shadow-sm hover:border-gray-300'
-              } ${node.status === 'running' ? 'node-running' : ''}`}
-              style={{
-                backgroundColor: isSelected ? undefined : config.bgColor,
-                borderColor: isSelected ? undefined : config.borderColor,
-              }}
-            >
-              {/* 左侧序号指示器 */}
-              <div className="absolute -left-3.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white border-2 flex items-center justify-center text-[10px] font-bold shadow-sm"
-                style={{ borderColor: config.color, color: config.color }}>
-                {idx + 1}
-              </div>
-
-              <div className="flex items-center gap-3 ml-3">
-                {/* 状态图标 */}
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-[15px]"
-                  style={{ backgroundColor: `${config.color}12`, color: config.color }}
-                >
-                  {node.status === 'running' ? <LoadingOutlined spin /> : config.icon}
-                </div>
-
-                {/* 节点信息 */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-semibold text-gray-800">{node.name}</span>
-                    <Tag color={config.tagColor} className="!text-[10px] !px-1.5 !py-0 !mr-0 !leading-4 !rounded">
-                      {config.label}
-                    </Tag>
-                    {role && (
-                      <Tag color={role.color} className="!text-[10px] !px-1.5 !py-0 !mr-0 !leading-4 !rounded">
-                        {role.label}
-                      </Tag>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">{node.description}</p>
-                </div>
-
-                {/* 计时器 */}
-                {node.startedAt && (
-                  <NodeTimer
-                    startedAt={node.startedAt}
-                    completedAt={node.completedAt}
-                    status={node.status}
-                  />
-                )}
-
-                {/* 产出物 */}
-                {node.artifacts.length > 0 && (
-                  <Tooltip title={`${node.artifacts.length} 个产出物`}>
-                    <div className="flex items-center gap-1 text-[11px] text-gray-400 bg-gray-100/80 px-2 py-1 rounded-md">
-                      <FileTextOutlined />
-                      <span>{node.artifacts.length}</span>
-                    </div>
-                  </Tooltip>
-                )}
-              </div>
-
-              {/* 运行中进度提示 */}
-              {node.status === 'running' && (
-                <div className="mt-2 ml-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    <span className="text-[11px] text-amber-600">
-                      Agent 正在执行中...
-                      {nodeTurn && nodeTurn.output.length > 0 && ` (${nodeTurn.output.length} 字符输出)`}
-                    </span>
-                  </div>
-                  {/* 迷你输出预览 */}
-                  {nodeTurn && nodeTurn.output.length > 0 && (
-                    <div className="mt-1.5 px-2 py-1 bg-gray-900/5 rounded text-[10px] text-gray-500 font-mono truncate max-w-full">
-                      {nodeTurn.output.slice(-120)}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 错误信息 */}
-              {node.error && (
-                <div className="mt-2 ml-2 px-2 py-1 bg-red-50 border border-red-100 rounded-md text-[11px] text-red-600 truncate">
-                  {node.error}
-                </div>
-              )}
-            </div>
-          </div>
-        )
-      })}
+    <div className="h-full w-full min-h-[400px] rounded-xl overflow-hidden border border-gray-100 bg-white">
+      <ReactFlow
+        nodes={flowNodes}
+        edges={flowEdges}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.3 }}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        panOnDrag
+        zoomOnScroll
+        minZoom={0.3}
+        maxZoom={1.5}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e5e7eb" />
+      </ReactFlow>
     </div>
   )
 }
@@ -819,11 +986,13 @@ function AgentOutputPanel({ turn }: { turn: AgentTurn }) {
   )
 }
 
-// ═══════════════ Agent 结果预览（审批时展示） ═══════════════
+// ═══════════════ Agent 结果预览（Markdown 渲染 + 代码高亮） ═══════════════
 
 function AgentResultPreview({ nodeId }: { nodeId: string }) {
   const [output, setOutput] = useState<string>('')
   const [expanded, setExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [renderMode, setRenderMode] = useState<'markdown' | 'raw'>('markdown')
 
   useEffect(() => {
     // 从 API 获取该节点最后一个 turn 的输出
@@ -837,23 +1006,115 @@ function AgentResultPreview({ nodeId }: { nodeId: string }) {
 
   if (!output) return null
 
-  const preview = output.length > 500 && !expanded ? output.slice(0, 500) + '...' : output
+  const handleCopy = () => {
+    navigator.clipboard.writeText(output).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const displayContent = output.length > 2000 && !expanded ? output.slice(0, 2000) : output
 
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between mb-1.5">
         <label className="text-[12px] text-gray-500 font-medium">Agent 输出结果</label>
-        {output.length > 500 && (
+        <div className="flex items-center gap-2">
+          {/* 渲染模式切换 */}
           <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-[10px] text-indigo-500 hover:text-indigo-700"
+            onClick={() => setRenderMode(renderMode === 'markdown' ? 'raw' : 'markdown')}
+            className="text-[10px] text-gray-400 hover:text-indigo-500 transition-colors"
+            title={renderMode === 'markdown' ? '切换为原始文本' : '切换为 Markdown'}
           >
-            {expanded ? '收起' : '展开全部'}
+            {renderMode === 'markdown' ? 'MD' : 'TXT'}
           </button>
-        )}
+          {/* 复制 */}
+          <button
+            onClick={handleCopy}
+            className={`text-[10px] transition-colors ${copied ? 'text-green-500' : 'text-gray-400 hover:text-indigo-500'}`}
+            title="复制全部内容"
+          >
+            <CopyOutlined />
+          </button>
+          {/* 展开/收起 */}
+          {output.length > 2000 && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-[10px] text-indigo-500 hover:text-indigo-700 flex items-center gap-0.5"
+            >
+              {expanded ? <><CompressOutlined /> 收起</> : <><ExpandOutlined /> 展开全部</>}
+            </button>
+          )}
+        </div>
       </div>
-      <div className="px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-lg text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
-        {preview}
+
+      <div className={`border border-gray-100 rounded-lg overflow-hidden ${expanded ? 'max-h-[600px]' : 'max-h-[300px]'} overflow-y-auto`}>
+        {renderMode === 'markdown' ? (
+          <div className="markdown-preview px-4 py-3 text-[12px] leading-relaxed text-gray-700 prose prose-sm max-w-none
+            prose-headings:text-gray-800 prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-1.5
+            prose-p:my-1.5 prose-li:my-0.5
+            prose-code:text-[11px] prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-indigo-600
+            prose-pre:my-2 prose-pre:p-0 prose-pre:bg-transparent
+            prose-a:text-indigo-500 prose-a:no-underline hover:prose-a:underline
+            prose-table:text-[11px] prose-th:bg-gray-50 prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1
+            prose-blockquote:border-l-indigo-300 prose-blockquote:text-gray-500 prose-blockquote:my-2
+            prose-hr:my-3"
+          >
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || '')
+                  const codeString = String(children).replace(/\n$/, '')
+                  if (match) {
+                    return (
+                      <div className="relative group rounded-lg overflow-hidden my-2">
+                        <div className="flex items-center justify-between px-3 py-1 bg-gray-800 text-[10px] text-gray-400">
+                          <span>{match[1]}</span>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(codeString)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-white"
+                          >
+                            复制
+                          </button>
+                        </div>
+                        <SyntaxHighlighter
+                          style={oneDark}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{ margin: 0, borderRadius: 0, fontSize: '11px' }}
+                        >
+                          {codeString}
+                        </SyntaxHighlighter>
+                      </div>
+                    )
+                  }
+                  return (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  )
+                },
+              }}
+            >
+              {displayContent}
+            </ReactMarkdown>
+            {output.length > 2000 && !expanded && (
+              <div className="text-center py-2 text-[11px] text-gray-400 border-t border-gray-100 mt-2">
+                ···  内容已截断（共 {output.length} 字符）
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="px-3 py-2.5 bg-gray-50 text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap font-mono">
+            {displayContent}
+            {output.length > 2000 && !expanded && (
+              <div className="text-center py-2 text-gray-400 border-t border-gray-100 mt-2">
+                ···  内容已截断（共 {output.length} 字符）
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
