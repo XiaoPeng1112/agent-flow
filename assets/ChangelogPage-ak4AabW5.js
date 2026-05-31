@@ -1,4 +1,6 @@
-import{n as e,t}from"./ThunderboltOutlined-DV9Uqk_H.js";import{t as n}from"./BranchesOutlined-CfbpBuXy.js";import{t as r}from"./index-DRFfw75W.js";var i=r(),a=[{version:`v2.5.0`,date:`2026-06-01`,title:`产品感提升 — DAG 图形化 / Markdown 渲染 / Run Overview / Provider 配置`,type:`feature`,highlights:[`Agent 输出结果 Markdown 渲染 + 代码高亮（react-markdown + react-syntax-highlighter）`,`DAG 图形化可视化（@xyflow/react）— 拓扑分层自动布局`,`Run Overview 信息栏 — 进度条 / 阶段指示器 / 活跃 Agent 数`,`多 Provider 配置面板 — Runtime Registry`],details:`v2.5.0 完成第二优先级全部 4 项优化，大幅提升产品感。
+import{n as e,t}from"./ThunderboltOutlined-v8ASwPJd.js";import{t as n}from"./BranchesOutlined-wGbwne28.js";import{t as r}from"./index-Dta_ikUt.js";var i=r(),a=[{version:`v2.5.0`,date:`2026-05-31`,title:`产品感提升 + Per-Project Agent 配置`,type:`feature`,highlights:[`Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤）`,`Agent 输出结果 Markdown 渲染 + 代码高亮（react-markdown + react-syntax-highlighter）`,`DAG 图形化可视化（@xyflow/react）— 拓扑分层自动布局`,`Run Overview 信息栏 — 进度条 / 阶段指示器 / 活跃 Agent 数`,`多 Provider 配置面板 — Runtime Registry`],details:`v2.5.0 完成第二优先级全部 4 项优化 + 新增 Per-Project Agent 配置能力。
+
+【Per-Project Agent 配置】支持按项目维度启用/禁用 Agent，解决用户不一定拥有所有 Provider API Key 的问题。Agents 面板新增 ProjectAgentConfig 组件（Switch 开关逐个控制），保存后 DAG 节点详情的 Agent 下拉列表自动过滤，仅展示已启用的 Agent。数据模型向后兼容：enabledAgentIds 为 undefined 时所有 Agent 均可用。
 
 【Agent 输出 Markdown 渲染】审批面板中 Agent 输出结果现在支持完整的 Markdown 渲染，包括代码块语法高亮（oneDark 主题）、GFM 表格、引用块等。提供 MD/TXT 模式切换、一键复制、展开收起功能，代码块悬停显示复制按钮。
 
@@ -6,11 +8,11 @@ import{n as e,t}from"./ThunderboltOutlined-DV9Uqk_H.js";import{t as n}from"./Bra
 
 【Run Overview 增强】Run 详情页头部新增 Overview 信息栏，包含渐变色进度条（完成/失败/进行中三色态）、当前阶段指示器（自动检测执行中/待验收/就绪节点）、完成率百分比、活跃 Agent 计数（带动画）、总耗时统计。
 
-【多 Provider 配置面板】Agents 页面底部新增 ProviderConfigPanel，自动识别 Codex/Claude/自定义 CLI 三大 Provider，展示可用性、关联 Agent 数量、默认配置预览。可展开详细配置：环境变量（API Key 密码类型）、默认模型、启用/禁用开关等。对标 MRF §4.9 Runtime Registry。`},{version:`v2.4.3`,date:`2026-05-31`,title:`实时性修复 — WebSocket 事件广播 / Token 持久化统计`,type:`fix`,highlights:[`修复审批后需刷新才能看到下一节点的 Bug`,`computeReadyNodes 状态变更广播 WS 事件`,`Agents 页面 Token 统计改为后端持久化拉取`,`Token 数据刷新页面不再丢失`],details:`v2.4.3 修复了两个影响使用体验的关键问题。
+【多 Provider 配置面板】Agents 页面底部新增 ProviderConfigPanel，自动识别 Codex/Claude/自定义 CLI 三大 Provider，展示可用性、关联 Agent 数量、默认配置预览。可展开详细配置：环境变量（API Key 密码类型）、默认模型、启用/禁用开关等。对标 MRF §4.9 Runtime Registry。`},{version:`v2.4.3`,date:`2026-05-30`,title:`实时性修复 — WebSocket 事件广播 / Token 持久化统计`,type:`fix`,highlights:[`修复审批后需刷新才能看到下一节点的 Bug`,`computeReadyNodes 状态变更广播 WS 事件`,`Agents 页面 Token 统计改为后端持久化拉取`,`Token 数据刷新页面不再丢失`],details:`v2.4.3 修复了两个影响使用体验的关键问题。
 
 【节点流转实时性】修复了 approve 节点后前端需要手动刷新浏览器才能看到下一节点变为 ready 的 Bug。根因是 computeReadyNodes() 将后续节点从 pending 改为 ready 时，没有通过 WebSocket 广播状态变更事件。修复后每次节点状态变化（ready/skipped）都会立即 emit run:node_updated 事件，前端实时响应更新 UI。
 
-【Token 统计持久化】Agents 页面的 Token 消耗总览之前仅依赖浏览器内存中的 WebSocket 实时事件，刷新页面后数据丢失。修复后改为页面加载时从后端 /runs/:id/token-stats API 拉取所有 Run 的持久化 token 数据，合并实时 WS 数据一起展示，确保统计数据不因刷新而消失。`},{version:`v2.4.2`,date:`2026-05-31`,title:`体验优化 — 节点计时器 / 审批交互增强 / Token 统计面板`,type:`feature`,highlights:[`节点实时计时器（running 秒表 + completed 总耗时）`,`审批交互「修改后继续」按钮`,`反馈意见通过 Context Chaining 传递`,`Token 消耗实时统计徽章`,`修复 parseTokenUsage 正则匹配`,`新增 12 项 MRF 对标优化清单`],details:`v2.4.2 针对实际使用中发现的三个痛点进行了快速修复，显著提升执行过程的可观测性和操控灵活度。
+【Token 统计持久化】Agents 页面的 Token 消耗总览之前仅依赖浏览器内存中的 WebSocket 实时事件，刷新页面后数据丢失。修复后改为页面加载时从后端 /runs/:id/token-stats API 拉取所有 Run 的持久化 token 数据，合并实时 WS 数据一起展示，确保统计数据不因刷新而消失。`},{version:`v2.4.2`,date:`2026-05-30`,title:`体验优化 — 节点计时器 / 审批交互增强 / Token 统计面板`,type:`feature`,highlights:[`节点实时计时器（running 秒表 + completed 总耗时）`,`审批交互「修改后继续」按钮`,`反馈意见通过 Context Chaining 传递`,`Token 消耗实时统计徽章`,`修复 parseTokenUsage 正则匹配`,`新增 12 项 MRF 对标优化清单`],details:`v2.4.2 针对实际使用中发现的三个痛点进行了快速修复，显著提升执行过程的可观测性和操控灵活度。
 
 【节点计时器】DAG 卡片在 running 状态时显示实时秒表（每秒刷新），completed 后显示总耗时。用户可直观感知每个节点的执行进度，不再需要盲等。
 
@@ -18,7 +20,7 @@ import{n as e,t}from"./ThunderboltOutlined-DV9Uqk_H.js";import{t as n}from"./Bra
 
 【Token 统计面板】修复了 parseTokenUsage 正则无法匹配 Codex 实际输出格式（如 "(68350 tokens)"、"token usage: 12345"）的问题；Run 头部新增 Token 累计统计徽章，定期轮询 /token-stats API 展示已消耗 token 总量。
 
-【优化清单】新增 OPTIMIZATION-TODO.md 文档，记录 12 项对标 MRF 设计文档的优化计划，按优先级分三层（体验修复 / 产品感提升 / 架构演进），为后续迭代提供清晰路线图。`},{version:`v2.4.1`,date:`2026-05-31`,title:`工程质量提升 — 代码分割 / ErrorBoundary / 统一请求 Hook / 单元测试`,type:`improvement`,highlights:[`React.lazy + Suspense 路由级代码分割`,`ErrorBoundary 全局错误隔离`,`useRequest Hook（Loading / Toast / 指数退避重试）`,`Vitest 单元测试（68 cases 覆盖三大核心服务）`,`首屏 JS 体积优化（页面 chunk 独立拆分）`],details:`v2.4.1 聚焦于工程质量和前端健壮性提升，为项目补全了四大基础能力。
+【优化清单】新增 OPTIMIZATION-TODO.md 文档，记录 12 项对标 MRF 设计文档的优化计划，按优先级分三层（体验修复 / 产品感提升 / 架构演进），为后续迭代提供清晰路线图。`},{version:`v2.4.1`,date:`2026-05-30`,title:`工程质量提升 — 代码分割 / ErrorBoundary / 统一请求 Hook / 单元测试`,type:`improvement`,highlights:[`React.lazy + Suspense 路由级代码分割`,`ErrorBoundary 全局错误隔离`,`useRequest Hook（Loading / Toast / 指数退避重试）`,`Vitest 单元测试（68 cases 覆盖三大核心服务）`,`首屏 JS 体积优化（页面 chunk 独立拆分）`],details:`v2.4.1 聚焦于工程质量和前端健壮性提升，为项目补全了四大基础能力。
 
 【代码分割】所有 5 个路由页面改为 React.lazy() 动态导入 + Suspense 包裹，首屏不再加载未访问页面的代码。构建产物从单一 ~1.1MB chunk 拆分为 845KB 主包 + 多个独立页面 chunk，显著提升首屏加载速度。
 
