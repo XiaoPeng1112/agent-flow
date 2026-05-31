@@ -107,7 +107,7 @@ npm run deploy
 | 版本 | 日期 | 重点 |
 |------|------|------|
 | v2.5.0 | 2026-05-31 | Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤） |
-| v2.4.1 | 2026-05-31 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
+| v2.4.1 | 2026-05-30 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
 | v2.4.0 | 2026-05-30 | MAF 六大服务模块 |
 | v2.3.0 | 2026-05-30 | 安全加固 + DAG 增强 + AI 开发流程优化 |
 | v2.2.0 | 2026-05-29 | 后端状态监测 + GitHub Pages 部署 |
