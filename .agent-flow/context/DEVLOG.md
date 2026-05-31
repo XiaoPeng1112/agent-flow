@@ -2,50 +2,67 @@
 
 ## 2026-05-31 — v2.5.0
 
-### v2.5.0 — Per-Project Agent 配置
+本日完成第二优先级全部 4 项产品感优化 + 新增 Per-Project Agent 配置能力。
 
-**核心功能**：支持按项目维度启用/禁用 Agent，让用户仅在自己拥有 API Key 的 Provider 的 Agent 中选择。
+### v2.5.0 — 产品感提升 + Per-Project Agent 配置
 
 **完成内容**:
 
-1. **类型定义扩展**
+1. **Per-Project Agent 配置**
    - `ProjectData`（Server）和 `Project`（Client）新增 `enabledAgentIds?: string[]` 字段
    - undefined 表示全部启用，空数组表示全部禁用，向后兼容
+   - `GET/PUT /api/projects/:id/enabled-agents` API 端点
+   - AgentsPanel 新增 `ProjectAgentConfig` 组件（Switch 开关逐个控制）
+   - RunDetail 根据 `currentProject.enabledAgentIds` 过滤 agents 列表传入 NodeDetailPanel
+   - 保存后调用 `setProjects()` 同步全局 Store
 
-2. **Server API**
-   - `GET /api/projects/:id/enabled-agents` — 获取项目已启用的 Agent 列表
-   - `PUT /api/projects/:id/enabled-agents` — 更新项目 Agent 启用配置
-   - 已有 `PUT /api/projects/:id` 也支持 `enabledAgentIds` 字段更新
+2. **Agent 输出 Markdown 渲染**
+   - 审批面板嵌入 AgentResultPreview 组件
+   - react-markdown + remark-gfm 渲染 Markdown
+   - react-syntax-highlighter + oneDark 主题代码高亮
+   - MD/TXT 模式切换、一键复制、展开/收起
 
-3. **前端 AgentsPanel 增强**
-   - 新增 `ProjectAgentConfig` 组件（卡片样式 + Switch 开关）
-   - 支持逐个 Agent 切换启用/禁用
-   - 保存成功后调用 `setProjects()` 同步全局 Store，确保其他组件立即获得最新状态
+3. **DAG 图形化可视化**
+   - 引入 `@xyflow/react` 替代垂直列表
+   - 拓扑分层自动布局，并行分支一目了然
+   - 自定义 DAGCustomNode 组件显示状态、角色、计时、产出物
+   - 边线根据节点状态着色（已完成绿色、活跃紫色动画、未激活灰色）
+   - 支持拖拽平移和鼠标滚轮缩放
 
-4. **DAG 节点 Agent 下拉过滤**
-   - RunDetail 中新增项目级 Agent 过滤逻辑
-   - 根据 `currentProject.enabledAgentIds` 过滤 agents 列表后传入 NodeDetailPanel
-   - 用户在 DAG 节点详情选择 Agent 时只看到项目已启用的 Agent
+4. **Run Overview 信息增强**
+   - 渐变色进度条（完成/失败/进行中三色态）
+   - 当前阶段指示器（执行中/待验收/就绪）
+   - 完成率、活跃 Agent 数（带动画）、总耗时
+
+5. **多 Provider 配置面板**
+   - ProviderConfigPanel 组件（Codex/Claude/自定义 CLI 三大 Provider）
+   - 可用性检测、默认配置预览、环境变量配置（password 类型）、启用/禁用开关
 
 **修复的问题**:
-- **"保存失败" HTML 错误响应**：Server 代码更新后未重启，返回旧 HTML 而非 JSON → 重启 Server 解决
+- **"保存失败" HTML 错误响应**：Server 代码更新后未重启 → 重启 Server 解决
 - **Agent 下拉未同步过滤**：RunDetail 未基于项目配置过滤 agents → 添加 filtering 逻辑
 - **Store 未同步**：AgentsPanel 保存后未更新全局 Store → 添加 `setProjects()` 调用
-
-**修改文件**:
-- `packages/server/src/types/index.ts` — 添加 `enabledAgentIds`
-- `packages/server/src/services/project.ts` — 更新 `updateProject` 支持该字段
-- `packages/server/src/routes/api.ts` — 新增两个 API 端点
-- `packages/client/src/types/index.ts` — 添加 `enabledAgentIds`
-- `packages/client/src/api/index.ts` — 新增 `projectApi.getEnabledAgents/updateEnabledAgents`
-- `packages/client/src/components/detail/AgentsPanel.tsx` — 新增 `ProjectAgentConfig`
-- `packages/client/src/components/detail/RunDetail.tsx` — 添加 Agent 过滤逻辑
+- **DAG 节点点击无反应**：改用 ReactFlow onNodeClick 回调
 
 ---
 
-## 2026-05-30 — v2.4.1
+## 2026-05-30 — v2.4.1 → v2.4.3
 
-本日聚焦工程质量提升：代码分割、全局错误隔离、统一请求 Hook 和单元测试覆盖。
+本日完成工程质量提升、第一优先级体验优化、以及实时性 Bug 修复。
+
+### v2.4.3 — 实时性修复（WS 事件广播 + Token 持久化）
+
+**完成内容**:
+- 修复审批后需刷新才能看到下一节点的 Bug：computeReadyNodes 状态变更时广播 WS 事件
+- Agents 页面 Token 统计改为从后端 API 拉取持久化数据，刷新不丢失
+
+### v2.4.2 — 体验优化（节点计时器 + 审批交互 + Token 统计面板）
+
+**完成内容**:
+- 节点实时计时器：running 时显示秒表（每秒刷新），completed 后显示总耗时
+- 审批交互「修改后继续」按钮：用户填写修改意见后 approve，意见通过 Context Chaining 传递
+- Token 统计面板：修复 parseTokenUsage 正则匹配，Run 头部新增 Token 累计统计徽章
+- 新增 OPTIMIZATION-TODO.md（12 项 MRF 对标优化清单）
 
 ### v2.4.1 — 工程质量提升
 

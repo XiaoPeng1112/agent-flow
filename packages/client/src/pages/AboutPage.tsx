@@ -38,12 +38,13 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.5.0</p>
           <div className="flex items-center justify-center gap-2">
-            <Tag color="blue">DAG 编排</Tag>
+            <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
             <Tag color="green">自动化工作流</Tag>
             <Tag color="cyan">企业级架构</Tag>
+            <Tag color="orange">项目级配置</Tag>
           </div>
         </div>
 
@@ -180,6 +181,8 @@ export function AboutPage() {
                 'Ant Design 6 (组件库)',
                 'Zustand 5 (状态管理)',
                 'React Router Dom 7 (路由)',
+                '@xyflow/react (DAG 可视化)',
+                'react-markdown + remark-gfm (Markdown 渲染)',
               ]}
             />
             <TechStack
@@ -240,7 +243,7 @@ export function AboutPage() {
               },
               {
                 key: '4',
-                label: <CollapseLabel icon={<RobotOutlined />} text="Agents — 多角色 AI 系统" />,
+                label: <CollapseLabel icon={<RobotOutlined />} text="Agents — 多角色 AI 系统 & 项目级配置" />,
                 children: (
                   <div className="text-[13px] text-gray-600 leading-relaxed">
                     <p>AgentFlow 支持多种 Agent 后端，通过 CLI 进程方式调用：</p>
@@ -248,6 +251,7 @@ export function AboutPage() {
                     <p className="mt-2"><strong>Claude CLI：</strong>Anthropic 的 Claude 命令行工具，擅长分析和文档生成。</p>
                     <p className="mt-2"><strong>选择策略：</strong>系统优先选择 codex-universal，其次 claude-universal，最后任意可用 Agent。</p>
                     <p className="mt-2"><strong>执行模式：</strong>非阻塞异步执行，WebSocket 实时推送输出流，支持中途取消。</p>
+                    <p className="mt-2"><strong>Per-Project Agent 配置（v2.5.0）：</strong>支持按项目维度启用/禁用特定 Agent。进入项目 → Agents Tab → 通过 Switch 开关控制每个 Agent 的启用状态。保存后 DAG 节点详情中的 Agent 下拉列表仅展示已启用的 Agent，让用户只关注自己拥有 API Key 的 Provider。</p>
                   </div>
                 ),
               },
@@ -435,6 +439,44 @@ export function AboutPage() {
               title="Robustness"
               desc="指数退避重试 + 死信队列（DLQ）+ Checkpoint 快照 + 审计日志。为工作流执行提供容错和全链路可观测。"
               color="#d97706"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.5.0 新能力 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<AppstoreOutlined />} title="DAG 可视化 & 体验升级（v2.5.0）" color="cyan" />
+          <div className="bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.5.0 聚焦<strong>可视化与用户体验</strong>：引入 @xyflow/react 实现 DAG 交互式画布，新增 Run Overview 统计面板、
+              Markdown 渲染引擎、Per-Project Agent 配置以及全局键盘快捷键体系，大幅提升工作流编辑效率和信息展示密度。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<ApartmentOutlined />}
+              title="DAG 可视化画布"
+              desc="基于 @xyflow/react 的交互式 DAG 编辑器：Dagre 自动布局、自定义节点（状态色带 + 徽章）、条件边标签、小地图、选中高亮联动。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="Run Overview 面板"
+              desc="在 Run 列表顶部展示统计摘要：总 Run 数、各状态占比（环形图）、最近活动时间线，快速掌握项目全貌。"
+              color="#6366f1"
+            />
+            <ArchCard
+              icon={<CodeOutlined />}
+              title="Markdown 渲染引擎"
+              desc="Agent 输出和节点 Prompt 使用 react-markdown + remark-gfm 渲染，支持代码高亮、表格、链接等 GFM 语法。"
+              color="#10b981"
+            />
+            <ArchCard
+              icon={<RobotOutlined />}
+              title="Per-Project Agent 配置"
+              desc="项目级别启用/禁用 Agent：Agents Tab → Switch 开关 → 保存后 DAG 节点仅展示已启用 Agent，简化选择流程。"
+              color="#8b5cf6"
             />
           </div>
         </section>
