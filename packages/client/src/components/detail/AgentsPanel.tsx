@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, Tag, Button, Tooltip, Progress, Statistic, App, Empty, Badge, Switch, Input, Divider } from 'antd'
 import {
   RobotOutlined,
@@ -12,9 +12,10 @@ import {
   CloudServerOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { agentApi, runApi } from '../../api'
+import { agentApi, projectApi, runApi } from '../../api'
 import type { AgentConfig, AgentTurn } from '../../types'
 
 interface Props {
@@ -214,6 +215,9 @@ export function AgentsPanel({ project: _project }: Props) {
         )}
       </Card>
 
+      {/* ★ 项目 Agent 可用性配置 */}
+      <ProjectAgentConfig projectId={_project.id} agents={agents} />
+
       {/* Agent 列表 */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -283,6 +287,154 @@ export function AgentsPanel({ project: _project }: Props) {
       {/* ★ Provider 配置面板（多 Provider Runtime Registry） */}
       <ProviderConfigPanel agents={agents} />
     </div>
+  )
+}
+
+// ═══════════════ 项目 Agent 可用性配置面板 ═══════════════
+
+function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: AgentConfig[] }) {
+  const { message } = App.useApp()
+  const projects = useAppStore((s) => s.projects)
+  const setProjects = useAppStore((s) => s.setProjects)
+  const [enabledIds, setEnabledIds] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [initialized, setInitialized] = useState(false)
+
+  // 加载当前项目的 Agent 启用配置
+  const loadConfig = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await projectApi.getEnabledAgents(projectId)
+      setEnabledIds(res.enabledAgentIds)
+      setInitialized(true)
+    } catch {
+      // 默认全部启用
+      setEnabledIds(agents.map(a => a.id))
+      setInitialized(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId, agents])
+
+  useEffect(() => {
+    loadConfig()
+  }, [loadConfig])
+
+  // 切换某个 Agent 的启用状态
+  const handleToggle = (agentId: string, checked: boolean) => {
+    setEnabledIds(prev =>
+      checked ? [...prev, agentId] : prev.filter(id => id !== agentId)
+    )
+  }
+
+  // 保存配置
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await projectApi.updateEnabledAgents(projectId, enabledIds)
+      // 同步更新 store 中的项目数据，让其他组件（如 NodeDetailPanel）立即生效
+      setProjects(projects.map(p =>
+        p.id === projectId ? { ...p, enabledAgentIds: enabledIds } : p
+      ))
+      message.success('Agent 可用配置已保存')
+    } catch (err: any) {
+      message.error(`保存失败: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // 全选/全不选
+  const handleSelectAll = () => setEnabledIds(agents.map(a => a.id))
+  const handleDeselectAll = () => setEnabledIds([])
+
+  const allEnabled = enabledIds.length === agents.length
+  const noneEnabled = enabledIds.length === 0
+
+  if (!initialized && loading) {
+    return null
+  }
+
+  return (
+    <Card
+      className="!border-gray-200 !bg-white"
+      styles={{ body: { padding: '20px 24px' } }}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <LockOutlined className="text-amber-500" />
+          <span className="text-[14px] font-medium text-gray-800">项目 Agent 可用配置</span>
+          <Tag className="!text-[10px] !m-0 !bg-amber-50 !text-amber-600 !border-0">
+            已启用 {enabledIds.length}/{agents.length}
+          </Tag>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="small"
+            onClick={allEnabled ? handleDeselectAll : handleSelectAll}
+          >
+            {allEnabled ? '全部取消' : '全部启用'}
+          </Button>
+          <Button
+            type="primary"
+            size="small"
+            loading={saving}
+            onClick={handleSave}
+          >
+            保存
+          </Button>
+        </div>
+      </div>
+
+      <p className="text-[11px] text-gray-400 mb-4">
+        配置本项目可以使用的 Agent。未购买 API Key 的 Agent 可在此处禁用，避免执行时报错。未配置时默认全部启用。
+      </p>
+
+      {noneEnabled && (
+        <div className="mb-3 px-3 py-2 bg-red-50 border border-red-100 rounded-lg">
+          <span className="text-[11px] text-red-600">⚠️ 当前没有启用任何 Agent，工作流将无法执行。请至少启用一个 Agent。</span>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {agents.map((agent) => {
+          const isEnabled = enabledIds.includes(agent.id)
+          return (
+            <div
+              key={agent.id}
+              className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all ${
+                isEnabled
+                  ? 'border-gray-100 bg-white hover:border-indigo-200'
+                  : 'border-gray-100 bg-gray-50/50 opacity-60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[14px] ${
+                  isEnabled ? 'bg-indigo-50' : 'bg-gray-100'
+                }`}>
+                  {agent.type === 'codex' ? '⚡' : agent.type === 'claude' ? '🤖' : '🔧'}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-medium text-gray-800">{agent.name}</span>
+                    <Tag color={agent.role === 'planner' ? 'purple' : agent.role === 'manager' ? 'blue' : 'green'} className="!text-[9px] !m-0 !px-1">
+                      {agent.role}
+                    </Tag>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{agent.description}</p>
+                </div>
+              </div>
+              <Switch
+                size="small"
+                checked={isEnabled}
+                onChange={(checked) => handleToggle(agent.id, checked)}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </Card>
   )
 }
 

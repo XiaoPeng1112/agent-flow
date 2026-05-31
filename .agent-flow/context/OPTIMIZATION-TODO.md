@@ -87,6 +87,20 @@
 
 ---
 
+## 已完成补充项
+
+### 13. ✅ Per-Project Agent 配置（项目级 Agent 启用/禁用）
+- **问题**：所有 Agent 对所有项目全局可见，但用户不一定拥有所有 Provider 的 API Key，DAG 节点选择 Agent 时列表过长
+- **方案**：
+  - 类型层：`Project` 新增 `enabledAgentIds?: string[]` 字段（undefined 表示全部启用，向后兼容）
+  - Server API：`GET/PUT /api/projects/:id/enabled-agents` 端点
+  - 前端 AgentsPanel：新增 `ProjectAgentConfig` 组件，Switch 开关逐个控制启用/禁用，保存后同步全局 Store
+  - DAG 节点详情：RunDetail 中根据当前项目的 `enabledAgentIds` 过滤 agents 列表再传入 NodeDetailPanel
+- **MRF 对标**：§4.9 Runtime Registry — "provider 可用性 / 启用/禁用控制"
+- **完成日期**：2026-05-31
+
+---
+
 ## 参考文档
 
 - 项目仓库：https://github.com/XiaoPeng1112/agent-flow

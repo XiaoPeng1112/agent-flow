@@ -18,6 +18,8 @@ import { PermissionIsolationService } from './services/permission-isolation.js'
 import { A2AProtocolService } from './services/a2a-protocol.js'
 import { ContractValidatorService } from './services/contract-validator.js'
 import { RobustnessService } from './services/robustness.js'
+import { DynamicAgentFactory } from './services/dynamic-agent-factory.js'
+import { ContextDBService } from './services/context-db.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -45,6 +47,8 @@ const permissionIsolationService = new PermissionIsolationService()
 const a2aProtocolService = new A2AProtocolService(workflowEngine)
 const contractValidatorService = new ContractValidatorService()
 const robustnessService = new RobustnessService()
+const contextDBService = new ContextDBService()
+const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService)
 
 // ═══════════════ Express 应用 ═══════════════
 
@@ -68,6 +72,8 @@ app.use('/api', createApiRouter({
   a2aProtocolService,
   contractValidatorService,
   robustnessService,
+  dynamicAgentFactory,
+  contextDBService,
 }))
 
 // 健康检查
@@ -170,6 +176,7 @@ async function start() {
   await workflowEngine.load()
   await templateService.load()
   await authService.load()
+  await contextDBService.initialize()
 
   console.log(`[Projects]  Loaded ${projectService.getProjects().length} projects`)
   console.log(`[Templates] Loaded ${templateService.getTemplates().length} workflow templates`)

@@ -28,7 +28,9 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAppStore } from '../../store/appStore'
 import { runApi, nodeApi, agentApi } from '../../api'
-import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn } from '../../types'
+import { AgentTreePanel } from './AgentTreePanel'
+import { CheckpointPanel } from './CheckpointPanel'
+import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab } from '../../types'
 
 interface Props {
   run: Run
@@ -63,9 +65,16 @@ export function RunDetail({ run, onBack }: Props) {
   const [tokenStats, setTokenStats] = useState<{ totalTokens: number; estimatedCost?: { usd: number } } | null>(null)
   const updateRun = useAppStore((s) => s.updateRun)
   const updateNode = useAppStore((s) => s.updateNode)
-  const agents = useAppStore((s) => s.agents)
+  const allAgents = useAppStore((s) => s.agents)
+  const projects = useAppStore((s) => s.projects)
   const activeTurns = useAppStore((s) => s.activeTurns)
   const appendTaskLog = useAppStore((s) => s.appendTaskLog)
+
+  // ★ 根据项目 enabledAgentIds 过滤可选 Agent
+  const currentProject = projects.find((p) => p.id === run.projectId)
+  const agents = currentProject?.enabledAgentIds
+    ? allAgents.filter((a) => currentProject.enabledAgentIds!.includes(a.id))
+    : allAgents
   const { message } = App.useApp()
 
   const selectedNode = run.nodes.find((n) => n.id === selectedNodeId)
@@ -323,40 +332,77 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
     }
   }, [rightWidth])
 
+  const runDetailTab = useAppStore((s) => s.runDetailTab)
+  const setRunDetailTab = useAppStore((s) => s.setRunDetailTab)
+
   return (
-    <div ref={containerRef} className="flex-1 flex overflow-hidden">
-      {/* 左侧：DAG 可视化 */}
-      <div className="flex-1 overflow-y-auto px-4 min-w-[300px]">
-        <DAGView
-          run={run}
-          selectedNodeId={selectedNodeId}
-          onSelectNode={setSelectedNodeId}
-          activeTurns={activeTurns}
-        />
+    <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden">
+      {/* Tab 切换栏 */}
+      <div className="flex items-center gap-1 px-4 pb-2 border-b border-gray-100 mb-2 shrink-0">
+        {([
+          { key: 'dag', label: 'DAG 视图' },
+          { key: 'agent-tree', label: 'Agent Tree' },
+          { key: 'log', label: 'Checkpoint' },
+        ] as { key: RunDetailTab; label: string }[]).map((tab) => (
+          <button
+            key={tab.key}
+            className={`px-3 py-1.5 text-[12px] rounded-md transition-colors ${
+              runDetailTab === tab.key
+                ? 'bg-indigo-50 text-indigo-600 font-medium'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+            onClick={() => setRunDetailTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* 拖拽分隔条 */}
-      {selectedNode && (
-        <div
-          className="w-[5px] shrink-0 cursor-col-resize relative group flex items-center justify-center hover:bg-indigo-50 transition-colors"
-          onMouseDown={handleMouseDown}
-        >
-          <div className="w-[3px] h-8 rounded-full bg-gray-200 group-hover:bg-indigo-400 transition-colors" />
+      {/* 内容区 */}
+      {runDetailTab === 'agent-tree' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <AgentTreePanel run={run} />
         </div>
-      )}
+      ) : runDetailTab === 'log' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <CheckpointPanel run={run} />
+        </div>
+      ) : (
+        <div className="flex-1 flex overflow-hidden">
+          {/* 左侧：DAG 可视化 */}
+          <div className="flex-1 overflow-y-auto px-4 min-w-[300px]">
+            <DAGView
+              run={run}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={setSelectedNodeId}
+              activeTurns={activeTurns}
+            />
+          </div>
 
-      {/* 右侧：节点详情面板 */}
-      {selectedNode && (
-        <div style={{ width: rightWidth }} className="shrink-0 overflow-y-auto">
-          <NodeDetailPanel
-            key={selectedNode.id}
-            node={selectedNode}
-            run={run}
-            agents={agents}
-            activeTurns={activeTurns}
-            onUpdate={(node) => updateNode(run.id, node)}
-            appendTaskLog={appendTaskLog}
-          />
+          {/* 拖拽分隔条 */}
+          {selectedNode && (
+            <div
+              className="w-[5px] shrink-0 cursor-col-resize relative group flex items-center justify-center hover:bg-indigo-50 transition-colors"
+              onMouseDown={handleMouseDown}
+            >
+              <div className="w-[3px] h-8 rounded-full bg-gray-200 group-hover:bg-indigo-400 transition-colors" />
+            </div>
+          )}
+
+          {/* 右侧：节点详情面板 */}
+          {selectedNode && (
+            <div style={{ width: rightWidth }} className="shrink-0 overflow-y-auto">
+              <NodeDetailPanel
+                key={selectedNode.id}
+                node={selectedNode}
+                run={run}
+                agents={agents}
+                activeTurns={activeTurns}
+                onUpdate={(node) => updateNode(run.id, node)}
+                appendTaskLog={appendTaskLog}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -470,6 +516,15 @@ function DAGCustomNode({ data }: { data: any }) {
         {role && (
           <Tag color={role.color} className="!text-[9px] !px-1 !py-0 !m-0 !leading-3.5 !rounded">
             {role.label}
+          </Tag>
+        )}
+        {/* 执行模式标识 */}
+        {node.executionMode && node.executionMode !== 'llm' && (
+          <Tag
+            color={node.executionMode === 'det' ? 'cyan' : 'geekblue'}
+            className="!text-[9px] !px-1 !py-0 !m-0 !leading-3.5 !rounded"
+          >
+            {node.executionMode === 'det' ? '⚡ DET' : '🔄 HYB'}
           </Tag>
         )}
         {node.startedAt && (
@@ -675,12 +730,20 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
   }
 
   const handleStart = async () => {
-    if (!userInput.trim()) {
+    const isDET = node.executionMode === 'det'
+    const isHYB = node.executionMode === 'hyb'
+
+    // DET 模式不需要用户输入（脚本已预设），LLM/HYB 模式需要
+    if (!isDET && !userInput.trim()) {
       message.warning('请输入具体的需求/任务描述')
       return
     }
-    if (!isAgentAvailable) {
+    if (!isDET && !isHYB && !isAgentAvailable) {
       message.error(`选中的 Agent CLI 不可用，请选择其他 Agent`)
+      return
+    }
+    if ((isDET || isHYB) && !node.script) {
+      message.error('DET/HYB 模式需要配置脚本命令')
       return
     }
     setLoading(true)
@@ -689,24 +752,39 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
       const nodeRes = await nodeApi.start(run.id, node.id)
       onUpdate(nodeRes.node)
       
-      // 2. 触发 Agent 执行（非阻塞，立即返回 turnId）
-      const fullPrompt = buildFullPrompt()
       const project = useAppStore.getState().projects.find((p) => p.id === run.projectId)
-      const { turnId } = await agentApi.executeTurn({
-        agentId: selectedAgentId,
-        nodeId: node.id,
-        runId: run.id,
-        prompt: fullPrompt,
-        cwd: project?.path,
-      })
-      
-      appendTaskLog(`[${node.name}] Agent 开始执行 (Turn: ${turnId})`)
-      message.success('Agent 已启动，实时输出将在下方显示')
-      // 注意：不再 await 完成，节点状态变更由后端通过 WebSocket 推送
+      const cwd = node.scriptCwd
+        ? (project?.path ? `${project.path}/${node.scriptCwd}` : node.scriptCwd)
+        : project?.path
+
+      if (isDET || isHYB) {
+        // 2a. DET/HYB 模式：执行脚本
+        const { turnId } = await agentApi.executeDET({
+          nodeId: node.id,
+          runId: run.id,
+          script: node.script!,
+          cwd,
+          executionMode: node.executionMode as 'det' | 'hyb',
+          agentId: isHYB ? selectedAgentId : undefined,
+          prompt: isHYB ? buildFullPrompt() : undefined,
+        })
+        appendTaskLog(`[${node.name}] ${isDET ? 'DET 脚本' : 'HYB 脚本'}开始执行 (Turn: ${turnId})`)
+        message.success(isDET ? '脚本已启动' : '混合模式启动（先执行脚本）')
+      } else {
+        // 2b. LLM 模式：使用动态 Agent 实例执行（自动装配 scoped context）
+        const { turnId, instanceName } = await agentApi.executeDynamic({
+          nodeId: node.id,
+          runId: run.id,
+          userInput: userInput.trim(),
+          preferredAgentId: selectedAgentId,
+          cwd,
+        })
+        appendTaskLog(`[${node.name}] 动态 Agent "${instanceName}" 开始执行 (Turn: ${turnId})`)
+        message.success('Agent 已动态创建并启动')
+      }
     } catch (err: any) {
       message.error(`执行失败: ${err.message}`)
       appendTaskLog(`[${node.name}] 执行失败: ${err.message}`, 'error')
-      // 尝试将节点标记为失败
       try {
         const submitRes = await nodeApi.submit(run.id, node.id, 'failed', err.message)
         onUpdate(submitRes.node)
@@ -840,8 +918,27 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
 
       <p className="text-[12px] text-gray-500 mb-4">{node.description}</p>
 
-      {/* Agent 选择 — 显示所有 Agent，标记可用性 */}
-      {(node.status === 'ready' || node.status === 'running') && allAgents.length > 0 && (
+      {/* DET/HYB 模式信息 */}
+      {node.executionMode && node.executionMode !== 'llm' && node.script && (
+        <div className="mb-3 px-3 py-2 bg-cyan-50 border border-cyan-100 rounded-lg">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-cyan-700 mb-1">
+            <ThunderboltOutlined />
+            {node.executionMode === 'det' ? '确定性执行模式' : '混合执行模式'}
+          </div>
+          <code className="text-[11px] text-cyan-800 bg-cyan-100/50 px-2 py-0.5 rounded block">
+            {node.script}
+          </code>
+          {node.scriptCwd && (
+            <span className="text-[10px] text-cyan-500 mt-1 block">工作目录: {node.scriptCwd}</span>
+          )}
+          {node.executionMode === 'hyb' && (
+            <span className="text-[10px] text-cyan-500 mt-1 block">⚠️ 脚本失败将自动回退到 LLM Agent</span>
+          )}
+        </div>
+      )}
+
+      {/* Agent 选择 — 显示所有 Agent，标记可用性（DET 模式不显示） */}
+      {(node.status === 'ready' || node.status === 'running') && allAgents.length > 0 && node.executionMode !== 'det' && (
         <div className="mb-3">
           <label className="text-[12px] text-gray-500 mb-1.5 block font-medium">选择 Agent</label>
           <Select
@@ -871,7 +968,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
         </div>
       )}
 
-      {/* Prompt 区域：系统指令（只读）+ 用户输入（必填） */}
+      {/* Prompt 区域：系统指令（只读）+ 用户输入（DET 模式不需要输入） */}
       {node.status === 'ready' && (
         <div className="mb-4 space-y-3">
           {/* 系统指令 — 来自模板，只读展示（可折叠） */}
@@ -882,25 +979,27 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
             </div>
           </div>
 
-          {/* 用户输入 — 必填，描述具体需求 */}
-          <div>
-            <label className="text-[12px] text-gray-600 mb-1.5 block font-medium">
-              本次任务描述 <span className="text-red-400">*</span>
-            </label>
-            <Input.TextArea
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              rows={4}
-              placeholder={`简洁描述本次要做的事情，不需要完整 PRD，例如：\n\n“做一个企业内部审批系统，支持多级审批、动态表单、钎钉通知”\n“给现有的订单列表页加上筛选和导出功能”\n“修复登录页 Token 过期后未跳转的 bug”`}
-              className="!text-[12px] !bg-white"
-            />
-            {!userInput.trim() && (
-              <p className="text-[10px] text-orange-500 mt-1.5">
-                <WarningOutlined className="mr-1" />
-                请描述本次要做的事，Agent 会基于此进行分析和规划
-              </p>
-            )}
-          </div>
+          {/* 用户输入 — DET 模式不需要，HYB/LLM 必填 */}
+          {node.executionMode !== 'det' && (
+            <div>
+              <label className="text-[12px] text-gray-600 mb-1.5 block font-medium">
+                本次任务描述 <span className="text-red-400">*</span>
+              </label>
+              <Input.TextArea
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                rows={4}
+                placeholder={`简洁描述本次要做的事情，不需要完整 PRD，例如：\n\n"做一个企业内部审批系统，支持多级审批、动态表单、钎钉通知"\n"给现有的订单列表页加上筛选和导出功能"\n"修复登录页 Token 过期后未跳转的 bug"`}
+                className="!text-[12px] !bg-white"
+              />
+              {!userInput.trim() && (
+                <p className="text-[10px] text-orange-500 mt-1.5">
+                  <WarningOutlined className="mr-1" />
+                  请描述本次要做的事，Agent 会基于此进行分析和规划
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -953,13 +1052,13 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
         {node.status === 'ready' && (
           <Button
             type="primary"
-            icon={<SendOutlined />}
+            icon={node.executionMode === 'det' ? <ThunderboltOutlined /> : <SendOutlined />}
             onClick={handleStart}
             loading={loading}
-            disabled={!userInput.trim()}
+            disabled={node.executionMode !== 'det' && !userInput.trim()}
             block
           >
-            启动 Agent 执行
+            {node.executionMode === 'det' ? '执行脚本' : node.executionMode === 'hyb' ? '启动混合执行' : '启动 Agent 执行'}
           </Button>
         )}
 

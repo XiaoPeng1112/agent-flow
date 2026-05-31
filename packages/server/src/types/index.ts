@@ -89,6 +89,9 @@ export interface TaskNode {
   userInput?: string             // 用户补充输入
   context?: NodeContext          // 从前置节点继承的上下文
   order: number                  // 执行顺序（DAG 拓扑排序用）
+  executionMode?: ExecutionMode  // 执行模式（从模板继承）
+  script?: string                // DET/HYB 模式下的脚本命令
+  scriptCwd?: string             // 脚本执行目录
   startedAt?: number
   completedAt?: number
   error?: string
@@ -254,6 +257,14 @@ export interface WorkflowTemplate {
   edges: DAGEdge[]
 }
 
+/**
+ * 执行模式：
+ * - det: 确定性执行（直接运行脚本，不走 LLM Agent）
+ * - hyb: 混合模式（脚本 + LLM 兜底）
+ * - llm: 纯 LLM Agent 执行（默认）
+ */
+export type ExecutionMode = 'det' | 'hyb' | 'llm'
+
 export interface TemplateNode {
   id: string
   name: string
@@ -263,6 +274,9 @@ export interface TemplateNode {
   skillIds: string[]
   prompt?: string                // 默认 prompt 模板
   outputContracts?: OutputContract[]
+  executionMode?: ExecutionMode  // 执行模式，默认 'llm'
+  script?: string                // DET/HYB 模式下的脚本命令
+  scriptCwd?: string             // 脚本执行的工作目录（相对于项目根目录）
 }
 
 // ─── Repo Isolation (仓库隔离) ───
@@ -482,6 +496,51 @@ export interface AuditLogEntry {
   level: 'info' | 'warn' | 'error'
 }
 
+// ─── Dynamic Agent Instance (动态 Agent 实例) ───
+
+/**
+ * 动态 Agent 实例：每个节点执行时动态创建的 Agent 实例
+ * 不是静态常驻角色，而是针对具体任务动态装配上下文
+ * 
+ * 参考 MRF §6.3: "Agent 在接到任务时才被创建，不是静态常驻角色"
+ */
+export interface DynamicAgentInstance {
+  id: string                        // 动态实例 ID (e.g. "agent_inst_xxxxx")
+  baseAgentId: string               // 基于哪个 Agent 模板创建
+  nodeId: string                    // 关联的节点
+  runId: string                     // 关联的 Run
+  role: AgentRole                   // 分配的角色
+  name: string                      // 实例名称（动态生成）
+  scopedContext: ScopedContext       // 作用域上下文
+  status: 'created' | 'active' | 'completed' | 'terminated'
+  createdAt: number
+  terminatedAt?: number
+}
+
+/**
+ * 作用域上下文：动态注入到 Agent 的精确上下文
+ * 包含系统指令、节点信息、前置产出物、项目上下文等
+ */
+export interface ScopedContext {
+  systemPrompt: string              // 角色系统提示（基于 agentRole 动态生成）
+  nodeDescription: string           // 节点描述
+  nodePrompt?: string               // 节点级 prompt
+  predecessorSummaries: string[]    // 前置节点摘要
+  projectContext?: string           // 项目上下文（产品 + 技术）
+  skills: string[]                  // 注入的 skill ID 列表
+  variables: Record<string, string> // 模板变量
+  contextLayers?: ContextLayer[]    // 多层上下文（预留 Context DB 集成）
+}
+
+/**
+ * 上下文层级（预留 Context DB SYS/L0/L1/L2 集成）
+ */
+export interface ContextLayer {
+  level: 'SYS' | 'L0' | 'L1' | 'L2'
+  content: string
+  source?: string                   // 来源文件路径或标识
+}
+
 // ─── Skill ───
 
 export interface SkillConfig {
@@ -501,6 +560,7 @@ export interface ProjectData {
   path: string
   description?: string
   contextConfig?: ProjectContext
+  enabledAgentIds?: string[]       // 项目启用的 Agent ID 列表（未设置 = 全部启用）
   createdAt: number
   lastActiveAt: number
 }

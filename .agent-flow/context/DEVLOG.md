@@ -1,5 +1,48 @@
 # 开发日志
 
+## 2026-05-31 — v2.5.0
+
+### v2.5.0 — Per-Project Agent 配置
+
+**核心功能**：支持按项目维度启用/禁用 Agent，让用户仅在自己拥有 API Key 的 Provider 的 Agent 中选择。
+
+**完成内容**:
+
+1. **类型定义扩展**
+   - `ProjectData`（Server）和 `Project`（Client）新增 `enabledAgentIds?: string[]` 字段
+   - undefined 表示全部启用，空数组表示全部禁用，向后兼容
+
+2. **Server API**
+   - `GET /api/projects/:id/enabled-agents` — 获取项目已启用的 Agent 列表
+   - `PUT /api/projects/:id/enabled-agents` — 更新项目 Agent 启用配置
+   - 已有 `PUT /api/projects/:id` 也支持 `enabledAgentIds` 字段更新
+
+3. **前端 AgentsPanel 增强**
+   - 新增 `ProjectAgentConfig` 组件（卡片样式 + Switch 开关）
+   - 支持逐个 Agent 切换启用/禁用
+   - 保存成功后调用 `setProjects()` 同步全局 Store，确保其他组件立即获得最新状态
+
+4. **DAG 节点 Agent 下拉过滤**
+   - RunDetail 中新增项目级 Agent 过滤逻辑
+   - 根据 `currentProject.enabledAgentIds` 过滤 agents 列表后传入 NodeDetailPanel
+   - 用户在 DAG 节点详情选择 Agent 时只看到项目已启用的 Agent
+
+**修复的问题**:
+- **"保存失败" HTML 错误响应**：Server 代码更新后未重启，返回旧 HTML 而非 JSON → 重启 Server 解决
+- **Agent 下拉未同步过滤**：RunDetail 未基于项目配置过滤 agents → 添加 filtering 逻辑
+- **Store 未同步**：AgentsPanel 保存后未更新全局 Store → 添加 `setProjects()` 调用
+
+**修改文件**:
+- `packages/server/src/types/index.ts` — 添加 `enabledAgentIds`
+- `packages/server/src/services/project.ts` — 更新 `updateProject` 支持该字段
+- `packages/server/src/routes/api.ts` — 新增两个 API 端点
+- `packages/client/src/types/index.ts` — 添加 `enabledAgentIds`
+- `packages/client/src/api/index.ts` — 新增 `projectApi.getEnabledAgents/updateEnabledAgents`
+- `packages/client/src/components/detail/AgentsPanel.tsx` — 新增 `ProjectAgentConfig`
+- `packages/client/src/components/detail/RunDetail.tsx` — 添加 Agent 过滤逻辑
+
+---
+
 ## 2026-05-31 — v2.4.1
 
 本日聚焦工程质量提升：代码分割、全局错误隔离、统一请求 Hook 和单元测试覆盖。

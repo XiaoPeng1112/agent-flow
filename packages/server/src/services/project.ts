@@ -67,13 +67,14 @@ export class ProjectService {
   }
 
   /** 更新项目 */
-  async updateProject(id: string, updates: Partial<Pick<ProjectData, 'name' | 'description' | 'contextConfig'>>): Promise<ProjectData | undefined> {
+  async updateProject(id: string, updates: Partial<Pick<ProjectData, 'name' | 'description' | 'contextConfig' | 'enabledAgentIds'>>): Promise<ProjectData | undefined> {
     const project = this.projects.find((p) => p.id === id)
     if (!project) return undefined
 
     if (updates.name !== undefined) project.name = updates.name
     if (updates.description !== undefined) project.description = updates.description
     if (updates.contextConfig !== undefined) project.contextConfig = updates.contextConfig
+    if (updates.enabledAgentIds !== undefined) project.enabledAgentIds = updates.enabledAgentIds
     project.lastActiveAt = Date.now()
 
     await this.save()

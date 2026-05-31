@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.4.1 | 更新日期：2026-05-31  
+> 版本：v2.5.0 | 更新日期：2026-05-31  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -168,7 +168,17 @@ Run（工作流实例）
 - 全局：`~/.catpaw/skills`、`~/.claude/skills`、`~/.codex/skills`
 - 项目级：`项目目录/.catpaw/skills`、`项目目录/.claude/skills`
 
-### 5.5 GitHub 登录
+### 5.5 配置项目 Agent
+
+进入项目 → **Agents** 标签，在顶部「项目 Agent 配置」卡片中：
+
+1. 查看所有可用 Agent 列表（含 Provider 信息）
+2. 通过 Switch 开关启用/禁用每个 Agent
+3. 点击「保存配置」持久化
+
+保存后，DAG 节点详情中的 Agent 下拉列表将自动过滤，仅展示当前项目已启用的 Agent。这样用户只需关注自己拥有 API Key 的 Provider。
+
+### 5.6 GitHub 登录
 
 侧边栏底部用户面板 → 点击 **「登录」** → 跳转 GitHub 授权 → 授权后自动返回并显示用户信息。
 
@@ -189,7 +199,22 @@ Run（工作流实例）
 |------|------|------|
 | GET | `/projects` | 获取所有项目列表 |
 | POST | `/projects` | 创建项目 |
+| PUT | `/projects/:id` | 更新项目（支持 enabledAgentIds） |
 | DELETE | `/projects/:id` | 删除项目 |
+| GET | `/projects/:id/enabled-agents` | 获取项目已启用的 Agent 列表 |
+| PUT | `/projects/:id/enabled-agents` | 更新项目 Agent 启用配置 |
+
+请求示例：
+
+```json
+PUT /api/projects/proj-001/enabled-agents
+{
+  "enabledAgentIds": ["codex-planner", "claude-executor", "claude-reviewer"]
+}
+// → { "success": true, "data": { "enabledAgentIds": [...] } }
+```
+
+当 `enabledAgentIds` 为 `undefined` 或未设置时，表示所有 Agent 均可用（向后兼容）。
 
 ### 6.2 工作流模板
 
@@ -585,6 +610,7 @@ npm run test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.5.0 | 2026-05-31 | Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤） |
 | v2.4.1 | 2026-05-31 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
 | v2.4.0 | 2026-05-30 | MAF 六大服务模块（Repo/Skill/Permission/A2A/Contract/Robustness） |
 | v2.3.1 | 2026-05-30 | 模板补全 + 异步安全修复 |
@@ -600,8 +626,9 @@ npm run test:coverage
 
 基于当前项目状态，以下是软件工程角度的优化建议：
 
-### 短期（✅ v2.4.1 已全部完成）
+### 短期（✅ v2.5.0 已全部完成）
 
+- ✅ **Per-Project Agent 配置**：项目级 Agent 启用/禁用，DAG 节点自动过滤
 - ✅ **代码分割**：React.lazy + Suspense 路由级分割，页面 chunk 独立拆分
 - ✅ **单元测试**：Vitest 68 cases 覆盖 WorkflowEngine、A2AProtocol、ContractValidator
 - ✅ **错误边界**：React ErrorBoundary 全局错误隔离，防止白屏扩散

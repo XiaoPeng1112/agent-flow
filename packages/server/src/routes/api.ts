@@ -13,6 +13,8 @@ import type { PermissionIsolationService } from '../services/permission-isolatio
 import type { A2AProtocolService } from '../services/a2a-protocol.js'
 import type { ContractValidatorService } from '../services/contract-validator.js'
 import type { RobustnessService } from '../services/robustness.js'
+import type { DynamicAgentFactory } from '../services/dynamic-agent-factory.js'
+import type { ContextDBService } from '../services/context-db.js'
 
 export function createApiRouter(deps: {
   agentService: AgentService
@@ -29,6 +31,8 @@ export function createApiRouter(deps: {
   a2aProtocolService: A2AProtocolService
   contractValidatorService: ContractValidatorService
   robustnessService: RobustnessService
+  dynamicAgentFactory: DynamicAgentFactory
+  contextDBService: ContextDBService
 }): Router {
   const router = Router()
   const {
@@ -36,7 +40,8 @@ export function createApiRouter(deps: {
     workflowEngine, templateService, authService, gitService,
     repoIsolationService, skillMaterializationService,
     permissionIsolationService, a2aProtocolService,
-    contractValidatorService, robustnessService,
+    contractValidatorService, robustnessService, dynamicAgentFactory,
+    contextDBService,
   } = deps
 
   // ════════════════════════════════════════
@@ -121,8 +126,8 @@ export function createApiRouter(deps: {
   })
 
   router.put('/projects/:id', async (req, res) => {
-    const { name, description, contextConfig } = req.body
-    const project = await projectService.updateProject(req.params.id, { name, description, contextConfig })
+    const { name, description, contextConfig, enabledAgentIds } = req.body
+    const project = await projectService.updateProject(req.params.id, { name, description, contextConfig, enabledAgentIds })
     if (!project) {
       res.status(404).json({ success: false, error: 'Project not found' })
       return
@@ -146,6 +151,34 @@ export function createApiRouter(deps: {
     } catch (err) {
       res.status(404).json({ success: false, error: (err as Error).message })
     }
+  })
+
+  /** 更新项目启用的 Agent 列表 */
+  router.put('/projects/:id/enabled-agents', async (req, res) => {
+    const { enabledAgentIds } = req.body
+    if (!Array.isArray(enabledAgentIds)) {
+      res.status(400).json({ success: false, error: 'enabledAgentIds must be an array' })
+      return
+    }
+    const project = await projectService.updateProject(req.params.id, { enabledAgentIds })
+    if (!project) {
+      res.status(404).json({ success: false, error: 'Project not found' })
+      return
+    }
+    res.json({ success: true, data: { project } })
+  })
+
+  /** 获取项目启用的 Agent 列表 */
+  router.get('/projects/:id/enabled-agents', (req, res) => {
+    const project = projectService.getProject(req.params.id)
+    if (!project) {
+      res.status(404).json({ success: false, error: 'Project not found' })
+      return
+    }
+    // 未配置时返回全部 Agent（默认全部启用）
+    const allAgentIds = agentService.getAgents().map(a => a.id)
+    const enabledAgentIds = project.enabledAgentIds ?? allAgentIds
+    res.json({ success: true, data: { enabledAgentIds, allAgentIds } })
   })
 
   // ════════════════════════════════════════
@@ -416,6 +449,26 @@ export function createApiRouter(deps: {
     }
   })
 
+  /** 执行 DET/HYB 模式（确定性脚本执行） */
+  router.post('/agents/execute-det', async (req, res) => {
+    const { nodeId, runId, script, cwd, executionMode, agentId, prompt } = req.body
+    if (!nodeId || !runId || !script) {
+      res.status(400).json({ success: false, error: 'nodeId, runId, and script are required' })
+      return
+    }
+    try {
+      let turnId: string
+      if (executionMode === 'hyb' && agentId && prompt) {
+        turnId = agentService.executeHYB({ nodeId, runId, script, agentId, prompt, cwd })
+      } else {
+        turnId = agentService.executeDET({ nodeId, runId, script, cwd })
+      }
+      res.json({ success: true, data: { turnId } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
   /** 取消 Turn */
   router.post('/agents/cancel-turn', (req, res) => {
     const { turnId } = req.body
@@ -489,6 +542,105 @@ export function createApiRouter(deps: {
       res.json({ success: true })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  // ════════════════════════════════════════
+  // Dynamic Agent Instance API (动态 Agent 实例)
+  // ════════════════════════════════════════
+
+  /** 为节点创建动态 Agent 实例 */
+  router.post('/agents/instances/create', (req, res) => {
+    const { nodeId, runId, preferredAgentId } = req.body
+    if (!nodeId || !runId) {
+      res.status(400).json({ success: false, error: 'nodeId and runId are required' })
+      return
+    }
+    try {
+      const run = workflowEngine.getRun(runId)
+      if (!run) {
+        res.status(404).json({ success: false, error: `Run not found: ${runId}` })
+        return
+      }
+      const node = run.nodes.find(n => n.id === nodeId)
+      if (!node) {
+        res.status(404).json({ success: false, error: `Node not found: ${nodeId}` })
+        return
+      }
+      const instance = dynamicAgentFactory.createInstance(node, run, preferredAgentId)
+      res.json({ success: true, data: { instance } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 获取 Run 下所有动态 Agent 实例 */
+  router.get('/agents/instances/:runId', (req, res) => {
+    const instances = dynamicAgentFactory.getAllInstances(req.params.runId)
+    res.json({ success: true, data: { instances } })
+  })
+
+  /** 获取节点关联的动态实例 */
+  router.get('/agents/instances/:runId/:nodeId', (req, res) => {
+    const instance = dynamicAgentFactory.getInstanceByNode(req.params.nodeId, req.params.runId)
+    res.json({ success: true, data: { instance: instance || null } })
+  })
+
+  /** 使用动态实例执行 Agent Turn（增强版 execute-turn）*/
+  router.post('/agents/execute-dynamic', async (req, res) => {
+    const { nodeId, runId, userInput, preferredAgentId, cwd } = req.body
+    if (!nodeId || !runId || !userInput) {
+      res.status(400).json({ success: false, error: 'nodeId, runId, and userInput are required' })
+      return
+    }
+    try {
+      const run = workflowEngine.getRun(runId)
+      if (!run) {
+        res.status(404).json({ success: false, error: `Run not found: ${runId}` })
+        return
+      }
+      const node = run.nodes.find(n => n.id === nodeId)
+      if (!node) {
+        res.status(404).json({ success: false, error: `Node not found: ${nodeId}` })
+        return
+      }
+
+      // 1. 创建动态实例
+      const instance = dynamicAgentFactory.createInstance(node, run, preferredAgentId)
+
+      // 2. 预装配 Context DB 层级（同步等待，确保 prompt 包含上下文）
+      try {
+        const contextLayers = await contextDBService.assembleContext({
+          projectId: run.projectId,
+          templateId: run.templateId,
+          nodeId: node.id,
+        })
+        if (contextLayers.length > 0) {
+          instance.scopedContext.contextLayers = contextLayers
+        }
+      } catch { /* Context DB 不可用时降级 */ }
+
+      // 3. 构建完整 prompt（含 scoped context + context DB 层级）
+      const fullPrompt = dynamicAgentFactory.buildFullPrompt(instance, userInput)
+
+      // 4. 激活实例
+      dynamicAgentFactory.activateInstance(instance.id)
+
+      // 5. 启动 Agent Turn
+      const turnId = agentService.startTurnAsync({
+        agentId: instance.baseAgentId,
+        nodeId,
+        runId,
+        prompt: fullPrompt,
+        cwd,
+      })
+
+      res.json({
+        success: true,
+        data: { turnId, instanceId: instance.id, instanceName: instance.name },
+      })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
     }
   })
 
@@ -845,6 +997,27 @@ export function createApiRouter(deps: {
     res.json({ success: true, data: { checkpoint } })
   })
 
+  /** 恢复到指定 Checkpoint */
+  router.post('/robustness/checkpoints/:runId/restore/:checkpointId', async (req, res) => {
+    const run = workflowEngine.getRun(req.params.runId)
+    if (!run) {
+      res.status(404).json({ success: false, error: 'Run not found' })
+      return
+    }
+    const states = robustnessService.getCheckpointStates(req.params.checkpointId)
+    if (!states) {
+      res.status(404).json({ success: false, error: 'Checkpoint not found' })
+      return
+    }
+    try {
+      await workflowEngine.restoreFromCheckpoint(run.id, states)
+      const updatedRun = workflowEngine.getRun(run.id)
+      res.json({ success: true, data: { run: updatedRun } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
   /** 查询审计日志 */
   router.get('/robustness/audit-log', (req, res) => {
     const { runId, nodeId, action, level, limit } = req.query as Record<string, string>
@@ -929,6 +1102,85 @@ export function createApiRouter(deps: {
   router.get('/skills/materialization-stats', (_req, res) => {
     const stats = skillMaterializationService.getStats()
     res.json({ success: true, data: stats })
+  })
+
+  // ════════════════════════════════════════
+  // Context DB API (四层上下文数据库)
+  // ════════════════════════════════════════
+
+  /** 获取 Context DB 统计 */
+  router.get('/context-db/stats', async (_req, res) => {
+    try {
+      const stats = await contextDBService.getStats()
+      res.json({ success: true, data: stats })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 列出某层级某 scope 下的所有上下文文件 */
+  router.get('/context-db/:level/:scopeId', async (req, res) => {
+    const { level, scopeId } = req.params
+    try {
+      const files = await contextDBService.listContextFiles(level as any, scopeId)
+      res.json({ success: true, data: { files } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 读取上下文文件内容 */
+  router.get('/context-db/:level/:scopeId/:filename', async (req, res) => {
+    const { level, scopeId, filename } = req.params
+    try {
+      const content = await contextDBService.getContext(level as any, scopeId, filename)
+      if (content === null) {
+        res.status(404).json({ success: false, error: 'Context file not found' })
+        return
+      }
+      res.json({ success: true, data: { content, level, scopeId, filename } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 创建/更新上下文文件 */
+  router.put('/context-db/:level/:scopeId/:filename', async (req, res) => {
+    const { level, scopeId, filename } = req.params
+    const { content } = req.body
+    if (!content && content !== '') {
+      res.status(400).json({ success: false, error: 'content is required in body' })
+      return
+    }
+    try {
+      const result = await contextDBService.upsertContext(level as any, scopeId, filename, content)
+      res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 删除上下文文件 */
+  router.delete('/context-db/:level/:scopeId/:filename', async (req, res) => {
+    const { level, scopeId, filename } = req.params
+    try {
+      const deleted = await contextDBService.deleteContext(level as any, scopeId, filename)
+      res.json({ success: true, data: { deleted } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 装配上下文（按 SYS→L0→L1→L2 顺序聚合） */
+  router.post('/context-db/assemble', async (req, res) => {
+    const { projectId, templateId, nodeId } = req.body
+    try {
+      const layers = await contextDBService.assembleContext({ projectId, templateId, nodeId })
+      const formatted = contextDBService.formatAssembledContext(layers)
+      res.json({ success: true, data: { layers, formatted, totalLayers: layers.length } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
   })
 
   return router

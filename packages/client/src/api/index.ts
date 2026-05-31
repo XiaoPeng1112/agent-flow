@@ -31,7 +31,7 @@ export const projectApi = {
       body: JSON.stringify(data),
     }),
 
-  update: (id: string, data: { name?: string; description?: string; contextConfig?: any }) =>
+  update: (id: string, data: { name?: string; description?: string; contextConfig?: any; enabledAgentIds?: string[] }) =>
     request<{ project: any }>(`/projects/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -42,6 +42,17 @@ export const projectApi = {
 
   getSkills: (id: string) =>
     request<{ skills: any[] }>(`/projects/${id}/skills`),
+
+  /** 获取项目启用的 Agent 列表 */
+  getEnabledAgents: (id: string) =>
+    request<{ enabledAgentIds: string[]; allAgentIds: string[] }>(`/projects/${id}/enabled-agents`),
+
+  /** 更新项目启用的 Agent 列表 */
+  updateEnabledAgents: (id: string, enabledAgentIds: string[]) =>
+    request<{ project: any }>(`/projects/${id}/enabled-agents`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabledAgentIds }),
+    }),
 }
 
 // ═══════════════ Template API ═══════════════
@@ -160,6 +171,21 @@ export const agentApi = {
       body: JSON.stringify(data),
     }),
 
+  /** 执行 DET/HYB 模式 */
+  executeDET: (data: {
+    nodeId: string
+    runId: string
+    script: string
+    cwd?: string
+    executionMode?: 'det' | 'hyb'
+    agentId?: string
+    prompt?: string
+  }) =>
+    request<{ turnId: string }>('/agents/execute-det', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   cancelTurn: (turnId: string) =>
     request<{ cancelled: boolean }>('/agents/cancel-turn', {
       method: 'POST',
@@ -181,6 +207,27 @@ export const agentApi = {
 
   getNodeTurns: (nodeId: string) =>
     request<{ turns: any[] }>(`/agents/turns/${nodeId}`),
+
+  /** 动态 Agent: 执行（创建实例 + 构建 context + 启动 Turn）*/
+  executeDynamic: (data: {
+    nodeId: string
+    runId: string
+    userInput: string
+    preferredAgentId?: string
+    cwd?: string
+  }) =>
+    request<{ turnId: string; instanceId: string; instanceName: string }>('/agents/execute-dynamic', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /** 动态 Agent: 获取 Run 下所有实例 */
+  getInstances: (runId: string) =>
+    request<{ instances: any[] }>(`/agents/instances/${runId}`),
+
+  /** 动态 Agent: 获取节点关联实例 */
+  getNodeInstance: (runId: string, nodeId: string) =>
+    request<{ instance: any }>(`/agents/instances/${runId}/${nodeId}`),
 }
 
 // ═══════════════ Skill API ═══════════════
@@ -211,6 +258,65 @@ export const authApi = {
 
   /** 获取 GitHub repos 列表 */
   getRepos: () => request<{ repos: any[] }>('/auth/repos'),
+}
+
+// ═══════════════ Robustness API (Checkpoint & Health) ═══════════════
+
+export const robustnessApi = {
+  /** 获取 Run 的 Checkpoint 列表 */
+  getCheckpoints: (runId: string) =>
+    request<{ checkpoints: any[] }>(`/robustness/checkpoints/${runId}`),
+
+  /** 创建 Checkpoint */
+  createCheckpoint: (runId: string, description?: string) =>
+    request<{ checkpoint: any }>(`/robustness/checkpoints/${runId}`, {
+      method: 'POST',
+      body: JSON.stringify({ description }),
+    }),
+
+  /** 恢复到 Checkpoint */
+  restoreCheckpoint: (runId: string, checkpointId: string) =>
+    request<{ run: any }>(`/robustness/checkpoints/${runId}/restore/${checkpointId}`, {
+      method: 'POST',
+    }),
+
+  /** 获取系统健康状态 */
+  getHealth: () => request<any>('/robustness/health'),
+}
+
+// ═══════════════ Context DB API (四层上下文数据库) ═══════════════
+
+export const contextDBApi = {
+  /** 获取 Context DB 统计 */
+  getStats: () => request<{ sys: number; l0: number; l1: number; l2: number; totalFiles: number }>('/context-db/stats'),
+
+  /** 列出某层级的文件列表 */
+  listFiles: (level: string, scopeId: string) =>
+    request<{ files: Array<{ filename: string; level: string; scopeId: string; size: number }> }>(`/context-db/${level}/${scopeId}`),
+
+  /** 读取上下文文件 */
+  getFile: (level: string, scopeId: string, filename: string) =>
+    request<{ content: string; level: string; scopeId: string; filename: string }>(`/context-db/${level}/${scopeId}/${filename}`),
+
+  /** 创建/更新上下文文件 */
+  upsertFile: (level: string, scopeId: string, filename: string, content: string) =>
+    request<{ path: string }>(`/context-db/${level}/${scopeId}/${filename}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+
+  /** 删除上下文文件 */
+  deleteFile: (level: string, scopeId: string, filename: string) =>
+    request<{ deleted: boolean }>(`/context-db/${level}/${scopeId}/${filename}`, {
+      method: 'DELETE',
+    }),
+
+  /** 装配上下文 */
+  assemble: (params: { projectId?: string; templateId?: string; nodeId?: string }) =>
+    request<{ layers: any[]; formatted: string; totalLayers: number }>('/context-db/assemble', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
 }
 
 // ═══════════════ WebSocket（带生命周期管理的重连机制） ═══════════════

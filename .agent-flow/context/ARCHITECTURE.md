@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-05-31（v2.4.1）  
+> 最后更新：2026-05-31（v2.5.0）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -162,6 +162,16 @@ interface OutputContract {
 
 Agent 通过 CLI 进程方式调用（codex-cli / claude-cli），非阻塞异步执行，WebSocket 实时推送输出流。
 
+### Per-Project Agent 配置 [v2.5.0]
+
+支持按项目维度启用/禁用特定 Agent，解决用户不一定拥有所有 Provider API Key 的问题：
+
+- **数据模型**：`Project.enabledAgentIds?: string[]`，undefined 表示全部启用（向后兼容）
+- **Server API**：`GET/PUT /api/projects/:id/enabled-agents`
+- **前端配置组件**：AgentsPanel 中的 `ProjectAgentConfig`，Switch 开关逐个控制
+- **DAG 节点过滤**：RunDetail 根据当前项目的 `enabledAgentIds` 过滤 agents 列表，仅展示已启用的 Agent
+- **Store 同步**：保存后立即更新全局 Zustand Store，确保其他组件即时获得最新状态
+
 ### 工作流模板
 
 4 个内置模板，每个都包含完整的节点链和 deliver（交付汇总）节点：
@@ -261,6 +271,7 @@ API：`POST /api/robustness/retry`、`GET /api/robustness/dlq`、`POST /api/robu
 - **启动恢复**: 自动重置孤儿 running 节点（服务器重启后进程已丢失）
 - **权限隔离**: [v2.4.0] RBAC deny-by-default + glob 文件访问规则
 - **仓库隔离**: [v2.4.0] Git worktree 池化防止并行 Run 文件冲突
+- **Agent 可见性控制**: [v2.5.0] 项目级 Agent 启用/禁用，限制用户只能使用已配置的 Agent
 
 ## 运行方式
 

@@ -397,6 +397,245 @@ export class AgentService {
     })
   }
 
+  // ═══════════════ DET 确定性执行 ═══════════════
+
+  /**
+   * 确定性执行（DET 模式）：直接执行脚本命令，不调用 LLM Agent
+   * 
+   * 适用场景：跑测试、lint、构建、部署等确定性任务
+   * 输出同样通过 WorkflowEngine 的 Turn 机制管理，保持 UI 一致
+   * 
+   * @returns turnId
+   */
+  executeDET(params: {
+    nodeId: string
+    runId: string
+    script: string
+    cwd?: string
+  }): string {
+    const { nodeId, runId, script, cwd } = params
+
+    // 使用虚拟 Agent ID 标识 DET 执行
+    const agentId = 'det-executor'
+
+    // 创建 Turn 记录
+    const turn = this.workflowEngine.startTurn(nodeId, runId, agentId, `[DET] ${script}`)
+
+    // 异步执行脚本
+    this.spawnDETProcess(turn.id, script, nodeId, runId, cwd)
+
+    return turn.id
+  }
+
+  /**
+   * 混合模式（HYB）：先执行脚本，若脚本失败则回退到 LLM Agent
+   * 
+   * @returns turnId
+   */
+  executeHYB(params: {
+    nodeId: string
+    runId: string
+    script: string
+    agentId: string
+    prompt: string
+    cwd?: string
+  }): string {
+    const { nodeId, runId, script, agentId, prompt, cwd } = params
+
+    // 先以 DET 方式创建 Turn
+    const detAgentId = 'hyb-executor'
+    const turn = this.workflowEngine.startTurn(nodeId, runId, detAgentId, `[HYB] ${script}`)
+
+    // 异步执行：脚本成功则完成，失败则启动 LLM
+    this.spawnHYBProcess(turn.id, script, nodeId, runId, agentId, prompt, cwd)
+
+    return turn.id
+  }
+
+  /**
+   * DET 模式进程 spawn
+   */
+  private spawnDETProcess(
+    turnId: string,
+    script: string,
+    nodeId: string,
+    runId: string,
+    cwd?: string
+  ): void {
+    console.log(`[DET] Starting turn ${turnId}: ${script}`)
+
+    const extraPaths = [
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
+      `${process.env.HOME}/.local/bin`,
+    ].join(':')
+    const fullPath = `${extraPaths}:${process.env.PATH || ''}`
+
+    const proc = spawn('sh', ['-c', script], {
+      cwd: cwd || process.cwd(),
+      env: { ...process.env, PATH: fullPath },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    this.activeProcesses.set(turnId, proc)
+
+    // 5 分钟超时（DET 脚本一般较快）
+    const timeout = setTimeout(() => {
+      console.log(`[DET] Turn ${turnId} timed out (5 min)`)
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, '\n⚠️ DET 脚本执行超时（5分钟），已终止。\n')
+      proc.kill('SIGTERM')
+      setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL') }, 5000)
+    }, 5 * 60 * 1000)
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, data.toString())
+    })
+
+    proc.stderr?.on('data', (data: Buffer) => {
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, data.toString())
+    })
+
+    proc.on('close', async (code) => {
+      clearTimeout(timeout)
+      this.activeProcesses.delete(turnId)
+
+      const wasCancelled = this.cancelledTurns.has(turnId)
+      this.cancelledTurns.delete(turnId)
+
+      console.log(`[DET] Turn ${turnId} exited with code ${code}${wasCancelled ? ' (cancelled)' : ''}`)
+
+      const result = wasCancelled ? 'failed' : (code === 0 ? 'succeeded' : 'failed')
+      this.workflowEngine.recordTurnResult(turnId, nodeId, result as any)
+      this.workflowEngine.finalizeTurn(turnId, nodeId)
+
+      // DET 模式：成功直接 completed（不需要人工审批），失败则标记 failed
+      try {
+        await this.workflowEngine.submitNodeDecision(
+          runId, nodeId,
+          wasCancelled ? 'failed' : (code === 0 ? 'completed' : 'failed'),
+          wasCancelled ? '用户取消执行' : (code !== 0 ? `DET 脚本退出码: ${code}` : undefined)
+        )
+      } catch (e) {
+        console.error(`[DET] Failed to submit node decision:`, (e as Error).message)
+      }
+    })
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout)
+      this.activeProcesses.delete(turnId)
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, `\n❌ DET 脚本执行失败: ${err.message}\n`)
+      this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
+      this.workflowEngine.finalizeTurn(turnId, nodeId)
+    })
+  }
+
+  /**
+   * HYB 模式进程 spawn：先跑脚本，失败后回退到 LLM Agent
+   */
+  private spawnHYBProcess(
+    turnId: string,
+    script: string,
+    nodeId: string,
+    runId: string,
+    fallbackAgentId: string,
+    fallbackPrompt: string,
+    cwd?: string
+  ): void {
+    console.log(`[HYB] Starting script phase for turn ${turnId}: ${script}`)
+
+    const extraPaths = [
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
+      `${process.env.HOME}/.local/bin`,
+    ].join(':')
+    const fullPath = `${extraPaths}:${process.env.PATH || ''}`
+
+    const proc = spawn('sh', ['-c', script], {
+      cwd: cwd || process.cwd(),
+      env: { ...process.env, PATH: fullPath },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    this.activeProcesses.set(turnId, proc)
+    let fullOutput = ''
+
+    const timeout = setTimeout(() => {
+      proc.kill('SIGTERM')
+      setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL') }, 5000)
+    }, 5 * 60 * 1000)
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      const chunk = data.toString()
+      fullOutput += chunk
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
+    })
+
+    proc.stderr?.on('data', (data: Buffer) => {
+      const chunk = data.toString()
+      fullOutput += chunk
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
+    })
+
+    proc.on('close', async (code) => {
+      clearTimeout(timeout)
+      this.activeProcesses.delete(turnId)
+
+      if (code === 0) {
+        // 脚本成功 → 直接完成
+        console.log(`[HYB] Script succeeded for turn ${turnId}, marking completed`)
+        this.workflowEngine.recordTurnResult(turnId, nodeId, 'succeeded')
+        this.workflowEngine.finalizeTurn(turnId, nodeId)
+        try {
+          await this.workflowEngine.submitNodeDecision(runId, nodeId, 'completed')
+        } catch (e) {
+          console.error(`[HYB] Failed to submit node decision:`, (e as Error).message)
+        }
+      } else {
+        // 脚本失败 → 回退到 LLM Agent
+        console.log(`[HYB] Script failed (code=${code}) for turn ${turnId}, falling back to LLM Agent`)
+        this.workflowEngine.appendTurnOutput(turnId, nodeId, `\n\n⚠️ 脚本执行失败（退出码 ${code}），回退到 LLM Agent...\n\n`)
+        this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
+        this.workflowEngine.finalizeTurn(turnId, nodeId)
+
+        // 启动 LLM Agent Turn，将脚本输出作为上下文
+        const enrichedPrompt = `之前执行的脚本 \`${script}\` 失败了（退出码 ${code}）。\n\n脚本输出:\n\`\`\`\n${fullOutput.slice(-2000)}\n\`\`\`\n\n请分析失败原因并完成任务：\n${fallbackPrompt}`
+        try {
+          this.startTurnAsync({
+            agentId: fallbackAgentId,
+            nodeId,
+            runId,
+            prompt: enrichedPrompt,
+            cwd,
+          })
+        } catch (e) {
+          console.error(`[HYB] Failed to start LLM fallback:`, (e as Error).message)
+        }
+      }
+    })
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout)
+      this.activeProcesses.delete(turnId)
+      // 脚本启动失败 → 直接回退到 LLM
+      this.workflowEngine.appendTurnOutput(turnId, nodeId, `\n❌ 脚本启动失败: ${err.message}，回退到 LLM Agent\n`)
+      this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
+      this.workflowEngine.finalizeTurn(turnId, nodeId)
+      try {
+        this.startTurnAsync({
+          agentId: fallbackAgentId,
+          nodeId,
+          runId,
+          prompt: `脚本 \`${script}\` 启动失败: ${err.message}\n\n请直接完成任务：\n${fallbackPrompt}`,
+          cwd,
+        })
+      } catch (e) {
+        console.error(`[HYB] Failed to start LLM fallback:`, (e as Error).message)
+      }
+    })
+  }
+
   // ═══════════════ 上下文构建 ═══════════════
 
   private buildContextualPrompt(

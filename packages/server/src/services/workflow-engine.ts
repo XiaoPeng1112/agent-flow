@@ -142,6 +142,9 @@ export class WorkflowEngine {
       artifacts: [],
       prompt: tplNode.prompt,
       order: idx,
+      executionMode: tplNode.executionMode,   // DET/HYB/LLM 执行模式
+      script: tplNode.script,                 // DET 模式脚本
+      scriptCwd: tplNode.scriptCwd,           // 脚本工作目录
     }))
 
     // 映射模板边到运行时 ID
@@ -579,6 +582,41 @@ export class WorkflowEngine {
       run.completedAt = Date.now()
       this.emit('run:status_changed', { runId: run.id, status: run.status })
     }
+  }
+
+  /**
+   * 从 Checkpoint 恢复 Run 的节点状态
+   * 将所有节点重置为 Checkpoint 记录的状态，然后重新计算 ready 节点
+   */
+  async restoreFromCheckpoint(runId: string, nodeStates: Array<{ nodeId: string; status: TaskNodeStatus }>): Promise<void> {
+    const run = this.getRun(runId)
+    if (!run) throw new Error(`Run not found: ${runId}`)
+
+    // 将所有节点恢复到快照状态
+    for (const { nodeId, status } of nodeStates) {
+      const node = run.nodes.find(n => n.id === nodeId)
+      if (node) {
+        node.status = status
+        // 恢复的节点清除执行时间和错误信息
+        if (status === 'pending' || status === 'ready') {
+          node.startedAt = undefined
+          node.completedAt = undefined
+          node.error = undefined
+        }
+      }
+    }
+
+    // 恢复 Run 为 running（允许继续推进）
+    if (run.status === 'completed' || run.status === 'failed') {
+      run.status = 'running'
+      run.completedAt = undefined
+    }
+
+    // 重新计算 ready 节点
+    this.computeReadyNodes(run)
+
+    this.emit('run:status_changed', { runId, status: run.status })
+    await this.persist()
   }
 
   /**

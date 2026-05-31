@@ -15,6 +15,7 @@ AgentFlow 是一个 **Agent 编排调度中心（Orchestrator）**，核心理�
 
 - **DAG 工作流引擎**：三层状态机（Run → Node → Turn），支持条件分支、并行执行
 - **多角色 Agent 系统**：Planner / Manager / Executor 各司其职
+- **Per-Project Agent 配置**：按项目维度启用/禁用 Agent，DAG 节点仅展示已启用的 Agent
 - **Context Chaining**：节点间自动传递上下文，DAG 拓扑决定信息流向
 - **MAF 基础设施**：仓库隔离、Skill 物化、权限控制、A2A 通信、合同验证、健壮性服务
 - **实时通信**：WebSocket 推送 Agent 输出流，前端即时展示执行进度
@@ -105,6 +106,7 @@ npm run deploy
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.5.0 | 2026-05-31 | Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤） |
 | v2.4.1 | 2026-05-31 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
 | v2.4.0 | 2026-05-30 | MAF 六大服务模块 |
 | v2.3.0 | 2026-05-30 | 安全加固 + DAG 增强 + AI 开发流程优化 |

@@ -61,6 +61,9 @@ export interface TaskNode {
   prompt?: string
   userInput?: string
   order: number
+  executionMode?: ExecutionMode
+  script?: string
+  scriptCwd?: string
   startedAt?: number
   completedAt?: number
   error?: string
@@ -123,6 +126,8 @@ export interface WorkflowTemplate {
   edges: DAGEdge[]
 }
 
+export type ExecutionMode = 'det' | 'hyb' | 'llm'
+
 export interface TemplateNode {
   id: string
   name: string
@@ -132,6 +137,9 @@ export interface TemplateNode {
   skillIds: string[]
   prompt?: string
   outputContracts?: OutputContract[]
+  executionMode?: ExecutionMode
+  script?: string
+  scriptCwd?: string
 }
 
 export interface OutputContract {
@@ -160,6 +168,7 @@ export interface Project {
   path: string
   description?: string
   contextConfig?: ProjectContext
+  enabledAgentIds?: string[]       // 项目启用的 Agent ID 列表（未设置 = 全部启用）
   skills: SkillInfo[]
   runs: Run[]
   createdAt: number
@@ -188,8 +197,33 @@ export interface InboxItem {
   createdAt: number
 }
 
+// ─── Dynamic Agent Instance (动态 Agent 实例) ───
+
+export interface DynamicAgentInstance {
+  id: string
+  baseAgentId: string
+  nodeId: string
+  runId: string
+  role: AgentRole
+  name: string
+  scopedContext: ScopedContext
+  status: 'created' | 'active' | 'completed' | 'terminated'
+  createdAt: number
+  terminatedAt?: number
+}
+
+export interface ScopedContext {
+  systemPrompt: string
+  nodeDescription: string
+  nodePrompt?: string
+  predecessorSummaries: string[]
+  projectContext?: string
+  skills: string[]
+  variables: Record<string, string>
+}
+
 // ─── UI 类型 ───
 
 export type ProjectTab = 'runs' | 'workflow' | 'skills' | 'agents' | 'settings'
 
-export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log'
+export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree'
