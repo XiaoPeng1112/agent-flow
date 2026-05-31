@@ -16,6 +16,8 @@ import {
   SafetyCertificateOutlined,
   SendOutlined,
   ExperimentOutlined,
+  BranchesOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons'
 
 /**
@@ -477,6 +479,30 @@ export function AboutPage() {
               title="Per-Project Agent 配置"
               desc="项目级别启用/禁用 Agent：Agents Tab → Switch 开关 → 保存后 DAG 节点仅展示已启用 Agent，简化选择流程。"
               color="#8b5cf6"
+            />
+            <ArchCard
+              icon={<ThunderboltOutlined />}
+              title="动态 Agent 创建"
+              desc="节点执行前按角色 + context 动态创建 Agent 实例，生命周期跟随 Run 自动回收，支持 planner/manager/executor 三角色。"
+              color="#f59e0b"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="Context DB 四层管理"
+              desc="SYS/L0/L1/L2 四层上下文文件 CRUD + 装配引擎，支持在线编辑和装配预览，一键查看 Agent 收到的完整上下文。"
+              color="#dc2626"
+            />
+            <ArchCard
+              icon={<BranchesOutlined />}
+              title="Agent Tree 可视化"
+              desc="Run 内所有动态 Agent 实例的树形展示，按角色分组（规划层/管理层/执行层），显示实例状态和生命周期。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<HistoryOutlined />}
+              title="Checkpoint 恢复"
+              desc="Timeline 展示快照列表，支持手动创建/恢复快照，系统健康监控面板（死信队列/待重试/审计日志）。"
+              color="#059669"
             />
           </div>
         </section>

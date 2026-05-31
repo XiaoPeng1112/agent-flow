@@ -17,7 +17,7 @@ const changelog: ChangelogEntry[] = [
   {
     version: 'v2.5.0',
     date: '2026-05-31',
-    title: '产品感提升 + Per-Project Agent 配置',
+    title: '产品感提升 + Per-Project Agent 配置 + MRF 架构演进',
     type: 'feature',
     highlights: [
       'Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤）',
@@ -25,8 +25,12 @@ const changelog: ChangelogEntry[] = [
       'DAG 图形化可视化（@xyflow/react）— 拓扑分层自动布局',
       'Run Overview 信息栏 — 进度条 / 阶段指示器 / 活跃 Agent 数',
       '多 Provider 配置面板 — Runtime Registry',
+      '动态 Agent 创建 — 按角色 + context 实时创建实例（MRF §6.3）',
+      'Context DB 基础版 — SYS/L0/L1/L2 四层上下文管理（MRF §8）',
+      'Agent Tree 可视化 — Run 内 Agent 实例树形展示（MRF §4.6）',
+      'Checkpoint 恢复 UI — 快照创建/恢复 + 系统健康监控（MRF §2.5）',
     ],
-    details: `v2.5.0 完成第二优先级全部 4 项优化 + 新增 Per-Project Agent 配置能力。
+    details: `v2.5.0 完成第二优先级全部 4 项优化 + Per-Project Agent 配置 + 第三优先级 4 项 MRF 架构演进能力。
 
 【Per-Project Agent 配置】支持按项目维度启用/禁用 Agent，解决用户不一定拥有所有 Provider API Key 的问题。Agents 面板新增 ProjectAgentConfig 组件（Switch 开关逐个控制），保存后 DAG 节点详情的 Agent 下拉列表自动过滤，仅展示已启用的 Agent。数据模型向后兼容：enabledAgentIds 为 undefined 时所有 Agent 均可用。
 
@@ -36,7 +40,15 @@ const changelog: ChangelogEntry[] = [
 
 【Run Overview 增强】Run 详情页头部新增 Overview 信息栏，包含渐变色进度条（完成/失败/进行中三色态）、当前阶段指示器（自动检测执行中/待验收/就绪节点）、完成率百分比、活跃 Agent 计数（带动画）、总耗时统计。
 
-【多 Provider 配置面板】Agents 页面底部新增 ProviderConfigPanel，自动识别 Codex/Claude/自定义 CLI 三大 Provider，展示可用性、关联 Agent 数量、默认配置预览。可展开详细配置：环境变量（API Key 密码类型）、默认模型、启用/禁用开关等。对标 MRF §4.9 Runtime Registry。`,
+【多 Provider 配置面板】Agents 页面底部新增 ProviderConfigPanel，自动识别 Codex/Claude/自定义 CLI 三大 Provider，展示可用性、关联 Agent 数量、默认配置预览。可展开详细配置：环境变量（API Key 密码类型）、默认模型、启用/禁用开关等。对标 MRF §4.9 Runtime Registry。
+
+【动态 Agent 创建】实现 MRF §6.3 实时创建原则：节点执行前根据角色 + 模板 + context 动态创建 Agent 实例，生命周期跟随 Run 自动回收。支持 planner/manager/executor 三角色，实例携带 scoped context 而非全局共享。
+
+【Context DB 基础版】实现 MRF §8 精准上下文数据库：SYS（全局规则）/ L0（项目级）/ L1（模板级）/ L2（节点级）四层上下文文件管理，支持在线 CRUD 和装配预览——一键查看 Agent 实际收到的完整上下文。
+
+【Agent Tree 可视化】实现 MRF §4.6：Run 详情中新增 Agent Tree 面板，以树形结构展示所有动态 Agent 实例。根节点为 Run，按角色分组（规划层/管理层/执行层），显示每个实例的状态、关联节点和生命周期时间。
+
+【Checkpoint 恢复 UI】实现 MRF §2.5 实时可观测：Run 详情中新增 Checkpoint 面板，Timeline 展示所有快照。支持手动创建快照（保存当前所有节点状态），恢复到任意历史快照（含确认弹窗）。底部显示系统健康状态：死信队列数、待重试数、审计日志量。`,
   },
   {
     version: 'v2.4.3',

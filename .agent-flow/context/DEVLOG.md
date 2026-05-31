@@ -2,9 +2,9 @@
 
 ## 2026-05-31 — v2.5.0
 
-本日完成第二优先级全部 4 项产品感优化 + 新增 Per-Project Agent 配置能力。
+本日完成第二优先级全部 4 项产品感优化 + Per-Project Agent 配置 + 第三优先级 4 项 MRF 架构演进能力。
 
-### v2.5.0 — 产品感提升 + Per-Project Agent 配置
+### v2.5.0 — 产品感提升 + Per-Project Agent 配置 + MRF 架构演进
 
 **完成内容**:
 
@@ -37,6 +37,26 @@
 5. **多 Provider 配置面板**
    - ProviderConfigPanel 组件（Codex/Claude/自定义 CLI 三大 Provider）
    - 可用性检测、默认配置预览、环境变量配置（password 类型）、启用/禁用开关
+
+6. **动态 Agent 创建（MRF §6.3）**
+   - `dynamic-agent-factory.ts` — 节点执行前按角色 + context 动态创建 Agent 实例
+   - 生命周期跟随 Run，执行结束自动回收
+   - 支持 planner / manager / executor 三角色
+
+7. **Context DB 基础版（MRF §8）**
+   - `context-db.ts` — SYS/L0/L1/L2 四层上下文文件 CRUD + 装配引擎
+   - `ContextDBPanel.tsx` — 层级 Tab、文件列表、在线编辑器、装配预览
+   - 支持按项目/模板/节点粒度组织上下文
+
+8. **Agent Tree 可视化（MRF §4.6）**
+   - `AgentTreePanel.tsx` — Run 内动态 Agent 实例的树形展示
+   - 按角色（planner/manager/executor）分组，显示实例状态、关联节点、创建时间
+   - 支持展开/收起和刷新
+
+9. **Checkpoint 恢复 UI（MRF §2.5）**
+   - `CheckpointPanel.tsx` — Timeline 展示快照列表
+   - 支持手动创建快照、恢复到指定 Checkpoint（含确认弹窗）
+   - 系统健康状态监控面板（死信队列/待重试/总快照数/审计日志）
 
 **修复的问题**:
 - **"保存失败" HTML 错误响应**：Server 代码更新后未重启 → 重启 Server 解决
