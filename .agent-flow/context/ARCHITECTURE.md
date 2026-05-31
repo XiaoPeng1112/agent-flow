@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-05-31（v2.5.0）  
+> 最后更新：2026-05-31（v2.5.0 + A2A 前端可视化）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -26,7 +26,7 @@ agent-flow/
 │   │   │   ├── api/         # API 客户端（REST 请求封装）
 │   │   │   ├── components/  # UI 组件
 │   │   │   │   ├── common/    # 通用组件（ErrorBoundary / RouteLoadingFallback）
-│   │   │   │   ├── detail/    # 项目详情面板（Runs/Workflow/Skills/Agents/Settings）
+│   │   │   │   ├── detail/    # Run 详情面板（DAG/AgentTree/Checkpoint/ContextDB/A2APanel）
 │   │   │   │   ├── layout/   # 布局组件（AppLayout）
 │   │   │   │   └── sidebar/  # 侧边栏（Sidebar/AddProjectModal/UserPanel）
 │   │   │   ├── hooks/       # 自定义 Hooks（useRequest / useLoadingAction）
@@ -239,6 +239,16 @@ API：`POST /api/permissions/check` 校验权限，`GET /api/permissions/audit-l
 - **Legacy Bridge**：兼容原有 InboxItem 格式，新旧系统平滑过渡
 
 API：`POST /api/a2a/send`、`POST /api/a2a/delegate`、`GET /api/a2a/inbox/:agentId`、`POST /api/a2a/ack`
+
+### A2A 前端可视化面板 [v2.5.0]
+
+前端 A2APanel 组件（`packages/client/src/components/detail/A2APanel.tsx`）提供三种视图展示 Agent 间消息流转：
+
+- **拓扑图视图**：纯 SVG 实现的环形布局 Agent 网络图，节点按角色着色，连线粗细反映消息量，通信链路列表展示消息类型标签
+- **时间线视图**：按时间倒序消息列表，支持类型/优先级筛选，可展开查看 payload
+- **统计视图**：量化指标卡片 + 类型分布柱状图 + 优先级分布 + Agent 活跃度排行
+
+前端 API 封装：`a2aApi` 对象（getMessages / getStats / getInbox / send / delegate / acknowledge / resolve / createChannel）
 
 ### Contract Validation（合同验证引擎）[v2.4.0]
 

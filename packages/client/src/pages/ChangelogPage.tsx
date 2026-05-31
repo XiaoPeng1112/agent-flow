@@ -30,6 +30,7 @@ const changelog: ChangelogEntry[] = [
       'Agent Tree 可视化 — Run 内 Agent 实例树形展示（MRF §4.6）',
       'Checkpoint 恢复 UI — 快照创建/恢复 + 系统健康监控（MRF §2.5）',
       '确定性执行层 DET 模式 — 脚本直执行 + HYB 混合回退（MRF §2.1）',
+      'A2A 消息面板 — 拓扑图 + 时间线 + 统计三视图，Agent 间通信可视化',
     ],
     details: `v2.5.0 完成第二优先级全部 4 项优化 + Per-Project Agent 配置 + 第三优先级全部 5 项 MRF 架构演进能力。
 
@@ -51,7 +52,9 @@ const changelog: ChangelogEntry[] = [
 
 【Checkpoint 恢复 UI】实现 MRF §2.5 实时可观测：Run 详情中新增 Checkpoint 面板，Timeline 展示所有快照。支持手动创建快照（保存当前所有节点状态），恢复到任意历史快照（含确认弹窗）。底部显示系统健康状态：死信队列数、待重试数、审计日志量。
 
-【确定性执行层 DET 模式】实现 MRF §2.1 代码优先原则：模板节点新增 executionMode 字段（'det' | 'hyb' | 'llm'）。DET 模式下节点直接执行预设脚本命令（如跑测试、lint、构建），不调用 LLM Agent，成功自动完成无需人工审批，节省 token。HYB 混合模式先执行脚本，失败后自动回退到 LLM Agent 兜底。前端节点详情显示⚡DET/🔄HYB标签，5分钟超时保护。`,
+【确定性执行层 DET 模式】实现 MRF §2.1 代码优先原则：模板节点新增 executionMode 字段（'det' | 'hyb' | 'llm'）。DET 模式下节点直接执行预设脚本命令（如跑测试、lint、构建），不调用 LLM Agent，成功自动完成无需人工审批，节省 token。HYB 混合模式先执行脚本，失败后自动回退到 LLM Agent 兜底。前端节点详情显示⚡DET/🔄HYB标签，5分钟超时保护。
+
+【A2A 消息面板】Run 详情页新增 A2A 消息 Tab，提供三种视图全面展示 Agent 间通信：拓扑图视图以纯 SVG 环形布局呈现 Agent 网络关系（节点按角色着色、连线粗细反映消息量）；时间线视图按时间倒序展示消息列表（支持类型/优先级筛选、展开 payload 详情）；统计视图展示量化指标卡片 + 消息类型分布柱状图 + Agent 活跃度排行。前端 a2aApi 封装对接后端 /api/a2a/* 全部路由。`,
   },
   {
     version: 'v2.4.3',

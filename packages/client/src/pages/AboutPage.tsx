@@ -451,8 +451,8 @@ export function AboutPage() {
           <div className="bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-100 rounded-xl p-6 mb-5">
             <p className="text-[14px] text-gray-700 leading-[1.8]">
               v2.5.0 聚焦<strong>可视化与用户体验</strong>及<strong>MRF 架构演进</strong>：引入 @xyflow/react 实现 DAG 交互式画布，新增 Run Overview、
-              Markdown 渲染、Per-Project Agent 配置；同时完成第三优先级全部 5 项 MRF 能力——DET 确定性执行、动态 Agent 创建、
-              Context DB 四层管理、Agent Tree 可视化、Checkpoint 恢复。
+              Markdown 渲染、Per-Project Agent 配置；完成第三优先级全部 5 项 MRF 能力——DET 确定性执行、动态 Agent 创建、
+              Context DB 四层管理、Agent Tree 可视化、Checkpoint 恢复；并新增 <strong>A2A 消息面板</strong>实现 Agent 间通信的全链路可视化。
             </p>
           </div>
 
@@ -510,6 +510,12 @@ export function AboutPage() {
               title="确定性执行层 (DET)"
               desc="DET 模式直接执行脚本不调 LLM（节省 token），HYB 混合模式脚本失败自动回退 LLM，5 分钟超时保护。"
               color="#0d9488"
+            />
+            <ArchCard
+              icon={<SendOutlined />}
+              title="A2A 消息面板"
+              desc="Agent 间通信可视化：拓扑图展示 Agent 网络关系，时间线追踪消息流转，统计面板量化通信指标。纯 SVG 实现零依赖。"
+              color="#0e7490"
             />
           </div>
         </section>

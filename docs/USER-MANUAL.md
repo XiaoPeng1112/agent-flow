@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.6.0 | 更新日期：2026-06-01  
+> 版本：v2.5.0 | 更新日期：2026-05-31  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -729,8 +729,7 @@ npm run test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
-| v2.6.0 | 2026-06-01 | A2A 消息面板（拓扑图 + 时间线 + 统计三视图）|
-| v2.5.0 | 2026-05-31 | DAG 可视化 + DET/HYB 执行模式 + Dynamic Agent + Context DB + Agent Tree + Checkpoint UI + Per-Project Agent 配置 |
+| v2.5.0 | 2026-05-31 | DAG 可视化 + DET/HYB 执行模式 + Dynamic Agent + Context DB + Agent Tree + Checkpoint UI + Per-Project Agent 配置 + A2A 消息面板 |
 | v2.4.3 | 2026-05-31 | Markdown 渲染 + Overview 面板 + ChangelogPage 增强 |
 | v2.4.2 | 2026-05-31 | DAG 视图基础实现（@xyflow/react） |
 | v2.4.1 | 2026-05-30 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
