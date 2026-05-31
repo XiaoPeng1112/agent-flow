@@ -194,12 +194,31 @@ export class MetricsCollector {
         nodeToolCalls.push(...tm.toolCalls)
       }
 
-      // 如果 turnMetrics 没有数据，从 AgentTurn 中提取
+      // 如果 turnMetrics 没有数据，从 AgentTurn 中提取并构建 TurnMetrics
       if (turnMetricsForNode.length === 0 && nodeTurns.length > 0) {
         for (const turn of nodeTurns) {
-          if (turn.tokenUsage) {
-            nodeInput += turn.tokenUsage.input
-            nodeOutput += turn.tokenUsage.output
+          // 优先使用已有的 tokenUsage，否则尝试从 output 中重新解析
+          let tokenUsage = turn.tokenUsage
+          if (!tokenUsage && turn.output) {
+            tokenUsage = this.parseTokenFromOutput(turn.output)
+          }
+          if (tokenUsage) {
+            nodeInput += tokenUsage.input
+            nodeOutput += tokenUsage.output
+            // 构建 TurnMetrics 以便 Token 分布和效率表格能读取
+            turnMetricsForNode.push({
+              turnId: turn.id,
+              nodeId: turn.nodeId,
+              agentId: turn.agentId,
+              turnIndex: turn.turnIndex,
+              startedAt: turn.startedAt,
+              completedAt: turn.completedAt || Date.now(),
+              duration: (turn.completedAt || Date.now()) - turn.startedAt,
+              tokenUsage,
+              toolCalls: [],
+              filesModified: 0,
+              result: turn.result,
+            })
           }
         }
       }
@@ -469,5 +488,38 @@ export class MetricsCollector {
     // 并行度 = 所有节点执行时间之和 / Run 总时长
     const totalNodeTime = nodeMetrics.reduce((sum, nm) => sum + nm.totalDuration, 0)
     return Math.min(1, totalNodeTime / totalDuration / nodeMetrics.length)
+  }
+
+  /**
+   * 从 Turn 输出文本中重新解析 Token 使用量
+   * 用于历史数据补救：当初始采集时因 ANSI 转义码等原因未能捕获 token 信息
+   */
+  private parseTokenFromOutput(output: string): { input: number; output: number; total: number } | undefined {
+    try {
+      // 清除 ANSI 转义码
+      // eslint-disable-next-line no-control-regex
+      const clean = output.replace(/\x1b\[[0-9;]*m/g, '')
+
+      // Codex 格式："tokens used\n30,313"
+      const match = clean.match(/tokens?\s*used\s*\n?\s*([\d,]+)/i)
+        || clean.match(/\((\s*[\d,]+)\s*tokens?\s*\)/i)
+        || clean.match(/token\s*usage[:\s]+([\d,]+)/i)
+      if (match) {
+        const total = parseInt(match[1].replace(/[,\s]/g, ''), 10)
+        return { input: Math.round(total * 0.7), output: Math.round(total * 0.3), total }
+      }
+
+      // Claude 格式
+      const inputMatch = clean.match(/input\s*tokens?[:\s]+([\d,]+)/i)
+      const outputMatch = clean.match(/output\s*tokens?[:\s]+([\d,]+)/i)
+      if (inputMatch || outputMatch) {
+        const inp = inputMatch ? parseInt(inputMatch[1].replace(/,/g, ''), 10) : 0
+        const out = outputMatch ? parseInt(outputMatch[1].replace(/,/g, ''), 10) : 0
+        return { input: inp, output: out, total: inp + out }
+      }
+    } catch {
+      // 解析失败静默
+    }
+    return undefined
   }
 }

@@ -755,14 +755,18 @@ export class AgentService {
    */
   private parseTokenUsage(output: string, agentType: string): { input: number; output: number; total: number } | undefined {
     try {
+      // 清除 ANSI 转义码（CLI 输出中常包含颜色/样式控制字符）
+      // eslint-disable-next-line no-control-regex
+      const cleanOutput = output.replace(/\x1b\[[0-9;]*m/g, '')
+
       if (agentType === 'codex') {
         // Codex 输出格式多种：
         // 1. "tokens used\n9,000" 或 "tokens used\n12,345"
         // 2. "(68350 tokens)" 或 "(68,350 tokens)"
         // 3. "Token usage: 12345"
-        const match = output.match(/tokens?\s*used\s*\n?\s*([\d,]+)/i)
-          || output.match(/\((\s*[\d,]+)\s*tokens?\s*\)/i)
-          || output.match(/token\s*usage[:\s]+([\d,]+)/i)
+        const match = cleanOutput.match(/tokens?\s*used\s*\n?\s*([\d,]+)/i)
+          || cleanOutput.match(/\((\s*[\d,]+)\s*tokens?\s*\)/i)
+          || cleanOutput.match(/token\s*usage[:\s]+([\d,]+)/i)
         if (match) {
           const total = parseInt(match[1].replace(/[,\s]/g, ''), 10)
           // Codex 不区分 input/output，估算 70% input 30% output
@@ -770,9 +774,9 @@ export class AgentService {
         }
       } else if (agentType === 'claude') {
         // Claude CLI 输出格式可能包含: "Input tokens: X" "Output tokens: Y"
-        const inputMatch = output.match(/input\s*tokens?[:\s]+([\d,]+)/i)
-        const outputMatch = output.match(/output\s*tokens?[:\s]+([\d,]+)/i)
-        const totalMatch = output.match(/total\s*(?:cost|tokens?)[:\s]+([\d,]+)/i)
+        const inputMatch = cleanOutput.match(/input\s*tokens?[:\s]+([\d,]+)/i)
+        const outputMatch = cleanOutput.match(/output\s*tokens?[:\s]+([\d,]+)/i)
+        const totalMatch = cleanOutput.match(/total\s*(?:cost|tokens?)[:\s]+([\d,]+)/i)
         
         if (inputMatch || outputMatch) {
           const input = inputMatch ? parseInt(inputMatch[1].replace(/,/g, ''), 10) : 0
