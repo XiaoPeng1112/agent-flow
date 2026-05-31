@@ -304,10 +304,9 @@ import '@xyflow/react/dist/style.css'
 
 // 自定义节点组件
 function DAGCustomNode({ data }: { data: any }) {
-  const { node, config, role, isSelected, nodeTurn, onClick } = data
+  const { node, config, role, isSelected, nodeTurn } = data
   return (
     <div
-      onClick={onClick}
       className={`dag-node relative px-4 py-3 rounded-xl border cursor-pointer transition-all min-w-[200px] max-w-[260px] ${
         isSelected
           ? 'border-indigo-400 bg-indigo-50/50 shadow-lg ring-2 ring-indigo-100'
@@ -446,7 +445,6 @@ function DAGView({ run, selectedNodeId, onSelectNode, activeTurns }: {
             role,
             isSelected: nodeId === selectedNodeId,
             nodeTurn,
-            onClick: () => onSelectNode(nodeId),
           },
         })
       }
@@ -472,7 +470,11 @@ function DAGView({ run, selectedNodeId, onSelectNode, activeTurns }: {
     })
 
     return { flowNodes: nodes, flowEdges: edges }
-  }, [run.nodes, run.edges, selectedNodeId, activeTurns, onSelectNode])
+  }, [run.nodes, run.edges, selectedNodeId, activeTurns])
+
+  const handleNodeClick = (_event: React.MouseEvent, node: FlowNode) => {
+    onSelectNode(node.id)
+  }
 
   return (
     <div className="h-full w-full min-h-[400px] rounded-xl overflow-hidden border border-gray-100 bg-white">
@@ -480,6 +482,7 @@ function DAGView({ run, selectedNodeId, onSelectNode, activeTurns }: {
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
+        onNodeClick={handleNodeClick}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         nodesDraggable={false}
