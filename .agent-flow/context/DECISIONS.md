@@ -238,3 +238,45 @@
 - 零成本，自动 HTTPS
 - 无需 GitHub Actions workflow 配置权限
 - 本地一条命令 `npm run deploy` 完成部署
+
+---
+
+## ADR-014: 产出物闭环基于 Git worktree Diff + 三种合并策略
+
+**日期**: 2026-05-31  
+**状态**: 已实施
+
+**背景**: Agent 执行完毕后产出的代码变更只能以文本形式查看（Artifacts），用户无法像 GitHub PR 那样逐行审查变更、对比前后差异，也无法选择合并方式。这导致"AI 写完代码 → 人确认 → 合入"的闭环缺失最后一环。
+
+**决策**: 实现 `ArtifactMergeService`，基于已有的 `RepoIsolationService`（Git worktree）执行 `git diff`，将 unified diff 解析为结构化的 `FileDiff[]`（含 DiffHunk、DiffLine），前端 `DiffReviewPanel` 以 GitHub PR 风格展示行级 diff。合并支持三种策略：squash（压缩单提交）、merge（保留历史）、rebase（变基线性历史）。
+
+**原因**:
+- 复用已有的 worktree 基础设施（ADR 无新依赖引入）
+- 行级 diff 审查是代码质量保障的关键环节
+- 三种合并策略覆盖不同团队的 Git 工作流偏好
+- 闭环意味着 Agent 产出 → 人审查 → 选择策略合入/丢弃，全链路可控
+
+**注意事项**:
+- diff 解析器为纯字符串处理实现，不依赖外部库
+- 丢弃操作会同时清理 worktree 和删除分支，不可逆
+
+---
+
+## ADR-015: 可观测性指标通过事件总线零侵入采集
+
+**日期**: 2026-05-31  
+**状态**: 已实施
+
+**背景**: 需要追踪工作流全链路的运行效率（节点耗时、Token 消耗、质量指标），但不希望侵入 WorkflowEngine 核心逻辑。
+
+**决策**: 实现独立的 `MetricsCollector` 服务，通过订阅 WorkflowEngine 的事件总线（`node_started`、`turn_completed`、`node_approved`、`node_rejected`）自动采集指标，无需修改引擎核心代码。指标数据持久化到 `~/.agent-flow/metrics/metrics.json`，前端通过 REST API 读取并展示多维度仪表盘。
+
+**原因**:
+- 事件驱动解耦：MetricsCollector 只是事件监听者，WorkflowEngine 无需感知指标采集的存在
+- 单一职责：指标采集逻辑集中在一个服务中，便于扩展新指标维度
+- 持久化保证：指标数据跨 Session 保留，支持历史趋势分析
+- 效率评分可帮助用户识别低效节点和高消耗 Agent，指导优化
+
+**效率评分算法**:
+- 综合考虑三个维度：执行时间（越快越好）、Token 消耗（越少越好）、质量（首次通过率越高越好）
+- 加权公式输出 0-100 分，方便直观对比

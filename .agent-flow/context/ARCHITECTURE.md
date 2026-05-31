@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-05-31（v2.5.0 + A2A 前端可视化）  
+> 最后更新：2026-05-31（v2.6.0 — 产出物闭环 + 可观测性增强）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -26,7 +26,7 @@ agent-flow/
 │   │   │   ├── api/         # API 客户端（REST 请求封装）
 │   │   │   ├── components/  # UI 组件
 │   │   │   │   ├── common/    # 通用组件（ErrorBoundary / RouteLoadingFallback）
-│   │   │   │   ├── detail/    # Run 详情面板（DAG/AgentTree/Checkpoint/ContextDB/A2APanel）
+│   │   │   │   ├── detail/    # Run 详情面板（DAG/AgentTree/Checkpoint/ContextDB/A2A/DiffReview/Metrics）
 │   │   │   │   ├── layout/   # 布局组件（AppLayout）
 │   │   │   │   └── sidebar/  # 侧边栏（Sidebar/AddProjectModal/UserPanel）
 │   │   │   ├── hooks/       # 自定义 Hooks（useRequest / useLoadingAction）
@@ -42,10 +42,10 @@ agent-flow/
 │       │   ├── a2a-protocol.test.ts
 │       │   └── contract-validator.test.ts
 │       └── src/
-│           ├── index.ts       # 服务入口（v2.5.0）
+│           ├── index.ts       # 服务入口（v2.6.0）
 │           ├── routes/
 │           │   └── api.ts     # REST API 路由定义（全部 async/await）
-│           ├── services/      # 业务服务层（17 个模块）
+│           ├── services/      # 业务服务层（19 个模块）
 │           │   ├── project.ts       # 项目 CRUD
 │           │   ├── template.ts      # 工作流模板管理（4 个内置模板，含 deliver 节点）
 │           │   ├── workflow-engine.ts # DAG 工作流引擎（三层状态机 + Context Chaining）
@@ -62,7 +62,9 @@ agent-flow/
 │           │   ├── permission-isolation.ts  # [v2.4.0] Agent 权限隔离（RBAC + glob 文件访问控制）
 │           │   ├── a2a-protocol.ts         # [v2.4.0] A2A 通信协议（优先级收件箱 + ACK 确认）
 │           │   ├── contract-validator.ts   # [v2.4.0] OutputContract 验证引擎
-│           │   └── robustness.ts           # [v2.4.0] 健壮性服务（重试/死信队列/Checkpoint/审计）
+│           │   ├── robustness.ts           # [v2.4.0] 健壮性服务（重试/死信队列/Checkpoint/审计）
+│           │   ├── artifact-merge.ts      # [v2.6.0] 产出物闭环（Git worktree Diff Review + Merge/Discard）
+│           │   └── metrics-collector.ts   # [v2.6.0] 可观测性指标采集（时间/Token/质量评分）
 │           └── types/
 │               └── index.ts   # 核心类型定义（含 NodeContext、EdgeCondition、A2A、RBAC 等）
 ├── .agent-flow/
@@ -252,6 +254,44 @@ API：`POST /api/a2a/send`、`POST /api/a2a/delegate`、`GET /api/a2a/inbox/:age
 
 前端 API 封装：`a2aApi` 对象（getMessages / getStats / getInbox / send / delegate / acknowledge / resolve / createChannel）
 
+### ArtifactMergeService（产出物闭环）[v2.6.0]
+
+基于 Git worktree 的产出物 Diff Review + Merge/Discard 完整闭环，实现类 GitHub PR 的代码审查体验：
+
+- **Diff Review 准备**：`prepareDiffReview(runId)` 在 Git worktree 环境执行 `git diff`，解析 unified diff 为结构化 `FileDiff[]`（含 DiffHunk、DiffLine 精细到行级别）
+- **合并策略**：`mergeBranch(runId, strategy)` 支持 squash / merge / rebase 三种合并方式
+- **丢弃分支**：`discardBranch(runId)` 清理 worktree 并删除分支
+- **单文件 Diff**：`getFileDiff(runId, filePath)` 获取指定文件的增量变更
+
+前端 DiffReviewPanel 组件（`packages/client/src/components/detail/DiffReviewPanel.tsx`）：
+- GitHub PR 风格文件树 + 行级 Diff 展示（添加绿色 / 删除红色 / 上下文灰色）
+- Hunk 折叠/展开、文件级统计（+N / -N）
+- 合并策略选择器（Squash / Merge Commit / Rebase）
+- Approve（合并）和 Discard（丢弃）操作按钮
+
+API 路由：`GET /api/diff-review/:runId`、`POST /api/diff-review/:runId/merge`、`POST /api/diff-review/:runId/discard`、`GET /api/diff-review/:runId/file-diff`
+
+### MetricsCollector（可观测性增强）[v2.6.0]
+
+全流程指标采集与效率评估系统，提供运行时可视化：
+
+- **时间指标**：记录每个节点的 startTime / reviewTime（首次审批耗时）/ rejectTime（打回次数与时间） / totalDuration
+- **Token 指标**：按节点/Agent/角色维度追踪 Token 消耗分布
+- **质量指标**：基于打回率、首次通过率、总 Token 效率计算综合质量评分
+- **Timeline 数据**：构建甘特图数据（节点时间跨度 + 并行度分析）
+- **效率评分**：自动计算 efficiency score（加权 duration / token / quality）
+- **持久化**：指标数据持久化到 `~/.agent-flow/metrics/metrics.json`
+
+前端 MetricsPanel 组件（`packages/client/src/components/detail/MetricsPanel.tsx`）提供四个子 Tab：
+- **Overview**：6 张指标卡片（总耗时、总 Token、平均节点耗时、首次通过率、打回率、效率评分）
+- **Timeline**：Gantt 甘特图展示各节点时间跨度和并行执行情况
+- **Token Distribution**：水平柱状图展示各节点/Agent Token 消耗占比
+- **Efficiency**：排序表格展示各节点效率评分 + 进度条可视化
+
+API 路由：`GET /api/metrics/:runId`、`GET /api/metrics/:runId/token-distribution`、`GET /api/metrics/:runId/efficiency`、`GET /api/metrics/:runId/trend`
+
+前端 API 封装：`diffReviewApi` 对象（getDiffReview / mergeBranch / discardBranch / getFileDiff）+ `metricsApi` 对象（getMetrics / getTokenDistribution / getEfficiency / getTrend）
+
 ### Contract Validation（合同验证引擎）[v2.4.0]
 
 节点完成时自动校验 Agent 产出物是否满足 OutputContract 定义：
@@ -284,6 +324,8 @@ API：`POST /api/robustness/retry`、`GET /api/robustness/dlq`、`POST /api/robu
 - **权限隔离**: [v2.4.0] RBAC deny-by-default + glob 文件访问规则
 - **仓库隔离**: [v2.4.0] Git worktree 池化防止并行 Run 文件冲突
 - **Agent 可见性控制**: [v2.5.0] 项目级 Agent 启用/禁用，限制用户只能使用已配置的 Agent
+- **产出物闭环**: [v2.6.0] Git worktree Diff Review + 三种合并策略，代码变更可审可控
+- **可观测性**: [v2.6.0] 全链路指标采集 + 持久化，运行效率可量化可追溯
 
 ## 运行方式
 

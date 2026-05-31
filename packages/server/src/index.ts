@@ -20,6 +20,8 @@ import { ContractValidatorService } from './services/contract-validator.js'
 import { RobustnessService } from './services/robustness.js'
 import { DynamicAgentFactory } from './services/dynamic-agent-factory.js'
 import { ContextDBService } from './services/context-db.js'
+import { ArtifactMergeService } from './services/artifact-merge.js'
+import { MetricsCollector } from './services/metrics-collector.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -48,6 +50,8 @@ const a2aProtocolService = new A2AProtocolService(workflowEngine)
 const contractValidatorService = new ContractValidatorService()
 const robustnessService = new RobustnessService()
 const contextDBService = new ContextDBService()
+const artifactMergeService = new ArtifactMergeService(repoIsolationService, gitService)
+const metricsCollector = new MetricsCollector()
 const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService)
 
 // ═══════════════ Express 应用 ═══════════════
@@ -74,6 +78,8 @@ app.use('/api', createApiRouter({
   robustnessService,
   dynamicAgentFactory,
   contextDBService,
+  artifactMergeService,
+  metricsCollector,
 }))
 
 // 健康检查
@@ -124,9 +130,22 @@ function broadcast(message: WsMessage): void {
   }
 }
 
-// 注册 WorkflowEngine 事件 → 广播给所有 WebSocket 客户端
+// 注册 WorkflowEngine 事件 → 广播给所有 WebSocket 客户端 + 指标采集
 workflowEngine.onEvent((message) => {
   broadcast(message)
+
+  // 指标采集埋点
+  if (message.type === 'run:node_updated') {
+    const { nodeId, status } = message.payload as { nodeId: string; status: string }
+    switch (status) {
+      case 'running':
+        metricsCollector.recordNodeStart(nodeId)
+        break
+      case 'wait_user_review':
+        metricsCollector.recordNodeWaitReview(nodeId)
+        break
+    }
+  }
 })
 
 wss.on('connection', (ws: WebSocket) => {
@@ -184,6 +203,7 @@ async function start() {
   await templateService.load()
   await authService.load()
   await contextDBService.initialize()
+  await metricsCollector.load()
 
   console.log(`[Projects]  Loaded ${projectService.getProjects().length} projects`)
   console.log(`[Templates] Loaded ${templateService.getTemplates().length} workflow templates`)

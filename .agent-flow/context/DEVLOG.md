@@ -1,5 +1,95 @@
 # 开发日志
 
+## 2026-05-31 — v2.6.0 产出物闭环 + 可观测性增强
+
+### 产出物闭环（ArtifactMergeService + DiffReviewPanel）
+
+**完成内容**：
+
+1. **ArtifactMergeService**（`packages/server/src/services/artifact-merge.ts`，~250 行）
+   - `prepareDiffReview(runId)` — 在 Git worktree 环境执行 `git diff`，将 unified diff 解析为结构化 `FileDiff[]`（含 DiffHunk、DiffLine，精细到行级别，区分 added/removed/context）
+   - `mergeBranch(runId, strategy)` — 支持三种合并策略：squash（压缩为单次提交）、merge（保留完整提交历史）、rebase（变基到目标分支）
+   - `discardBranch(runId)` — 清理 worktree 工作目录 + 删除功能分支
+   - `getFileDiff(runId, filePath)` — 获取单个文件的增量 diff（支持定点审查）
+
+2. **DiffReviewPanel 组件**（`packages/client/src/components/detail/DiffReviewPanel.tsx`，~450 行）
+   - GitHub PR 风格文件树：文件名 + 变更统计（+N / -N）+ 展开/收起
+   - 行级 Diff 渲染：添加行绿色背景、删除行红色背景、上下文行灰色
+   - Hunk 折叠/展开控制
+   - 合并策略选择器：Radio Group（Squash / Merge Commit / Rebase）
+   - Approve 按钮（执行合并）+ Discard 按钮（丢弃变更）
+   - 加载/空状态/错误状态完善处理
+
+3. **API 路由扩展**（`packages/server/src/routes/api.ts`）
+   - `GET /api/diff-review/:runId` — 获取 Diff Review 数据
+   - `POST /api/diff-review/:runId/merge` — 执行合并（body: { strategy }）
+   - `POST /api/diff-review/:runId/discard` — 丢弃分支
+   - `GET /api/diff-review/:runId/file-diff` — 获取单文件 diff（query: filePath）
+
+4. **前端 API 封装**（`packages/client/src/api/index.ts`）
+   - `diffReviewApi` 对象：getDiffReview / mergeBranch / discardBranch / getFileDiff
+
+5. **Tab 集成**（`RunDetail.tsx` + `types/index.ts`）
+   - `RunDetailTab` 类型新增 `'diff-review'`
+   - Tab 栏新增「Diff Review」按钮
+   - 对应 render 分支渲染 DiffReviewPanel
+
+### 可观测性增强（MetricsCollector + MetricsPanel）
+
+**完成内容**：
+
+1. **MetricsCollector 服务**（`packages/server/src/services/metrics-collector.ts`，~300 行）
+   - `recordNodeStart(runId, nodeId)` — 记录节点启动时间
+   - `recordNodeReview(runId, nodeId, tokensUsed)` — 记录首次审批时间和 Token 消耗
+   - `recordNodeReject(runId, nodeId)` — 记录打回事件
+   - `getRunMetrics(runId)` — 计算完整运行指标（总耗时、总 Token、节点数、完成率、打回率、首次通过率）
+   - `buildTimeline(runId)` — 构建 Gantt 甘特图数据（节点时间跨度 + 并行度分析）
+   - `getTokenDistribution(runId)` — 按节点/Agent 维度的 Token 分布
+   - `getEfficiencyScores(runId)` — 计算各节点效率评分（加权 duration + token + quality）
+   - `load()` / `save()` — 指标数据持久化到 `~/.agent-flow/metrics/metrics.json`
+
+2. **MetricsPanel 组件**（`packages/client/src/components/detail/MetricsPanel.tsx`，~500 行）
+   - **Overview Tab**：6 张指标卡片（总耗时、总 Token、平均节点耗时、首次通过率、打回率、效率评分）
+   - **Timeline Tab**：Gantt 甘特图可视化（按节点渲染时间条形图，显示并行执行关系）
+   - **Token Distribution Tab**：水平柱状图展示各节点 Token 消耗百分比
+   - **Efficiency Tab**：可排序表格展示各节点效率评分 + Ant Design Progress 进度条可视化
+
+3. **API 路由扩展**（`packages/server/src/routes/api.ts`）
+   - `GET /api/metrics/:runId` — 获取 Run 完整指标
+   - `GET /api/metrics/:runId/token-distribution` — Token 分布
+   - `GET /api/metrics/:runId/efficiency` — 效率评分列表
+   - `GET /api/metrics/:runId/trend` — 趋势数据（多 Run 对比）
+
+4. **前端 API 封装**（`packages/client/src/api/index.ts`）
+   - `metricsApi` 对象：getMetrics / getTokenDistribution / getEfficiency / getTrend
+
+5. **Tab 集成**（`RunDetail.tsx` + `types/index.ts`）
+   - `RunDetailTab` 类型新增 `'metrics'`
+   - Tab 栏新增「Metrics」按钮
+   - 对应 render 分支渲染 MetricsPanel
+
+6. **WorkflowEngine 事件钩子集成**（`packages/server/src/index.ts`）
+   - `node_started` 事件 → `metricsCollector.recordNodeStart()`
+   - `turn_completed` 事件 → `metricsCollector.recordNodeReview()`（含 Token 统计）
+   - `node_approved` 事件 → 记录通过
+   - `node_rejected` 事件 → `metricsCollector.recordNodeReject()`
+
+**技术亮点**：
+- Diff 解析器完全自研，支持 unified diff 格式精准解析为结构化数据
+- MetricsCollector 通过 WorkflowEngine 事件总线零侵入采集指标
+- 前端 Gantt 图和柱状图均为纯 CSS/HTML 实现，无外部图表库依赖
+- 指标持久化支持跨 Session 累积，历史数据可追溯
+
+**新增文件**：
+- `packages/server/src/services/artifact-merge.ts`
+- `packages/server/src/services/metrics-collector.ts`
+- `packages/client/src/components/detail/DiffReviewPanel.tsx`
+- `packages/client/src/components/detail/MetricsPanel.tsx`
+
+**编译验证**：Server `tsc --noEmit` 0 错误，Client `tsc --noEmit` 0 错误。
+
+---
+
 ## 2026-05-31 — v2.5.0（续）A2A 消息面板
 
 ### A2A 消息面板前端可视化

@@ -40,13 +40,15 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.5.0</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.6.0</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
             <Tag color="green">自动化工作流</Tag>
             <Tag color="cyan">企业级架构</Tag>
             <Tag color="orange">项目级配置</Tag>
+            <Tag color="volcano">Diff Review</Tag>
+            <Tag color="geekblue">Metrics 可观测</Tag>
           </div>
         </div>
 
@@ -516,6 +518,44 @@ export function AboutPage() {
               title="A2A 消息面板"
               desc="Agent 间通信可视化：拓扑图展示 Agent 网络关系，时间线追踪消息流转，统计面板量化通信指标。纯 SVG 实现零依赖。"
               color="#0e7490"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.6.0 产出物闭环 + 可观测性 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<SafetyCertificateOutlined />} title="产出物闭环 + 可观测性增强（v2.6.0）" color="green" />
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.6.0 实现了从"能执行"到"<strong>可审可控可度量</strong>"的关键跨越：Agent 产出的代码变更通过 Diff Review 面板进行可视化审查和合并，
+              全链路运行指标通过 Metrics 面板实时展示和分析，形成完整的质量保障闭环。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<BranchesOutlined />}
+              title="Diff Review 面板"
+              desc="GitHub PR 风格的代码审查：左侧文件树（变更类型着色 + 统计徽章），右侧行级 Diff（unified 格式），支持 Approve/Discard 操作。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<CodeOutlined />}
+              title="ArtifactMergeService"
+              desc="基于 Git worktree 对比产出物与主分支差异，生成 FileDiff[]。支持 squash/merge/rebase 三种合并策略，文件级选择性合并。"
+              color="#0d9488"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="Metrics 指标面板"
+              desc="四个子视图：Overview（KPI + 趋势）、Timeline（甘特图）、Token Distribution（饼图 + 柱状图）、Efficiency（雷达图 + 优化建议）。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="MetricsCollector"
+              desc="事件总线零侵入采集：执行时间、Token 消耗（按模型）、质量评分（三维度加权）。持久化到 JSON，支持历史趋势查询。"
+              color="#2563eb"
             />
           </div>
         </section>

@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.5.0 | 更新日期：2026-05-31  
+> 版本：v2.6.0 | 更新日期：2026-05-31  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -248,7 +248,49 @@ Run 详情页顶部切换到 **Checkpoint** 标签，管理工作流快照：
 
 ![Checkpoint 面板](./screenshots/checkpoint.png)
 
-### 5.8 A2A 消息面板
+### 5.8 Diff Review 面板（产出物闭环）
+
+Run 详情页顶部切换到 **Diff Review** 标签，可以像 GitHub PR 那样审查 Agent 产出的代码变更：
+
+**文件树视图（左侧）**：展示所有变更文件列表，每个文件显示增加行数（绿色 +N）和删除行数（红色 -N）。点击文件名可在右侧查看详细 diff。
+
+**行级 Diff 视图（右侧）**：以 Hunk 为单位展示代码变更，添加的行为绿色背景，删除的行为红色背景，上下文行为灰色。每个 Hunk 可独立折叠/展开。
+
+**合并策略选择**：审查完成后，可选择合并方式：
+
+| 策略 | 说明 |
+|------|------|
+| Squash | 压缩所有变更为单次提交（推荐） |
+| Merge Commit | 保留完整提交历史并创建合并提交 |
+| Rebase | 变基到目标分支（线性历史） |
+
+**操作按钮**：
+- **Approve**：按选定策略合并代码变更到主分支
+- **Discard**：丢弃全部变更，清理 worktree 并删除分支
+
+![Diff Review 面板](./screenshots/diff-review.png)
+
+### 5.9 Metrics 面板（可观测性）
+
+Run 详情页顶部切换到 **Metrics** 标签，可查看当前 Run 的全链路运行指标。面板提供四个子视图：
+
+**Overview（概览）**：6 张指标卡片展示 Run 核心数据：
+- 总耗时（从第一个节点启动到最后一个节点完成）
+- 总 Token 消耗（所有节点累计）
+- 平均节点耗时
+- 首次通过率（一次审批即通过的节点占比）
+- 打回率（被打回重做的节点占比）
+- 效率评分（综合加权得分）0-100）
+
+**Timeline（时间线）**：Gantt 甘特图展示各节点执行时间跨度。水平条形图表示每个节点的开始-结束时间，可直观看到哪些节点是并行执行的。
+
+**Token Distribution（Token 分布）**：水平柱状图展示各节点/Agent 的 Token 消耗占比，快速识别 Token 消耗大户。
+
+**Efficiency（效率评分）**：可排序表格展示每个节点的效率评分（综合考虑执行时间、Token 消耗和质量指标），配合进度条可视化，方便快速定位低效节点。
+
+![Metrics 面板](./screenshots/metrics.png)
+
+### 5.10 A2A 消息面板
 
 Run 详情页顶部切换到 **A2A 消息** 标签，可视化展示当前 Run 中所有 Agent 之间的消息流转情况。面板提供三种视图模式：
 
@@ -262,7 +304,7 @@ Run 详情页顶部切换到 **A2A 消息** 标签，可视化展示当前 Run �
 
 ![A2A 消息面板](./screenshots/a2a-panel.png)
 
-### 5.9 GitHub 登录
+### 5.11 GitHub 登录
 
 侧边栏底部用户面板 → 点击 **「登录」** → 跳转 GitHub 授权 → 授权后自动返回并显示用户信息。
 
@@ -501,7 +543,54 @@ POST /api/robustness/checkpoints/run-001
 }
 ```
 
-### 6.12 Dynamic Agent（动态 Agent）
+### 6.12 Diff Review（产出物闭环）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/diff-review/:runId` | 获取 Run 的 Diff Review 数据（结构化 FileDiff[]） |
+| POST | `/diff-review/:runId/merge` | 执行合并（body: { strategy: 'squash' \| 'merge' \| 'rebase' }） |
+| POST | `/diff-review/:runId/discard` | 丢弃分支（清理 worktree + 删除分支） |
+| GET | `/diff-review/:runId/file-diff` | 获取单文件 diff（query: filePath） |
+
+请求示例：
+
+```json
+POST /api/diff-review/run-001/merge
+{
+  "strategy": "squash"
+}
+// → { "success": true, "data": { "message": "Branch merged successfully", "strategy": "squash" } }
+```
+
+### 6.13 Metrics（可观测性）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/metrics/:runId` | 获取 Run 完整运行指标 |
+| GET | `/metrics/:runId/token-distribution` | 获取 Token 分布数据 |
+| GET | `/metrics/:runId/efficiency` | 获取各节点效率评分 |
+| GET | `/metrics/:runId/trend` | 获取趋势数据（多 Run 对比） |
+
+响应示例：
+
+```json
+GET /api/metrics/run-001
+{
+  "success": true,
+  "data": {
+    "totalDuration": 3600000,
+    "totalTokens": 125000,
+    "nodeCount": 6,
+    "completedNodes": 5,
+    "rejectedNodes": 1,
+    "firstPassRate": 0.83,
+    "rejectRate": 0.17,
+    "efficiencyScore": 72
+  }
+}
+```
+
+### 6.14 Dynamic Agent（动态 Agent）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -511,7 +600,7 @@ POST /api/robustness/checkpoints/run-001
 
 Dynamic Agent Factory 根据节点角色和项目 Agent 配置自动实例化 Agent，无需手动管理。通过 Agent Tree 面板可查看当前 Run 所有活跃实例。
 
-### 6.13 Context DB
+### 6.15 Context DB
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -521,7 +610,7 @@ Dynamic Agent Factory 根据节点角色和项目 Agent 配置自动实例化 Ag
 
 Context DB 自动管理四层上下文文件，Agent 执行时注入合并后的上下文。
 
-### 6.14 其他 API
+### 6.16 其他 API
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -582,6 +671,7 @@ Context DB 自动管理四层上下文文件，Agent 执行时注入合并后的
 | `~/.agent-flow/auth.json` | OAuth 认证信息 |
 | `~/.agent-flow/context/` | Context DB 四层上下文文件 |
 | `~/.agent-flow/checkpoints/` | Checkpoint 快照数据 |
+| `~/.agent-flow/metrics/metrics.json` | 运行指标持久化数据 |
 
 ---
 
@@ -602,7 +692,7 @@ agent-flow/
 │       └── src/
 │           ├── index.ts             # 服务入口
 │           ├── routes/api.ts        # REST API 路由
-│           ├── services/            # 业务服务层（18 个模块）
+│           ├── services/            # 业务服务层（19 个模块）
 │           │   ├── agent.ts         # Agent 执行（含 DET/HYB 模式）
 │           │   ├── dynamic-agent-factory.ts  # 动态 Agent 实例工厂
 │           │   ├── context-db.ts    # 四层上下文管理
@@ -729,6 +819,7 @@ npm run test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.6.0 | 2026-05-31 | 产出物闭环（Diff Review + Merge/Discard）+ 可观测性增强（Metrics 指标采集 + 可视化） |
 | v2.5.0 | 2026-05-31 | DAG 可视化 + DET/HYB 执行模式 + Dynamic Agent + Context DB + Agent Tree + Checkpoint UI + Per-Project Agent 配置 + A2A 消息面板 |
 | v2.4.3 | 2026-05-31 | Markdown 渲染 + Overview 面板 + ChangelogPage 增强 |
 | v2.4.2 | 2026-05-31 | DAG 视图基础实现（@xyflow/react） |
@@ -747,8 +838,10 @@ npm run test:coverage
 
 基于当前项目状态，以下是软件工程角度的优化建议：
 
-### 已完成（v2.5.0）
+### 已完成（v2.6.0）
 
+- ✅ **产出物闭环**：Git worktree Diff Review + Squash/Merge/Rebase 合并策略
+- ✅ **可观测性增强**：全链路指标采集 + 多维度可视化仪表盘
 - ✅ **Per-Project Agent 配置**：项目级 Agent 启用/禁用，DAG 节点自动过滤
 - ✅ **DAG 可视化**：基于 @xyflow/react 的节点图形渲染，边连线动态展示
 - ✅ **DET/HYB 执行模式**：确定性脚本执行 + 混合模式兜底

@@ -32,6 +32,8 @@ import { AgentTreePanel } from './AgentTreePanel'
 import { CheckpointPanel } from './CheckpointPanel'
 import { ContextDBPanel } from './ContextDBPanel'
 import { A2APanel } from './A2APanel'
+import { DiffReviewPanel } from './DiffReviewPanel'
+import { MetricsPanel } from './MetricsPanel'
 import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab } from '../../types'
 
 interface Props {
@@ -343,6 +345,8 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
       <div className="flex items-center gap-1 px-4 pb-2 border-b border-gray-100 mb-2 shrink-0">
         {([
           { key: 'dag', label: 'DAG 视图' },
+          { key: 'diff-review', label: 'Diff Review' },
+          { key: 'metrics', label: 'Metrics' },
           { key: 'agent-tree', label: 'Agent Tree' },
           { key: 'checkpoint', label: 'Checkpoint' },
           { key: 'context-db', label: 'Context DB' },
@@ -363,7 +367,15 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
       </div>
 
       {/* 内容区 */}
-      {runDetailTab === 'agent-tree' ? (
+      {runDetailTab === 'diff-review' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <DiffReviewPanel run={run} />
+        </div>
+      ) : runDetailTab === 'metrics' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <MetricsPanel run={run} />
+        </div>
+      ) : runDetailTab === 'agent-tree' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <AgentTreePanel run={run} />
         </div>

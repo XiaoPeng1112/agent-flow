@@ -1,7 +1,7 @@
 # 待办与后续计划
 
 > 按优先级排列，P0 = 必须做，P1 = 应该做，P2 = 可以做  
-> 最后更新：2026-05-31（v2.5.0）
+> 最后更新：2026-05-31（v2.6.0）
 
 ## 当前阶段已完成 ✅
 
@@ -39,6 +39,10 @@
 - [x] React ErrorBoundary 全局错误隔离
 - [x] useRequest Hook（Loading / Toast / 指数退避重试）
 - [x] Vitest 单元测试（68 cases 覆盖三大核心服务）
+- [x] 产出物闭环（ArtifactMergeService：Git worktree Diff Review + Squash/Merge/Rebase）
+- [x] 可观测性增强（MetricsCollector：时间/Token/质量指标采集 + 效率评分 + 持久化）
+- [x] Diff Review 前端面板（GitHub PR 风格文件树 + 行级 Diff + 合并/丢弃操作）
+- [x] Metrics 前端面板（Overview/Timeline/Token Distribution/Efficiency 四视图）
 
 ## P0 — 核心功能待完善
 
@@ -70,6 +74,8 @@
 - [ ] **Context Chaining 可视化**：在 DAG 视图中显示节点间的上下文传递关系
 - [x] ~~**A2A 协议前端可视化**~~：已在 v2.5.0 实现（拓扑图 + 时间线 + 统计三视图面板）
 - [x] ~~**Checkpoint 恢复 UI**~~：已在 v2.5.0 实现（CheckpointPanel — Timeline 展示 + 创建/恢复快照）
+- [x] ~~**产出物闭环**~~：已在 v2.6.0 实现（ArtifactMergeService + DiffReviewPanel）
+- [x] ~~**可观测性增强**~~：已在 v2.6.0 实现（MetricsCollector + MetricsPanel）
 
 ## 已知问题 🐛
 

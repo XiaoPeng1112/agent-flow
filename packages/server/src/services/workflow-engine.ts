@@ -249,6 +249,13 @@ export class WorkflowEngine {
     return deleted
   }
 
+  /**
+   * 获取所有 Turn 数据（供 MetricsCollector 使用）
+   */
+  getAllTurns(): Map<string, AgentTurn[]> {
+    return this.turns
+  }
+
   // ═══════════════ TaskNode 状态机 ═══════════════
 
   /**

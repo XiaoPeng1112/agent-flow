@@ -18,6 +18,8 @@ AgentFlow 是一个 **Agent 编排调度中心（Orchestrator）**，核心理�
 - **Per-Project Agent 配置**：按项目维度启用/禁用 Agent，DAG 节点仅展示已启用的 Agent
 - **Context Chaining**：节点间自动传递上下文，DAG 拓扑决定信息流向
 - **MAF 基础设施**：仓库隔离、Skill 物化、权限控制、A2A 通信、合同验证、健壮性服务
+- **产出物闭环**：Git worktree Diff Review + Squash/Merge/Rebase 合并策略，类 GitHub PR 代码审查
+- **可观测性**：全链路指标采集（时间/Token/质量）+ 效率评分 + 持久化 + 可视化仪表盘
 - **实时通信**：WebSocket 推送 Agent 输出流，前端即时展示执行进度
 - **工程质量**：React.lazy 代码分割、ErrorBoundary 错误隔离、Vitest 单元测试（68 cases）
 
@@ -68,7 +70,7 @@ agent-flow/
 │   └── server/          # 后端 Express 服务
 │       ├── tests/       # Vitest 单元测试（68 cases）
 │       └── src/
-│           └── services/    # 业务服务层（15 个模块）
+│           └── services/    # 业务服务层（19 个模块）
 ├── docs/                # 使用手册
 └── .agent-flow/context/ # 项目上下文文档
 ```
@@ -106,6 +108,7 @@ npm run deploy
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.6.0 | 2026-05-31 | 产出物闭环（Diff Review + Merge）+ 可观测性增强（Metrics 指标采集 + 可视化） |
 | v2.5.0 | 2026-05-31 | Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤） |
 | v2.4.1 | 2026-05-30 | 工程质量提升（代码分割 / ErrorBoundary / useRequest / Vitest） |
 | v2.4.0 | 2026-05-30 | MAF 六大服务模块 |

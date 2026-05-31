@@ -226,7 +226,7 @@ export interface ScopedContext {
 
 export type ProjectTab = 'runs' | 'workflow' | 'skills' | 'agents' | 'settings'
 
-export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree' | 'context-db' | 'checkpoint' | 'a2a'
+export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree' | 'context-db' | 'checkpoint' | 'a2a' | 'diff-review' | 'metrics'
 
 // ─── A2A Protocol (Agent-to-Agent 通信) ───
 

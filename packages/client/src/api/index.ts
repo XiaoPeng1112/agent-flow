@@ -230,6 +230,59 @@ export const agentApi = {
     request<{ instance: any }>(`/agents/instances/${runId}/${nodeId}`),
 }
 
+// ═══════════════ Diff Review API (产出物闭环) ═══════════════
+
+export const diffReviewApi = {
+  /** 生成 Diff Review */
+  create: (runId: string, nodeId: string, turnId: string) =>
+    request<{ review: any }>(`/runs/${runId}/nodes/${nodeId}/diff-review`, {
+      method: 'POST',
+      body: JSON.stringify({ turnId }),
+    }),
+
+  /** 获取节点的 Diff Reviews */
+  getForNode: (runId: string, nodeId: string) =>
+    request<{ reviews: any[] }>(`/runs/${runId}/nodes/${nodeId}/diff-review`),
+
+  /** 获取指定文件的详细 Diff */
+  getFileDiff: (runId: string, nodeId: string, turnId: string, filePath: string) =>
+    request<{ fileDiff: any }>(`/runs/${runId}/nodes/${nodeId}/diff-review/${turnId}/file?path=${encodeURIComponent(filePath)}`),
+
+  /** 合入工作分支 */
+  merge: (runId: string, nodeId: string, turnId: string, strategy?: string) =>
+    request<{ success: boolean; mergeCommit?: string; filesAffected: number }>(`/runs/${runId}/nodes/${nodeId}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ turnId, strategy }),
+    }),
+
+  /** 丢弃工作分支 */
+  discard: (runId: string, nodeId: string, turnId: string) =>
+    request<{ success: boolean }>(`/runs/${runId}/nodes/${nodeId}/discard`, {
+      method: 'POST',
+      body: JSON.stringify({ turnId }),
+    }),
+}
+
+// ═══════════════ Metrics API (可观测性) ═══════════════
+
+export const metricsApi = {
+  /** 获取 Run 的完整指标 */
+  getRunMetrics: (runId: string) =>
+    request<{ metrics: any }>(`/runs/${runId}/metrics`),
+
+  /** 获取 Token 分布 */
+  getTokenDistribution: (runId: string) =>
+    request<{ distribution: any[] }>(`/runs/${runId}/metrics/token-distribution`),
+
+  /** 获取效率表格 */
+  getEfficiency: (runId: string) =>
+    request<{ table: any[] }>(`/runs/${runId}/metrics/efficiency`),
+
+  /** 获取趋势对比 */
+  getTrend: (templateId: string) =>
+    request<{ trend: any[] }>(`/metrics/trend/${templateId}`),
+}
+
 // ═══════════════ Skill API ═══════════════
 
 export const skillApi = {

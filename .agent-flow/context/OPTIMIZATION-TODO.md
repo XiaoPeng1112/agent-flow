@@ -122,6 +122,33 @@
 
 ---
 
+## 第四优先级：产出物闭环 + 可观测性
+
+### 15. ✅ 产出物闭环（Diff Review + Merge/Discard）
+- **问题**：Agent 产出的代码变更无法像 GitHub PR 那样进行可视化审查，用户只能看到文本产出物，无法边对边审核代码变更
+- **方案**：基于 Git worktree 实现完整的 Diff Review + Merge/Discard 闭环
+- **实现**：
+  - 后端：`ArtifactMergeService`（`packages/server/src/services/artifact-merge.ts`）— `prepareDiffReview` 解析 unified diff 为结构化 FileDiff[]、`mergeBranch` 支持 squash/merge/rebase、`discardBranch` 清理 worktree + 删除分支、`getFileDiff` 单文件增量
+  - 前端：`DiffReviewPanel.tsx` — GitHub PR 风格文件树 + 行级 Diff 展示 + Hunk 折叠 + 合并策略选择器 + Approve/Discard 操作
+  - API：`diffReviewApi` 对象封装（getDiffReview / mergeBranch / discardBranch / getFileDiff）
+  - RunDetail Tab 集成：新增「Diff Review」标签页
+- **MRF 对标**：§7.2 产出物审查 — "每次产出必须可审可回滚"
+- **完成日期**：2026-05-31
+
+### 16. ✅ 可观测性增强（Metrics 指标采集 + 可视化）
+- **问题**：缺乏全链路运行指标，无法量化评估 Agent 节点执行效率、Token 消耗分布、质量指标
+- **方案**：实现 MetricsCollector 服务采集时间/Token/质量指标，前端提供多维度可视化仪表盘
+- **实现**：
+  - 后端：`MetricsCollector`（`packages/server/src/services/metrics-collector.ts`）— 记录节点 start/review/reject 时间、计算 RunMetrics（timeline / token distribution / efficiency scores）、持久化到 `~/.agent-flow/metrics/metrics.json`
+  - 前端：`MetricsPanel.tsx` — 四个子 Tab（Overview 6 张指标卡片 / Timeline 甘特图 / Token Distribution 水平柱状图 / Efficiency 排序表格）
+  - API：`metricsApi` 对象封装（getMetrics / getTokenDistribution / getEfficiency / getTrend）
+  - RunDetail Tab 集成：新增「Metrics」标签页
+  - WorkflowEngine 事件钩子：node_started / turn_completed / node_approved / node_rejected 自动蹁射指标采集
+- **MRF 对标**：§2.5 实时可观测 — "全链路可视 / 效率可量化 / 资源可追溯"
+- **完成日期**：2026-05-31
+
+---
+
 ## 参考文档
 
 - 项目仓库：https://github.com/XiaoPeng1112/agent-flow
