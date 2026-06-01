@@ -1,7 +1,9 @@
+import { useState, useMemo } from 'react'
 import { Tag } from 'antd'
 import {
   BranchesOutlined,
   ThunderboltOutlined,
+  SearchOutlined,
 } from '@ant-design/icons'
 
 interface ChangelogEntry {
@@ -371,19 +373,103 @@ const typeLabels = {
  * 更新日志页面
  */
 export function ChangelogPage() {
+  const [searchText, setSearchText] = useState('')
+  const [activeType, setActiveType] = useState<string | null>(null)
+
+  // 过滤逻辑
+  const filteredChangelog = useMemo(() => {
+    return changelog.filter((entry) => {
+      // 类型筛选
+      if (activeType && entry.type !== activeType) return false
+      // 搜索过滤
+      if (searchText.trim()) {
+        const keyword = searchText.toLowerCase()
+        const searchable = [
+          entry.version,
+          entry.title,
+          entry.date,
+          entry.details,
+          ...entry.highlights,
+        ].join(' ').toLowerCase()
+        if (!searchable.includes(keyword)) return false
+      }
+      return true
+    })
+  }, [searchText, activeType])
+
+  const typeFilters = [
+    { key: 'feature', label: '新功能', color: 'blue' },
+    { key: 'improvement', label: '改进', color: 'green' },
+    { key: 'fix', label: '修复', color: 'orange' },
+  ]
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-3xl mx-auto px-8 py-10">
-        {/* 页面标题 */}
+        {/* 页面标题 + 搜索区域 */}
         <div className="mb-10">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
-              <BranchesOutlined className="text-white text-[18px]" />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
+                <BranchesOutlined className="text-white text-[18px]" />
+              </div>
+              <div>
+                <h1 className="text-[22px] font-bold text-gray-900">更新日志</h1>
+                <p className="text-[13px] text-gray-500">AgentFlow 版本更新记录</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-[22px] font-bold text-gray-900">更新日志</h1>
-              <p className="text-[13px] text-gray-500">AgentFlow 版本更新记录</p>
+            {/* 搜索框 */}
+            <div className="relative">
+              <SearchOutlined className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[14px] pointer-events-none" />
+              <input
+                type="text"
+                placeholder="搜索版本、功能..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                className="w-[220px] pl-9 pr-8 py-2 text-[13px] bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-indigo-400 focus:bg-white transition-colors placeholder:text-gray-400"
+              />
+              {searchText && (
+                <button
+                  onClick={() => { setSearchText(''); setActiveType(null) }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full bg-gray-300 hover:bg-gray-400 text-white text-[10px] leading-none transition-colors"
+                >
+                  ✕
+                </button>
+              )}
             </div>
+          </div>
+          {/* 类型筛选 Tags */}
+          <div className="flex items-center gap-2 ml-[52px]">
+            <span className="text-[12px] text-gray-400 mr-1">筛选：</span>
+            <Tag
+              className={`!text-[12px] cursor-pointer select-none transition-all ${
+                !activeType ? 'opacity-100' : 'opacity-50 hover:opacity-80'
+              }`}
+              color={!activeType ? 'default' : undefined}
+              onClick={() => { setActiveType(null); setSearchText('') }}
+            >
+              全部
+            </Tag>
+            {typeFilters.map((f) => (
+              <Tag
+                key={f.key}
+                color={activeType === f.key ? f.color : undefined}
+                className={`!text-[12px] cursor-pointer select-none transition-all ${
+                  activeType === f.key
+                    ? 'opacity-100'
+                    : 'opacity-50 hover:opacity-80'
+                }`}
+                onClick={() => setActiveType(activeType === f.key ? null : f.key)}
+              >
+                {f.label}
+              </Tag>
+            ))}
+            {/* 结果统计 */}
+            {(activeType || searchText) && (
+              <span className="text-[12px] text-gray-400 ml-auto">
+                {filteredChangelog.length} / {changelog.length} 条
+              </span>
+            )}
           </div>
         </div>
 
@@ -392,64 +478,72 @@ export function ChangelogPage() {
           {/* 时间轴线 */}
           <div className="absolute left-[19px] top-8 bottom-0 w-[2px] bg-gradient-to-b from-indigo-200 via-gray-200 to-transparent" />
 
-          {changelog.map((entry, idx) => (
-            <div key={entry.version} className="relative pl-14 pb-12">
-              {/* 时间轴圆点 */}
-              <div className={`absolute left-2.5 top-1 w-[18px] h-[18px] rounded-full border-[3px] ${
-                idx === 0
-                  ? 'border-indigo-500 bg-indigo-100'
-                  : 'border-gray-300 bg-white'
-              }`} />
-
-              {/* 版本头 */}
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-[16px] font-bold text-gray-900">{entry.version}</span>
-                <Tag color={typeColors[entry.type]} className="!text-[11px]">{typeLabels[entry.type]}</Tag>
-                <span className="text-[12px] text-gray-400">{entry.date}</span>
-              </div>
-
-              <h3 className="text-[15px] font-semibold text-gray-800 mb-3">{entry.title}</h3>
-
-              {/* 功能亮点 */}
-              <div className="flex flex-wrap gap-2 mb-4">
-                {entry.highlights.map((h) => (
-                  <span key={h} className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-50 border border-gray-100 rounded-md text-[12px] text-gray-600">
-                    <ThunderboltOutlined className="text-[10px] text-indigo-400" />
-                    {h}
-                  </span>
-                ))}
-              </div>
-
-              {/* 详细描述 — 按段落渲染，【标题】作为列表项 */}
-              <div className="text-[13px] text-gray-600 leading-[1.8]">
-                {(() => {
-                  const paragraphs = entry.details.split('\n\n')
-                  const intro = paragraphs.filter(p => !p.startsWith('【'))
-                  const items = paragraphs.filter(p => p.startsWith('【'))
-                  return (
-                    <>
-                      {intro.map((p, i) => (
-                        <p key={`intro-${i}`} className="mb-3">{p}</p>
-                      ))}
-                      {items.length > 0 && (
-                        <ul className="mt-2 space-y-2 list-none pl-0">
-                          {items.map((item, i) => {
-                            const match = item.match(/^【(.+?)】(.*)/)
-                            return (
-                              <li key={`item-${i}`} className="flex items-start gap-2 pl-1">
-                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-[8px] shrink-0" />
-                                <span><strong className="text-gray-800">{match?.[1]}</strong><span className="mx-1 text-gray-400">—</span>{match?.[2]?.trimStart()}</span>
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      )}
-                    </>
-                  )
-                })()}
-              </div>
+          {filteredChangelog.length === 0 ? (
+            <div className="pl-14 py-16 text-center">
+              <div className="text-[48px] mb-3">🔍</div>
+              <p className="text-[14px] text-gray-500">没有找到匹配的更新记录</p>
+              <p className="text-[12px] text-gray-400 mt-1">试试其他关键词或清除筛选条件</p>
             </div>
-          ))}
+          ) : (
+            filteredChangelog.map((entry, idx) => (
+              <div key={entry.version} className="relative pl-14 pb-12">
+                {/* 时间轴圆点 */}
+                <div className={`absolute left-2.5 top-1 w-[18px] h-[18px] rounded-full border-[3px] ${
+                  idx === 0 && !activeType && !searchText
+                    ? 'border-indigo-500 bg-indigo-100'
+                    : 'border-gray-300 bg-white'
+                }`} />
+
+                {/* 版本头 */}
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-[16px] font-bold text-gray-900">{entry.version}</span>
+                  <Tag color={typeColors[entry.type]} className="!text-[11px]">{typeLabels[entry.type]}</Tag>
+                  <span className="text-[12px] text-gray-400">{entry.date}</span>
+                </div>
+
+                <h3 className="text-[15px] font-semibold text-gray-800 mb-3">{entry.title}</h3>
+
+                {/* 功能亮点 */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {entry.highlights.map((h) => (
+                    <span key={h} className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-50 border border-gray-100 rounded-md text-[12px] text-gray-600">
+                      <ThunderboltOutlined className="text-[10px] text-indigo-400" />
+                      {h}
+                    </span>
+                  ))}
+                </div>
+
+                {/* 详细描述 — 按段落渲染，【标题】作为列表项 */}
+                <div className="text-[13px] text-gray-600 leading-[1.8]">
+                  {(() => {
+                    const paragraphs = entry.details.split('\n\n')
+                    const intro = paragraphs.filter(p => !p.startsWith('【'))
+                    const items = paragraphs.filter(p => p.startsWith('【'))
+                    return (
+                      <>
+                        {intro.map((p, i) => (
+                          <p key={`intro-${i}`} className="mb-3">{p}</p>
+                        ))}
+                        {items.length > 0 && (
+                          <ul className="mt-2 space-y-2 list-none pl-0">
+                            {items.map((item, i) => {
+                              const match = item.match(/^【(.+?)】(.*)/)
+                              return (
+                                <li key={`item-${i}`} className="flex items-start gap-2 pl-1">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-[8px] shrink-0" />
+                                  <span><strong className="text-gray-800">{match?.[1]}</strong><span className="mx-1 text-gray-400">—</span>{match?.[2]?.trimStart()}</span>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
