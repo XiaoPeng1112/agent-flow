@@ -144,7 +144,8 @@ export interface AgentConfig {
   type: 'codex' | 'claude' | 'custom-cli'
   command: string
   description: string
-  model?: string                 // 指定使用的模型（如 gpt-5.5, gpt-5.3-codex）
+  model?: string                 // 指定使用的模型（如 gpt-5.5, claude-opus-4-8）
+  modelDescription?: string      // 模型官方描述（前端小字展示）
   category: AgentCategory        // Agent 分类（用于前端分组展示）
   env?: Record<string, string>
   maxTurns?: number              // 单节点最大 turn 数

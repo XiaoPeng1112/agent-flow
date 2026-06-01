@@ -720,17 +720,31 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
   const [feedbackText, setFeedbackText] = useState('')
   const { message } = App.useApp()
 
-  // ★ Agent 列表：所有可用的排前面，默认选通用 Codex
+  // ★ Agent 列表：所有可用的排前面，同角色优先
   const allAgents = [...agents].sort((a, b) => {
     if (a.available && !b.available) return -1
     if (!a.available && b.available) return 1
+    // 同角色排前面
+    const aRoleMatch = a.role === node.agentRole ? 1 : 0
+    const bRoleMatch = b.role === node.agentRole ? 1 : 0
+    if (aRoleMatch !== bRoleMatch) return bRoleMatch - aRoleMatch
     // 通用排前面
     if (a.id.includes('universal') && !b.id.includes('universal')) return -1
     if (!a.id.includes('universal') && b.id.includes('universal')) return 1
     return 0
   })
-  // 默认选通用 Codex，其次通用 Claude，再次任意可用 Agent
+  // ★ 智能匹配：按节点 agentRole 自动选择最佳 Agent
+  // 优先选同角色的 Codex Agent，其次同角色 Claude，再次 universal 兜底
+  const roleMatchMap: Record<string, string> = {
+    planner: 'codex-planner',
+    manager: 'codex-manager',
+    executor: 'codex-coder',
+  }
+  const bestMatchId = roleMatchMap[node.agentRole]
   const defaultAgent =
+    allAgents.find((a) => a.id === bestMatchId && a.available) ||
+    allAgents.find((a) => a.role === node.agentRole && a.category === 'codex' && a.available) ||
+    allAgents.find((a) => a.role === node.agentRole && a.available) ||
     allAgents.find((a) => a.id === 'codex-universal' && a.available) ||
     allAgents.find((a) => a.id === 'claude-universal' && a.available) ||
     allAgents.find((a) => a.available) ||
@@ -973,7 +987,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
             disabled={node.status === 'running'}
             options={allAgents.map((a) => ({
               value: a.id,
-              label: `${a.available === false ? '⚠️ ' : '✓ '}${a.name} (${a.type})${a.role === node.agentRole ? '' : ' · 跨角色'}${a.available === false ? ' [不可用]' : ''}`,
+              label: `${a.available === false ? '⚠️ ' : '✓ '}${a.name} · ${a.role}${a.role !== node.agentRole ? '（跨角色）' : ''}${a.available === false ? ' [不可用]' : ''}`,
               disabled: a.available === false,
             }))}
           />

@@ -101,6 +101,7 @@ export interface AgentConfig {
   type: 'codex' | 'claude' | 'custom-cli'
   description: string
   model?: string
+  modelDescription?: string
   category: AgentCategory
   maxTurns?: number
   available?: boolean

@@ -487,13 +487,13 @@ function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: 
                             <Tag color={agent.role === 'planner' ? 'purple' : agent.role === 'manager' ? 'blue' : 'green'} className="!text-[9px] !m-0 !px-1">
                               {agent.role}
                             </Tag>
-                            {agent.model && (
-                              <Tag className="!text-[9px] !m-0 !px-1 !bg-blue-50 !text-blue-500 !border-0">
-                                {agent.model}
-                              </Tag>
-                            )}
                           </div>
-                          <p className="text-[10px] text-gray-400 mt-0.5">{agent.description}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {agent.description}
+                            {agent.modelDescription && (
+                              <span className="text-[9px] text-gray-300 ml-1">「{agent.modelDescription}」</span>
+                            )}
+                          </p>
                         </div>
                       </div>
                       <Switch
@@ -804,7 +804,12 @@ function AgentCard({ agent, activeTurn, stats }: {
           </div>
 
           {/* 描述 */}
-          <p className="text-[11px] text-gray-400 mt-1.5 truncate">{agent.description}</p>
+          <p className="text-[11px] text-gray-400 mt-1.5 truncate">
+            {agent.description}
+            {agent.modelDescription && (
+              <span className="text-[10px] text-gray-300 ml-1">「{agent.modelDescription}」</span>
+            )}
+          </p>
 
           {/* Token 使用统计（如果有） */}
           {stats && stats.turnCount > 0 && (

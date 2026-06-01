@@ -39,6 +39,7 @@ export class AgentService {
       model: 'gpt-5.5',
       category: 'codex',
       description: '旗舰模型，全局需求分析与架构设计，推理能力最强',
+      modelDescription: '最强旗舰模型，顶级推理与创造力',
       maxTurns: 3,
     })
 
@@ -51,18 +52,20 @@ export class AgentService {
       model: 'gpt-5.4',
       category: 'codex',
       description: '深度推理模型，任务分派、代码审查与质量验收',
+      modelDescription: '深度推理模型，适合复杂分析与决策',
       maxTurns: 5,
     })
 
     this.registerAgent({
       id: 'codex-coder',
-      name: 'Codex Coder (GPT-5.3)',
+      name: 'Codex Coder (GPT-5.3-codex)',
       role: 'executor',
       type: 'codex',
       command: 'codex',
       model: 'gpt-5.3-codex',
       category: 'codex',
       description: '代码专精模型，Codex 系列能力天花板，性价比最优的代码生成选择',
+      modelDescription: '代码专精模型，编码能力最强',
       maxTurns: 10,
     })
 
@@ -75,6 +78,7 @@ export class AgentService {
       model: 'gpt-5.2',
       category: 'codex',
       description: '通用模型，适合测试脚本编写与回归验证，成本最低',
+      modelDescription: '轻量通用模型，成本最低',
       maxTurns: 10,
     })
 
@@ -87,6 +91,7 @@ export class AgentService {
       model: 'gpt-5.4',
       category: 'codex',
       description: '通用 Agent，平衡能力与成本，可用于任何节点类型',
+      modelDescription: '深度推理模型，平衡能力与成本',
       maxTurns: 10,
     })
 
@@ -94,45 +99,66 @@ export class AgentService {
 
     this.registerAgent({
       id: 'claude-planner',
-      name: 'Claude Planner',
+      name: 'Claude Planner (Opus-4-8)',
       role: 'planner',
       type: 'claude',
       command: 'claude',
+      model: 'claude-opus-4-8',
       category: 'claude',
-      description: '使用 Claude Code CLI 进行需求分析和架构设计规划',
+      description: '旗舰模型，全局需求分析与架构设计，推理能力最强',
+      modelDescription: '最新最强的旗舰模型',
       maxTurns: 3,
     })
 
     this.registerAgent({
       id: 'claude-manager',
-      name: 'Claude Manager',
+      name: 'Claude Manager (Opus-4-7)',
       role: 'manager',
       type: 'claude',
       command: 'claude',
+      model: 'claude-opus-4-7',
       category: 'claude',
-      description: '使用 Claude Code CLI 管理任务分派和验收',
+      description: '次旗舰模型，任务分派、代码审查与质量验收',
+      modelDescription: '次旗舰模型，性能超越前代',
       maxTurns: 5,
     })
 
     this.registerAgent({
-      id: 'claude-executor',
-      name: 'Claude Executor',
+      id: 'claude-coder',
+      name: 'Claude Coder (Opus-4-6)',
       role: 'executor',
       type: 'claude',
       command: 'claude',
+      model: 'claude-opus-4-6',
       category: 'claude',
-      description: '使用 Claude Code CLI 执行代码生成和修改',
+      description: '最智能模型，代码生成与代理构建能力最强',
+      modelDescription: '最智能的模型，用于构建代理和编码',
+      maxTurns: 10,
+    })
+
+    this.registerAgent({
+      id: 'claude-tester',
+      name: 'Claude Tester (Haiku-4-5)',
+      role: 'executor',
+      type: 'claude',
+      command: 'claude',
+      model: 'claude-haiku-4-5-20251001',
+      category: 'claude',
+      description: '轻量快速模型，适合测试脚本编写与简单任务',
+      modelDescription: '快速响应，适合简单任务',
       maxTurns: 10,
     })
 
     this.registerAgent({
       id: 'claude-universal',
-      name: 'Claude Universal',
+      name: 'Claude Universal (Sonnet-4-6)',
       role: 'planner',
       type: 'claude',
       command: 'claude',
+      model: 'claude-sonnet-4-6',
       category: 'claude',
-      description: 'Claude Code CLI 通用 Agent，可用于规划/管理/执行',
+      description: '通用 Agent，平衡性能与速度，可用于任何节点类型',
+      modelDescription: '平衡性能与速度，适合日常使用',
       maxTurns: 10,
     })
   }
@@ -968,11 +994,14 @@ export class AgentService {
           return { args, useStdin: true }
         }
       case 'claude':
-        // claude CLI: claude -p "prompt" --no-input
+        // claude CLI: claude -p "prompt" --no-input [--model xxx]
         // prompt 直接作为参数传递（claude 不需要 shell 转义，因为 shell: false）
-        return {
-          args: ['-p', prompt, '--no-input'],
-          useStdin: false,
+        {
+          const args = ['-p', prompt, '--no-input']
+          if (agent.model) {
+            args.push('--model', agent.model)
+          }
+          return { args, useStdin: false }
         }
       case 'custom-cli':
         return { args: [prompt], useStdin: false }
