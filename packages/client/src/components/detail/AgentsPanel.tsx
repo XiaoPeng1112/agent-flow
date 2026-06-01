@@ -218,7 +218,7 @@ export function AgentsPanel({ project: _project }: Props) {
       {/* ★ 项目 Agent 可用性配置 */}
       <ProjectAgentConfig projectId={_project.id} agents={agents} />
 
-      {/* Agent 列表 */}
+      {/* Agent 列表（按 category 分组） */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <ApiOutlined className="text-gray-500" />
@@ -227,16 +227,74 @@ export function AgentsPanel({ project: _project }: Props) {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {agents.map((agent) => (
-            <AgentCard
-              key={agent.id}
-              agent={agent}
-              activeTurn={activeTurns.find((t) => t.agentId === agent.id)}
-              stats={tokenStats[agent.id]}
-            />
-          ))}
-        </div>
+        {/* Codex 系列 */}
+        {agents.some(a => a.category === 'codex') && (
+          <div className="mb-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[16px]">⚡</span>
+              <span className="text-[12px] font-semibold text-gray-600 uppercase tracking-wide">OpenAI Codex</span>
+              <Tag className="!text-[9px] !m-0 !bg-emerald-50 !text-emerald-600 !border-0">
+                {agents.filter(a => a.category === 'codex').length} agents
+              </Tag>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {agents.filter(a => a.category === 'codex').map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  activeTurn={activeTurns.find((t) => t.agentId === agent.id)}
+                  stats={tokenStats[agent.id]}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Claude 系列 */}
+        {agents.some(a => a.category === 'claude') && (
+          <div className="mb-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[16px]">🤖</span>
+              <span className="text-[12px] font-semibold text-gray-600 uppercase tracking-wide">Anthropic Claude</span>
+              <Tag className="!text-[9px] !m-0 !bg-purple-50 !text-purple-600 !border-0">
+                {agents.filter(a => a.category === 'claude').length} agents
+              </Tag>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {agents.filter(a => a.category === 'claude').map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  activeTurn={activeTurns.find((t) => t.agentId === agent.id)}
+                  stats={tokenStats[agent.id]}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 自定义 CLI */}
+        {agents.some(a => a.category === 'custom') && (
+          <div className="mb-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[16px]">🔧</span>
+              <span className="text-[12px] font-semibold text-gray-600 uppercase tracking-wide">Custom CLI</span>
+              <Tag className="!text-[9px] !m-0 !bg-gray-100 !text-gray-600 !border-0">
+                {agents.filter(a => a.category === 'custom').length} agents
+              </Tag>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {agents.filter(a => a.category === 'custom').map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  activeTurn={activeTurns.find((t) => t.agentId === agent.id)}
+                  stats={tokenStats[agent.id]}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 最近执行历史 */}
@@ -397,39 +455,56 @@ function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: 
         </div>
       )}
 
-      <div className="space-y-2">
-        {agents.map((agent) => {
-          const isEnabled = enabledIds.includes(agent.id)
+      <div className="space-y-4">
+        {(['codex', 'claude', 'custom'] as const).map(cat => {
+          const catAgents = agents.filter(a => a.category === cat)
+          if (catAgents.length === 0) return null
+          const catLabel = cat === 'codex' ? '⚡ OpenAI Codex' : cat === 'claude' ? '🤖 Anthropic Claude' : '🔧 Custom'
           return (
-            <div
-              key={agent.id}
-              className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all ${
-                isEnabled
-                  ? 'border-gray-100 bg-white hover:border-indigo-200'
-                  : 'border-gray-100 bg-gray-50/50 opacity-60'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[14px] ${
-                  isEnabled ? 'bg-indigo-50' : 'bg-gray-100'
-                }`}>
-                  {agent.type === 'codex' ? '⚡' : agent.type === 'claude' ? '🤖' : '🔧'}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-medium text-gray-800">{agent.name}</span>
-                    <Tag color={agent.role === 'planner' ? 'purple' : agent.role === 'manager' ? 'blue' : 'green'} className="!text-[9px] !m-0 !px-1">
-                      {agent.role}
-                    </Tag>
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-0.5">{agent.description}</p>
-                </div>
+            <div key={cat}>
+              <div className="text-[11px] font-medium text-gray-500 mb-2">{catLabel}</div>
+              <div className="space-y-1.5">
+                {catAgents.map((agent) => {
+                  const isEnabled = enabledIds.includes(agent.id)
+                  return (
+                    <div
+                      key={agent.id}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all ${
+                        isEnabled
+                          ? 'border-gray-100 bg-white hover:border-indigo-200'
+                          : 'border-gray-100 bg-gray-50/50 opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[14px] ${
+                          isEnabled ? 'bg-indigo-50' : 'bg-gray-100'
+                        }`}>
+                          {agent.type === 'codex' ? '⚡' : agent.type === 'claude' ? '🤖' : '🔧'}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[12px] font-medium text-gray-800">{agent.name}</span>
+                            <Tag color={agent.role === 'planner' ? 'purple' : agent.role === 'manager' ? 'blue' : 'green'} className="!text-[9px] !m-0 !px-1">
+                              {agent.role}
+                            </Tag>
+                            {agent.model && (
+                              <Tag className="!text-[9px] !m-0 !px-1 !bg-blue-50 !text-blue-500 !border-0">
+                                {agent.model}
+                              </Tag>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-0.5">{agent.description}</p>
+                        </div>
+                      </div>
+                      <Switch
+                        size="small"
+                        checked={isEnabled}
+                        onChange={(checked) => handleToggle(agent.id, checked)}
+                      />
+                    </div>
+                  )
+                })}
               </div>
-              <Switch
-                size="small"
-                checked={isEnabled}
-                onChange={(checked) => handleToggle(agent.id, checked)}
-              />
             </div>
           )
         })}
@@ -710,13 +785,15 @@ function AgentCard({ agent, activeTurn, stats }: {
           </div>
 
           {/* 标签行 */}
-          <div className="flex items-center gap-1.5 mt-1">
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             <Tag color={roleColors[agent.role] || 'default'} className="!text-[10px] !m-0 !px-1.5">
               {agent.role}
             </Tag>
-            <Tag className="!text-[10px] !m-0 !px-1.5 !bg-gray-50 !border-gray-200">
-              {agent.type}
-            </Tag>
+            {agent.model && (
+              <Tag className="!text-[10px] !m-0 !px-1.5 !bg-blue-50 !text-blue-600 !border-blue-100">
+                {agent.model}
+              </Tag>
+            )}
             <Tooltip title={isAvailable ? `CLI: ${agent.cliPath}` : 'CLI 未找到'}>
               {isAvailable ? (
                 <CheckCircleOutlined className="text-[12px] text-green-500" />

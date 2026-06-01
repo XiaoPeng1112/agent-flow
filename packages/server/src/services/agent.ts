@@ -28,37 +28,90 @@ export class AgentService {
   }
 
   private registerDefaults(): void {
-    // planner 角色 Agent
+    // ═══════════════ Codex 系列 Agent（OpenAI GPT 模型）═══════════════
+
+    this.registerAgent({
+      id: 'codex-planner',
+      name: 'Codex Planner (GPT-5.5)',
+      role: 'planner',
+      type: 'codex',
+      command: 'codex',
+      model: 'gpt-5.5',
+      category: 'codex',
+      description: '旗舰模型，全局需求分析与架构设计，推理能力最强',
+      maxTurns: 3,
+    })
+
+    this.registerAgent({
+      id: 'codex-manager',
+      name: 'Codex Manager (GPT-5.4)',
+      role: 'manager',
+      type: 'codex',
+      command: 'codex',
+      model: 'gpt-5.4',
+      category: 'codex',
+      description: '深度推理模型，任务分派、代码审查与质量验收',
+      maxTurns: 5,
+    })
+
+    this.registerAgent({
+      id: 'codex-coder',
+      name: 'Codex Coder (GPT-5.3)',
+      role: 'executor',
+      type: 'codex',
+      command: 'codex',
+      model: 'gpt-5.3-codex',
+      category: 'codex',
+      description: '代码专精模型，Codex 系列能力天花板，性价比最优的代码生成选择',
+      maxTurns: 10,
+    })
+
+    this.registerAgent({
+      id: 'codex-tester',
+      name: 'Codex Tester (GPT-5.2)',
+      role: 'executor',
+      type: 'codex',
+      command: 'codex',
+      model: 'gpt-5.2',
+      category: 'codex',
+      description: '通用模型，适合测试脚本编写与回归验证，成本最低',
+      maxTurns: 10,
+    })
+
+    this.registerAgent({
+      id: 'codex-universal',
+      name: 'Codex Universal (GPT-5.4)',
+      role: 'planner',
+      type: 'codex',
+      command: 'codex',
+      model: 'gpt-5.4',
+      category: 'codex',
+      description: '通用 Agent，平衡能力与成本，可用于任何节点类型',
+      maxTurns: 10,
+    })
+
+    // ═══════════════ Claude 系列 Agent（Anthropic 模型）═══════════════
+
     this.registerAgent({
       id: 'claude-planner',
       name: 'Claude Planner',
       role: 'planner',
       type: 'claude',
       command: 'claude',
+      category: 'claude',
       description: '使用 Claude Code CLI 进行需求分析和架构设计规划',
       maxTurns: 3,
     })
 
-    // manager 角色 Agent
     this.registerAgent({
       id: 'claude-manager',
       name: 'Claude Manager',
       role: 'manager',
       type: 'claude',
       command: 'claude',
+      category: 'claude',
       description: '使用 Claude Code CLI 管理任务分派和验收',
       maxTurns: 5,
-    })
-
-    // executor 角色 Agents — 多选
-    this.registerAgent({
-      id: 'codex-executor',
-      name: 'Codex Executor',
-      role: 'executor',
-      type: 'codex',
-      command: 'codex',
-      description: '使用 OpenAI Codex CLI 执行代码生成和修改',
-      maxTurns: 10,
     })
 
     this.registerAgent({
@@ -67,27 +120,18 @@ export class AgentService {
       role: 'executor',
       type: 'claude',
       command: 'claude',
+      category: 'claude',
       description: '使用 Claude Code CLI 执行代码生成和修改',
-      maxTurns: 10,
-    })
-
-    // 通用型 Agent（可用于任何角色，灵活配置）
-    this.registerAgent({
-      id: 'codex-universal',
-      name: 'Codex (通用)',
-      role: 'planner',  // 默认角色，但实际可用于任何节点
-      type: 'codex',
-      command: 'codex',
-      description: 'Codex CLI 通用 Agent，可用于规划/管理/执行',
       maxTurns: 10,
     })
 
     this.registerAgent({
       id: 'claude-universal',
-      name: 'Claude (通用)',
+      name: 'Claude Universal',
       role: 'planner',
       type: 'claude',
       command: 'claude',
+      category: 'claude',
       description: 'Claude Code CLI 通用 Agent，可用于规划/管理/执行',
       maxTurns: 10,
     })
@@ -911,13 +955,17 @@ export class AgentService {
         // macOS 15 Sequoia 上 sandbox-exec 全局不可用（Operation not permitted），
         // 因此使用 danger-full-access 跳过系统 sandbox。
         // 安全保障由 AgentFlow 的节点审批机制 + cwd 限定来提供。
-        return {
-          args: [
+        {
+          const args = [
             'exec', '-',
             '--skip-git-repo-check',
             '--sandbox', 'danger-full-access',
-          ],
-          useStdin: true,
+          ]
+          // 如果 Agent 指定了模型，通过 --model 传递（覆盖全局 config.toml 配置）
+          if (agent.model) {
+            args.push('--model', agent.model)
+          }
+          return { args, useStdin: true }
         }
       case 'claude':
         // claude CLI: claude -p "prompt" --no-input

@@ -135,6 +135,8 @@ export type NodeType =
  */
 export type AgentRole = 'planner' | 'manager' | 'executor'
 
+export type AgentCategory = 'codex' | 'claude' | 'custom'
+
 export interface AgentConfig {
   id: string
   name: string
@@ -142,6 +144,8 @@ export interface AgentConfig {
   type: 'codex' | 'claude' | 'custom-cli'
   command: string
   description: string
+  model?: string                 // 指定使用的模型（如 gpt-5.5, gpt-5.3-codex）
+  category: AgentCategory        // Agent 分类（用于前端分组展示）
   env?: Record<string, string>
   maxTurns?: number              // 单节点最大 turn 数
 }

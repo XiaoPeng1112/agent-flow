@@ -92,12 +92,16 @@ export interface AgentTurn {
 
 // ─── Agent ───
 
+export type AgentCategory = 'codex' | 'claude' | 'custom'
+
 export interface AgentConfig {
   id: string
   name: string
   role: AgentRole
   type: 'codex' | 'claude' | 'custom-cli'
   description: string
+  model?: string
+  category: AgentCategory
   maxTurns?: number
   available?: boolean
   cliPath?: string
