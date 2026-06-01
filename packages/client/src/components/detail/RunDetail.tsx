@@ -487,6 +487,8 @@ function NodeTimer({ startedAt, completedAt, status }: {
 
 import {
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   Background,
   type Node as FlowNode,
   type Edge as FlowEdge,
@@ -585,6 +587,28 @@ function DAGView({ run, selectedNodeId, onSelectNode, activeTurns }: {
   onSelectNode: (id: string) => void
   activeTurns: AgentTurn[]
 }) {
+  return (
+    <ReactFlowProvider>
+      <DAGViewInner run={run} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} activeTurns={activeTurns} />
+    </ReactFlowProvider>
+  )
+}
+
+function DAGViewInner({ run, selectedNodeId, onSelectNode, activeTurns }: {
+  run: Run
+  selectedNodeId: string | null
+  onSelectNode: (id: string) => void
+  activeTurns: AgentTurn[]
+}) {
+  const { fitView } = useReactFlow()
+
+  // 当选中节点变化时（右侧面板打开/关闭），等容器 resize 后重新 fitView
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.3, duration: 300 })
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [selectedNodeId, fitView])
   // 基于拓扑分层构建布局
   const { flowNodes, flowEdges } = useMemo(() => {
     // 拓扑分层
