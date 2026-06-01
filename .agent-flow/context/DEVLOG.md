@@ -1,5 +1,70 @@
 # 开发日志
 
+## 2026-06-01 — v2.7.2 多用户数据隔离 + 跨设备 gitRemote 自动匹配
+
+### 设计决策
+
+v2.7.1 实现了基于 GitHub Private Repo 的数据同步，但存在两个问题：① 远端仓库结构是扁平的，多用户共享同一个仓库时数据会冲突；② 用户在新设备 Pull 数据后，项目的本地路径不同导致无法正确关联。
+
+经过讨论，确定了以下方案：
+- **多用户隔离**：远端仓库改为 `users/{github_login}/` 按用户组织数据，每个用户有独立的 projects/templates/runs/context-db，互不干扰
+- **跨设备匹配**：通过 `gitRemote` 字段自动匹配项目，而非依赖本地路径。用户只需 clone 项目 → 在 AgentFlow 添加项目 → Pull，系统自动完成匹配
+- **拒绝全自动方案**：用户明确指出"先把项目代码拉到本地，然后在系统内添加项目指定本地路径，最后再 Pull 同步数据"才是合理的流程，前两步手动操作、第三步自动匹配
+
+### 后端实现
+
+**ProjectService 扩展**（`packages/server/src/services/project.ts`）：
+- `detectGitRemote(path)` — 执行 `git remote get-url origin` 自动获取项目的远程仓库 URL
+- `normalizeGitRemote(url)` — 标准化 SSH/HTTPS URL 为统一格式（`github.com/user/repo`），去除 `.git` 后缀和协议差异
+- `addProjectWithId(id, data)` — 支持指定 ID 添加项目（用于 Pull 时保持远端 ID）
+- `replaceProjectId(oldId, newId)` — 替换项目 ID，同时更新所有关联的 Runs 和 Context DB 路径
+- `addProject()` 改造：创建项目时自动调用 `detectGitRemote()` 填充 `gitRemote` 字段
+
+**SyncService 扩展**（`packages/server/src/services/sync.ts`）：
+- `SyncConfig` 新增 `pathMapping: Record<string, string>` 字段
+- `mergeProjects()` 重写：Pull 时遍历远端项目列表，优先通过 `normalizeGitRemote()` 匹配本地项目，匹配成功则调用 `replaceProjectId()` 替换 ID；未匹配的项目通过 `pathMapping` 兜底
+- `getPathMapping()` / `setPathMapping()` / `removePathMapping()` — pathMapping CRUD
+- `getRemoteProjects()` — 获取远端项目列表（用于前端展示未匹配项目）
+
+**类型扩展**（`packages/server/src/types/index.ts`）：
+- `ProjectData` 新增 `gitRemote?: string` 可选字段
+
+**API 路由扩展**（`packages/server/src/routes/api.ts`）：
+- `GET /api/sync/remote-projects` — 获取远端项目列表
+- `GET /api/sync/path-mapping` — 获取路径映射配置
+- `POST /api/sync/path-mapping` — 设置路径映射
+- `DELETE /api/sync/path-mapping/:projectId` — 删除路径映射
+
+### 远端仓库结构（v2.7.2）
+
+```
+agent-flow-data/  (private)
+├── users/
+│   └── {github_login}/
+│       ├── projects.json
+│       ├── templates.json
+│       ├── runs/
+│       │   └── {runId}.json
+│       └── context-db/
+│           ├── _global/
+│           └── {projectId}/
+├── shared/
+│   └── (预留：未来团队共享资源)
+└── manifest.json
+```
+
+### 跨设备使用流程
+
+1. **新设备首次使用**：`git clone` 需要的项目代码到本地
+2. **在 AgentFlow 中添加项目**：指定本地路径，系统自动 `detectGitRemote()` 记录 gitRemote
+3. **Pull 同步数据**：系统自动通过 gitRemote 匹配远端项目，`replaceProjectId()` 统一 ID，Runs/ContextDB 数据自动对齐
+
+### 编译验证
+
+Server `tsc --noEmit` 通过（仅有一个预存在的 feedback-collector.ts unused import warning）。
+
+---
+
 ## 2026-06-01 — v2.7.1 GitHub Private Repo 数据同步
 
 ### 设计决策
