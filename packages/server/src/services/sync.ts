@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, readdir, stat } from 'fs/promises'
 import { join, relative } from 'path'
 import type { AuthService } from './auth.js'
-import type { ProjectService } from './project.js'
+import { ProjectService } from './project.js'
 import type { WorkflowEngine } from './workflow-engine.js'
 import type { TemplateService } from './template.js'
 
@@ -17,6 +17,15 @@ export interface SyncConfig {
   lastSyncAt?: number
   /** 上次 push 的 commit SHA */
   lastCommitSha?: string
+  /**
+   * 跨设备项目路径映射
+   * key = 远端项目 ID（如 proj_1780050115714）
+   * value = 本地项目路径（如 /Users/xxx/projects/agent-flow）
+   * 
+   * 当新设备 pull 时，远端项目 ID 不在本地 projects 中，
+   * 系统会查找 pathMapping 来确定本地路径，并以远端 ID 创建项目。
+   */
+  pathMapping?: Record<string, string>
 }
 
 /**
@@ -31,6 +40,8 @@ export interface SyncStatus {
   authenticated: boolean
   /** 是否有本地未推送的变更 */
   dirty: boolean
+  /** 当前用户的远端路径前缀（如 users/XiaoPeng1112） */
+  userPrefix: string | null
 }
 
 
@@ -47,27 +58,36 @@ interface GitHubFileContent {
 }
 
 /**
- * GitHub Sync Service
+ * GitHub Sync Service (v2 Multi-User)
  * 
- * 将本地 AgentFlow 数据同步到用户的 GitHub 私有仓库。
+ * 将本地 AgentFlow 数据同步到 GitHub 仓库，支持多用户数据隔离。
  * 
  * 架构设计：
  *   - 使用 GitHub Contents API（无需本地 git CLI）
- *   - 路径映射：本地数据 → 远端 repo 文件结构
+ *   - 多用户隔离：每个用户数据存储在 users/{github_login}/ 下
+ *   - 共享资源：团队公共模板/context 存储在 shared/ 下
  *   - 冲突策略：LWW（Last Write Wins），以时间戳较新的为准
  *   - 数据范围：projects.json、templates.json、runs/、context-db/
+ *   - 权限控制：通过 GitHub Collaborator 管理仓库访问
  * 
- * 远端仓库结构：
+ * 远端仓库结构（v2 多用户版）：
  *   agent-flow-data/
- *   ├── manifest.json          (元信息：版本、最后同步时间)
- *   ├── projects.json          (项目列表)
- *   ├── templates.json         (工作流模板)
- *   ├── runs/
- *   │   ├── {runId}.json       (每个 Run 独立文件)
- *   │   └── ...
- *   └── context-db/
- *       ├── _global/           (全局 SYS/L0/L1/L2 层)
- *       └── {projectId}/       (项目级 context 文件)
+ *   ├── README.md
+ *   ├── users/
+ *   │   ├── {github_login_A}/       (用户 A 的独立数据空间)
+ *   │   │   ├── manifest.json
+ *   │   │   ├── projects.json
+ *   │   │   ├── templates.json
+ *   │   │   ├── runs/
+ *   │   │   │   └── {runId}.json
+ *   │   │   └── context-db/
+ *   │   │       ├── _global/
+ *   │   │       └── {projectId}/
+ *   │   └── {github_login_B}/       (协作者 B 的独立空间)
+ *   │       └── ...
+ *   └── shared/                      (团队共享资源)
+ *       ├── templates.json
+ *       └── context-db/
  */
 export class SyncService {
   private config: SyncConfig | null = null
@@ -124,6 +144,7 @@ export class SyncService {
 
   /** 获取同步状态 */
   getStatus(): SyncStatus {
+    const user = this.authService.getCurrentUser()
     return {
       configured: this.config !== null,
       repoFullName: this.config?.repoFullName || null,
@@ -132,6 +153,7 @@ export class SyncService {
       lastCommitSha: this.config?.lastCommitSha || null,
       authenticated: this.authService.isAuthenticated(),
       dirty: this.localDataVersion > this.lastSyncVersion,
+      userPrefix: user ? `users/${user.login}` : null,
     }
   }
 
@@ -154,10 +176,120 @@ export class SyncService {
   }
 
   // ════════════════════════════════════════
+  // 跨设备项目路径映射
+  // ════════════════════════════════════════
+
+  /** 获取当前路径映射配置 */
+  getPathMapping(): Record<string, string> {
+    return this.config?.pathMapping || {}
+  }
+
+  /**
+   * 设置项目路径映射（跨设备同步时使用）
+   * 
+   * @param mapping - { remoteProjectId: localPath } 的映射关系
+   * @param merge - 是否合并到现有映射（默认 true），false 则覆盖
+   */
+  async setPathMapping(mapping: Record<string, string>, merge = true): Promise<Record<string, string>> {
+    if (!this.config) throw new Error('Sync not configured')
+
+    if (merge) {
+      this.config.pathMapping = {
+        ...(this.config.pathMapping || {}),
+        ...mapping,
+      }
+    } else {
+      this.config.pathMapping = mapping
+    }
+
+    await this.saveConfig()
+    return this.config.pathMapping
+  }
+
+  /** 删除单个路径映射 */
+  async removePathMapping(projectId: string): Promise<void> {
+    if (!this.config) throw new Error('Sync not configured')
+    if (this.config.pathMapping) {
+      delete this.config.pathMapping[projectId]
+      await this.saveConfig()
+    }
+  }
+
+  /**
+   * 查询远端仓库中当前用户的所有项目
+   * 用于新设备查看哪些远端项目已经自动匹配、哪些还需要手动添加
+   */
+  async getRemoteProjects(): Promise<Array<{ id: string; name: string; path: string; gitRemote?: string; matched: boolean; localPath?: string }>> {
+    if (!this.config) throw new Error('Sync not configured')
+    const token = this.authService.getAccessToken()
+    if (!token) throw new Error('Not authenticated with GitHub')
+
+    const repo = this.config.repoFullName
+    const projectsRaw = await this.getFile(token, repo, this.userPath('projects.json'))
+    if (!projectsRaw) return []
+
+    const remoteProjects = JSON.parse(projectsRaw) as Array<{ id: string; name: string; path: string; gitRemote?: string }>
+    const localProjects = this.projectService.getProjects()
+    const localMap = new Map(localProjects.map(p => [p.id, p]))
+
+    // 也按 gitRemote 做匹配检测
+    const localByGitRemote = new Map<string, typeof localProjects[0]>()
+    for (const p of localProjects) {
+      if (p.gitRemote) {
+        localByGitRemote.set(ProjectService.normalizeGitRemote(p.gitRemote), p)
+      }
+    }
+
+    return remoteProjects.map(rp => {
+      const localById = localMap.get(rp.id)
+      const localByRemote = rp.gitRemote ? localByGitRemote.get(ProjectService.normalizeGitRemote(rp.gitRemote)) : undefined
+      const matchedLocal = localById || localByRemote
+      return {
+        id: rp.id,
+        name: rp.name,
+        path: rp.path,
+        gitRemote: rp.gitRemote,
+        matched: !!matchedLocal,
+        localPath: matchedLocal?.path || undefined,
+      }
+    })
+  }
+
+  // ════════════════════════════════════════
+  // 用户路径隔离
+  // ════════════════════════════════════════
+
+  /**
+   * 获取当前用户的远端路径前缀
+   * 多用户模式下每个用户的数据都在 users/{login}/ 下
+   */
+  private getUserPrefix(): string {
+    const user = this.authService.getCurrentUser()
+    if (!user) throw new Error('User not authenticated, cannot determine user prefix')
+    return `users/${user.login}`
+  }
+
+  /**
+   * 构建用户级远端路径
+   * 例如: userPath('projects.json') → 'users/XiaoPeng1112/projects.json'
+   */
+  private userPath(path: string): string {
+    return `${this.getUserPrefix()}/${path}`
+  }
+
+  /**
+   * 构建共享级远端路径
+   * 例如: sharedPath('templates.json') → 'shared/templates.json'
+   */
+  private sharedPath(path: string): string {
+    return `shared/${path}`
+  }
+
+  // ════════════════════════════════════════
   // Push（本地 → 远端）
   // ════════════════════════════════════════
 
-  /** 推送本地数据到远端 GitHub 仓库 */
+  /** 推送本地数据到远端 GitHub 仓库（用户隔离目录 users/{login}/） */
   async push(): Promise<{ success: boolean; filesUpdated: number; commitSha?: string }> {
     if (!this.config) throw new Error('Sync not configured')
     const token = this.authService.getAccessToken()
@@ -167,36 +299,37 @@ export class SyncService {
     let filesUpdated = 0
 
     try {
-      // 1. 推送 projects.json
+      // 1. 推送 projects.json（用户级）
       const projects = this.projectService.getProjects()
-      await this.putFile(token, repo, 'projects.json', JSON.stringify(projects, null, 2))
+      await this.putFile(token, repo, this.userPath('projects.json'), JSON.stringify(projects, null, 2))
       filesUpdated++
 
-      // 2. 推送 templates.json
+      // 2. 推送 templates.json（用户级）
       const templates = this.templateService.getTemplates()
-      await this.putFile(token, repo, 'templates.json', JSON.stringify(templates, null, 2))
+      await this.putFile(token, repo, this.userPath('templates.json'), JSON.stringify(templates, null, 2))
       filesUpdated++
 
-      // 3. 推送 runs（每个 Run 一个文件）
+      // 3. 推送 runs（用户级，每个 Run 一个文件）
       const runs = this.workflowEngine.getRuns()
       for (const run of runs) {
         const runDetail = this.workflowEngine.getRun(run.id)
         if (runDetail) {
-          await this.putFile(token, repo, `runs/${run.id}.json`, JSON.stringify(runDetail, null, 2))
+          await this.putFile(token, repo, this.userPath(`runs/${run.id}.json`), JSON.stringify(runDetail, null, 2))
           filesUpdated++
         }
       }
 
-      // 4. 清理远端已删除的 Runs
+      // 4. 清理远端已删除的 Runs（用户级）
       await this.cleanupDeletedRuns(token, repo, runs.map(r => r.id))
 
-      // 5. 推送 Context DB 文件（项目内的 .agent-flow/context/ 目录）
+      // 5. 推送 Context DB 文件（用户级）
       const contextFilesCount = await this.pushContextDb(token, repo, projects)
       filesUpdated += contextFilesCount
 
-      // 6. 更新 manifest
+      // 6. 更新用户 manifest（v2 多用户结构）
       const manifest = {
-        version: 1,
+        version: 2,
+        userLogin: this.authService.getCurrentUser()?.login,
         syncedAt: Date.now(),
         syncedFrom: process.env.HOSTNAME || 'unknown',
         projectCount: projects.length,
@@ -204,7 +337,7 @@ export class SyncService {
         runCount: runs.length,
         contextDbFiles: contextFilesCount,
       }
-      await this.putFile(token, repo, 'manifest.json', JSON.stringify(manifest, null, 2))
+      await this.putFile(token, repo, this.userPath('manifest.json'), JSON.stringify(manifest, null, 2))
       filesUpdated++
 
       // 7. 更新同步状态
@@ -223,8 +356,8 @@ export class SyncService {
   // Pull（远端 → 本地）
   // ════════════════════════════════════════
 
-  /** 从远端 GitHub 仓库拉取数据并合并到本地 */
-  async pull(): Promise<{ success: boolean; filesRead: number; conflicts: string[] }> {
+  /** 从远端 GitHub 仓库拉取当前用户的数据并合并到本地 */
+  async pull(): Promise<{ success: boolean; filesRead: number; conflicts: string[]; unmappedProjects?: Array<{ id: string; name: string; path: string; gitRemote?: string }> }> {
     if (!this.config) throw new Error('Sync not configured')
     const token = this.authService.getAccessToken()
     if (!token) throw new Error('Not authenticated with GitHub')
@@ -232,12 +365,18 @@ export class SyncService {
     const repo = this.config.repoFullName
     let filesRead = 0
     const conflicts: string[] = []
+    let unmappedProjects: Array<{ id: string; name: string; path: string; gitRemote?: string }> = []
 
     try {
-      // 1. 读取远端 manifest
-      const manifestRaw = await this.getFile(token, repo, 'manifest.json')
+      // 1. 读取用户级 manifest
+      const manifestRaw = await this.getFile(token, repo, this.userPath('manifest.json'))
       if (!manifestRaw) {
-        return { success: true, filesRead: 0, conflicts: ['Remote repo is empty, nothing to pull'] }
+        // 兼容旧结构：尝试读取根级 manifest（迁移前的 v1 数据）
+        const legacyManifest = await this.getFile(token, repo, 'manifest.json')
+        if (legacyManifest) {
+          conflicts.push('Detected legacy v1 repo structure. Run migrateFromV1() to migrate data to users/ directory.')
+        }
+        return { success: true, filesRead: 0, conflicts }
       }
       const manifest = JSON.parse(manifestRaw)
       filesRead++
@@ -251,27 +390,28 @@ export class SyncService {
         conflicts.push('Local data is newer than remote. Use force-pull to overwrite local data.')
       }
 
-      // 3. 拉取 projects.json
-      const projectsRaw = await this.getFile(token, repo, 'projects.json')
+      // 3. 拉取 projects.json（用户级）
+      const projectsRaw = await this.getFile(token, repo, this.userPath('projects.json'))
       if (projectsRaw) {
         const remoteProjects = JSON.parse(projectsRaw)
-        await this.mergeProjects(remoteProjects)
+        const mergeResult = await this.mergeProjects(remoteProjects)
+        unmappedProjects = mergeResult.unmappedProjects
         filesRead++
       }
 
-      // 4. 拉取 templates.json
-      const templatesRaw = await this.getFile(token, repo, 'templates.json')
+      // 4. 拉取 templates.json（用户级）
+      const templatesRaw = await this.getFile(token, repo, this.userPath('templates.json'))
       if (templatesRaw) {
         const remoteTemplates = JSON.parse(templatesRaw)
         await this.mergeTemplates(remoteTemplates)
         filesRead++
       }
 
-      // 5. 拉取 runs/
-      const runFiles = await this.listDir(token, repo, 'runs')
+      // 5. 拉取 runs/（用户级）
+      const runFiles = await this.listDir(token, repo, this.userPath('runs'))
       for (const file of runFiles) {
         if (file.name.endsWith('.json')) {
-          const runRaw = await this.getFile(token, repo, `runs/${file.name}`)
+          const runRaw = await this.getFile(token, repo, this.userPath(`runs/${file.name}`))
           if (runRaw) {
             const remoteRun = JSON.parse(runRaw)
             await this.mergeRun(remoteRun)
@@ -280,16 +420,26 @@ export class SyncService {
         }
       }
 
-      // 6. 拉取 context-db/（递归下载到各项目的 .agent-flow/context/ 目录）
+      // 6. 拉取 context-db/（用户级）
       const contextFilesRead = await this.pullContextDb(token, repo)
       filesRead += contextFilesRead
 
-      // 7. 更新本地同步状态
+      // 7. 拉取 shared/ 共享资源（团队公共模板和 context）
+      const sharedFilesRead = await this.pullSharedResources(token, repo)
+      filesRead += sharedFilesRead
+
+      // 8. 更新本地同步状态
       this.config.lastSyncAt = Date.now()
       this.lastSyncVersion = this.localDataVersion
       await this.saveConfig()
 
-      return { success: true, filesRead, conflicts }
+      // 如果有未映射的项目，提示用户先在系统中添加对应项目
+      if (unmappedProjects.length > 0) {
+        const names = unmappedProjects.map(p => p.name).join(', ')
+        conflicts.push(`Found ${unmappedProjects.length} remote project(s) not matched locally: [${names}]. Please clone the repo and add the project in AgentFlow first, then pull again.`)
+      }
+
+      return { success: true, filesRead, conflicts, unmappedProjects: unmappedProjects.length > 0 ? unmappedProjects : undefined }
     } catch (err) {
       console.error('[Sync] Pull failed:', (err as Error).message)
       throw new Error(`Pull failed: ${(err as Error).message}`)
@@ -300,32 +450,96 @@ export class SyncService {
   // 数据合并策略（LWW）
   // ════════════════════════════════════════
 
-  /** 合并远端项目数据（基于 lastActiveAt 的 LWW） */
-  private async mergeProjects(remoteProjects: any[]): Promise<void> {
+  /**
+   * 合并远端项目数据（基于 lastActiveAt 的 LWW + gitRemote 自动匹配）
+   * 
+   * 跨设备同步流程：
+   *   1. 用户在新设备上克隆项目代码、在系统中添加项目（此时本地生成新 ID，自动探测 gitRemote）
+   *   2. Pull 时，远端项目 ID 本地没有 → 按 gitRemote 匹配本地已有项目
+   *   3. 匹配成功 → 将本地项目 ID 替换为远端 ID（保持全局一致）
+   *   4. 匹配失败 → 记录为 unmappedProjects，可能是用户还没添加该项目
+   */
+  private async mergeProjects(remoteProjects: any[]): Promise<{ unmappedProjects: Array<{ id: string; name: string; path: string; gitRemote?: string }> }> {
     const localProjects = this.projectService.getProjects()
     const localMap = new Map(localProjects.map(p => [p.id, p]))
+    const unmappedProjects: Array<{ id: string; name: string; path: string; gitRemote?: string }> = []
+
+    // 构建本地 gitRemote → project 的索引（标准化后）
+    const localByGitRemote = new Map<string, typeof localProjects[0]>()
+    for (const p of localProjects) {
+      if (p.gitRemote) {
+        const normalized = ProjectService.normalizeGitRemote(p.gitRemote)
+        localByGitRemote.set(normalized, p)
+      }
+    }
 
     for (const remote of remoteProjects) {
       const local = localMap.get(remote.id)
-      if (!local) {
-        // 远端有、本地没有 → 添加到本地
-        await this.projectService.addProject({
-          name: remote.name,
-          path: remote.path,
-          description: remote.description,
-          contextConfig: remote.contextConfig,
-        })
-      } else if (remote.lastActiveAt > local.lastActiveAt) {
-        // 远端更新 → 覆盖本地
-        await this.projectService.updateProject(local.id, {
-          name: remote.name,
-          description: remote.description,
-          contextConfig: remote.contextConfig,
-          enabledAgentIds: remote.enabledAgentIds,
-        })
+      if (local) {
+        // ID 直接匹配 → LWW 更新
+        if (remote.lastActiveAt > local.lastActiveAt) {
+          await this.projectService.updateProject(local.id, {
+            name: remote.name,
+            description: remote.description,
+            contextConfig: remote.contextConfig,
+            enabledAgentIds: remote.enabledAgentIds,
+          })
+        }
+        // 本地更新 → 不覆盖（等 push 时同步上去）
+      } else {
+        // 远端 ID 本地没有 → 尝试按 gitRemote 匹配
+        let matched = false
+
+        if (remote.gitRemote) {
+          const remoteNormalized = ProjectService.normalizeGitRemote(remote.gitRemote)
+          const localMatch = localByGitRemote.get(remoteNormalized)
+
+          if (localMatch) {
+            // gitRemote 匹配成功！将本地 ID 替换为远端 ID
+            console.log(`[Sync] Auto-matched by gitRemote: local "${localMatch.id}" → remote "${remote.id}" (${remoteNormalized})`)
+            await this.projectService.replaceProjectId(localMatch.id, remote.id)
+            // 更新 localMap 以避免后续重复匹配
+            localMap.delete(localMatch.id)
+            localMap.set(remote.id, { ...localMatch, id: remote.id })
+            localByGitRemote.delete(remoteNormalized)
+            matched = true
+          }
+        }
+
+        if (!matched) {
+          // 也尝试用 pathMapping 兜底（向后兼容）
+          const pathMapping = this.config?.pathMapping || {}
+          const mappedPath = pathMapping[remote.id]
+          if (mappedPath) {
+            await this.projectService.addProjectWithId({
+              id: remote.id,
+              name: remote.name,
+              path: mappedPath,
+              description: remote.description,
+              contextConfig: remote.contextConfig,
+              gitRemote: remote.gitRemote,
+              createdAt: remote.createdAt,
+              lastActiveAt: remote.lastActiveAt,
+            })
+            console.log(`[Sync] Mapped via pathMapping: ${remote.id} → ${mappedPath}`)
+            matched = true
+          }
+        }
+
+        if (!matched) {
+          // 无法匹配 → 等待用户先在系统中添加该项目
+          unmappedProjects.push({
+            id: remote.id,
+            name: remote.name,
+            path: remote.path,
+            gitRemote: remote.gitRemote,
+          })
+          console.log(`[Sync] Unmapped remote project: ${remote.id} (${remote.name}), gitRemote: ${remote.gitRemote || 'none'}`)
+        }
       }
-      // 本地更新 → 不覆盖（等 push 时同步上去）
     }
+
+    return { unmappedProjects }
   }
 
   /** 合并远端模板数据 */
@@ -475,19 +689,21 @@ export class SyncService {
   // 辅助方法
   // ════════════════════════════════════════
 
-  /** 确保远端仓库有基本文件结构 */
+  /** 确保远端仓库有基本文件结构（v2 多用户版） */
   private async ensureRepoStructure(): Promise<void> {
     const token = this.authService.getAccessToken()
     if (!token || !this.config) return
 
     const repo = this.config.repoFullName
 
-    // 检查是否已有 manifest.json
-    const manifest = await this.getFile(token, repo, 'manifest.json')
+    // 检查用户目录下是否已有 manifest.json
+    const manifest = await this.getFile(token, repo, this.userPath('manifest.json'))
     if (!manifest) {
-      // 首次初始化：创建 manifest 和 README
-      await this.putFile(token, repo, 'manifest.json', JSON.stringify({
-        version: 1,
+      // 首次初始化：创建用户 manifest
+      const user = this.authService.getCurrentUser()
+      await this.putFile(token, repo, this.userPath('manifest.json'), JSON.stringify({
+        version: 2,
+        userLogin: user?.login,
         syncedAt: Date.now(),
         syncedFrom: process.env.HOSTNAME || 'unknown',
         projectCount: 0,
@@ -495,33 +711,52 @@ export class SyncService {
         runCount: 0,
       }, null, 2))
 
-      await this.putFile(token, repo, 'README.md', [
-        '# AgentFlow Data Sync',
-        '',
-        'This repository stores AgentFlow project data for multi-device synchronization.',
-        '',
-        '> **⚠️ Do not manually edit these files** — they are managed by AgentFlow automatically.',
-        '',
-        '## Structure',
-        '',
-        '- `manifest.json` — Sync metadata',
-        '- `projects.json` — Project list and configurations',
-        '- `templates.json` — Workflow templates',
-        '- `runs/` — Individual run data (one file per run)',
-      ].join('\n'))
+      // 仅在仓库 README 不存在时创建（多用户共享的仓库级文件）
+      const readme = await this.getFile(token, repo, 'README.md')
+      if (!readme) {
+        await this.putFile(token, repo, 'README.md', [
+          '# AgentFlow Data Sync',
+          '',
+          'This repository stores AgentFlow project data for multi-user synchronization.',
+          '',
+          '> **Do not manually edit these files** — they are managed by AgentFlow automatically.',
+          '',
+          '## Structure (v2 Multi-User)',
+          '',
+          '```',
+          'agent-flow-data/',
+          '  users/',
+          '    {github_login}/        <- Each user has isolated data',
+          '      manifest.json',
+          '      projects.json',
+          '      templates.json',
+          '      runs/',
+          '      context-db/',
+          '  shared/                   <- Team shared resources',
+          '    templates.json',
+          '    context-db/',
+          '```',
+          '',
+          '## Access Control',
+          '',
+          'Add team members as **Collaborators** in repository settings.',
+          'Each user reads/writes only their own `users/{login}/` directory via the app.',
+          'Shared resources in `shared/` are accessible to all collaborators.',
+        ].join('\n'))
+      }
     }
   }
 
-  /** 清理远端已被本地删除的 Run 文件 */
+  /** 清理远端已被本地删除的 Run 文件（用户级路径） */
   private async cleanupDeletedRuns(token: string, repo: string, localRunIds: string[]): Promise<void> {
-    const remoteFiles = await this.listDir(token, repo, 'runs')
+    const remoteFiles = await this.listDir(token, repo, this.userPath('runs'))
     const localIdSet = new Set(localRunIds)
 
     for (const file of remoteFiles) {
       if (file.name.endsWith('.json')) {
         const runId = file.name.replace('.json', '')
         if (!localIdSet.has(runId)) {
-          await this.deleteFile(token, repo, `runs/${file.name}`)
+          await this.deleteFile(token, repo, this.userPath(`runs/${file.name}`))
         }
       }
     }
@@ -532,27 +767,27 @@ export class SyncService {
   // ════════════════════════════════════════
 
   /**
-   * 推送 Context DB 到远端
+   * 推送 Context DB 到远端（用户级路径）
    * 
    * 遍历每个项目的 .agent-flow/context/ 目录，
-   * 上传到远端 context-db/{projectId}/ 下。
+   * 上传到远端 users/{login}/context-db/{projectId}/ 下。
    * 同时上传全局 ~/.agent-flow/context-db/ 下的 SYS 层文件。
    */
   private async pushContextDb(token: string, repo: string, projects: any[]): Promise<number> {
     let filesUploaded = 0
 
-    // 1. 推送全局 context-db（SYS 层）
+    // 1. 推送全局 context-db（SYS 层）→ users/{login}/context-db/_global/
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
     const globalContextDir = join(home, '.agent-flow', 'context-db')
     const globalFiles = await this.scanDirRecursive(globalContextDir)
     for (const filePath of globalFiles) {
       const relativePath = relative(globalContextDir, filePath)
       const content = await readFile(filePath, 'utf-8')
-      await this.putFile(token, repo, `context-db/_global/${relativePath}`, content)
+      await this.putFile(token, repo, this.userPath(`context-db/_global/${relativePath}`), content)
       filesUploaded++
     }
 
-    // 2. 推送各项目的 .agent-flow/context/ 目录
+    // 2. 推送各项目的 .agent-flow/context/ 目录 → users/{login}/context-db/{projectId}/
     for (const project of projects) {
       if (!project.path) continue
       const contextDir = join(project.path, '.agent-flow', 'context')
@@ -560,7 +795,7 @@ export class SyncService {
       for (const filePath of files) {
         const relativePath = relative(contextDir, filePath)
         const content = await readFile(filePath, 'utf-8')
-        await this.putFile(token, repo, `context-db/${project.id}/${relativePath}`, content)
+        await this.putFile(token, repo, this.userPath(`context-db/${project.id}/${relativePath}`), content)
         filesUploaded++
       }
     }
@@ -569,16 +804,16 @@ export class SyncService {
   }
 
   /**
-   * 从远端拉取 Context DB 到本地
+   * 从远端拉取 Context DB 到本地（用户级路径）
    * 
-   * 下载 context-db/{projectId}/ 下的文件到对应项目的 .agent-flow/context/ 目录。
-   * 下载 context-db/_global/ 到 ~/.agent-flow/context-db/。
+   * 下载 users/{login}/context-db/{projectId}/ 下的文件到对应项目的 .agent-flow/context/ 目录。
+   * 下载 users/{login}/context-db/_global/ 到 ~/.agent-flow/context-db/。
    */
   private async pullContextDb(token: string, repo: string): Promise<number> {
     let filesRead = 0
 
-    // 列出 context-db/ 顶层目录
-    const topDirs = await this.listDir(token, repo, 'context-db')
+    // 列出 users/{login}/context-db/ 顶层目录
+    const topDirs = await this.listDir(token, repo, this.userPath('context-db'))
     if (topDirs.length === 0) return 0
 
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
@@ -589,13 +824,13 @@ export class SyncService {
       if (dir.name === '_global') {
         // 全局 context-db → ~/.agent-flow/context-db/
         const globalContextDir = join(home, '.agent-flow', 'context-db')
-        filesRead += await this.pullDirRecursive(token, repo, 'context-db/_global', globalContextDir)
+        filesRead += await this.pullDirRecursive(token, repo, this.userPath('context-db/_global'), globalContextDir)
       } else {
         // 项目级 context → {project.path}/.agent-flow/context/
         const project = projectMap.get(dir.name)
         if (project?.path) {
           const contextDir = join(project.path, '.agent-flow', 'context')
-          filesRead += await this.pullDirRecursive(token, repo, `context-db/${dir.name}`, contextDir)
+          filesRead += await this.pullDirRecursive(token, repo, this.userPath(`context-db/${dir.name}`), contextDir)
         }
       }
     }
@@ -651,7 +886,7 @@ export class SyncService {
       try {
         const localStat = await stat(localPath)
         // 如果本地文件比远端仓库最后同步时间更新，则跳过（本地优先）
-        if (localStat.mtimeMs > (this.config.lastSyncAt || 0)) {
+        if (localStat.mtimeMs > (this.config?.lastSyncAt || 0)) {
           shouldWrite = false
         }
       } catch {
@@ -670,6 +905,170 @@ export class SyncService {
     }
 
     return count
+  }
+
+  // ════════════════════════════════════════
+  // Shared（团队公共资源同步）
+  // ════════════════════════════════════════
+
+  /**
+   * 推送共享资源到 shared/ 目录
+   * 可将模板和全局 context 标记为团队共享
+   */
+  async pushSharedResources(options: { templates?: boolean; contextFiles?: string[] } = {}): Promise<{ filesUpdated: number }> {
+    if (!this.config) throw new Error('Sync not configured')
+    const token = this.authService.getAccessToken()
+    if (!token) throw new Error('Not authenticated with GitHub')
+
+    const repo = this.config.repoFullName
+    let filesUpdated = 0
+
+    // 推送共享模板
+    if (options.templates !== false) {
+      const templates = this.templateService.getTemplates()
+      await this.putFile(token, repo, this.sharedPath('templates.json'), JSON.stringify(templates, null, 2))
+      filesUpdated++
+    }
+
+    // 推送指定的共享 context 文件
+    if (options.contextFiles?.length) {
+      for (const filePath of options.contextFiles) {
+        try {
+          const content = await readFile(filePath, 'utf-8')
+          const filename = filePath.split('/').pop() || 'unknown.md'
+          await this.putFile(token, repo, this.sharedPath(`context-db/${filename}`), content)
+          filesUpdated++
+        } catch {
+          // 文件不存在，跳过
+        }
+      }
+    }
+
+    return { filesUpdated }
+  }
+
+  /**
+   * 从远端拉取 shared/ 共享资源
+   * 共享模板会合并到本地（不覆盖已有的同 ID 模板）
+   * 共享 context 文件存到 ~/.agent-flow/context-db/ 下
+   */
+  private async pullSharedResources(token: string, repo: string): Promise<number> {
+    let filesRead = 0
+
+    // 拉取共享模板
+    const sharedTemplatesRaw = await this.getFile(token, repo, this.sharedPath('templates.json'))
+    if (sharedTemplatesRaw) {
+      const sharedTemplates = JSON.parse(sharedTemplatesRaw)
+      await this.mergeTemplates(sharedTemplates)
+      filesRead++
+    }
+
+    // 拉取共享 context-db 文件
+    const sharedContextFiles = await this.listDir(token, repo, this.sharedPath('context-db'))
+    for (const file of sharedContextFiles) {
+      if (file.name.startsWith('.')) continue
+      const content = await this.getFile(token, repo, this.sharedPath(`context-db/${file.name}`))
+      if (content) {
+        const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
+        const sharedDir = join(home, '.agent-flow', 'context-db', '_shared')
+        await mkdir(sharedDir, { recursive: true })
+        await writeFile(join(sharedDir, file.name), content, 'utf-8')
+        filesRead++
+      }
+    }
+
+    return filesRead
+  }
+
+  // ════════════════════════════════════════
+  // 用户管理 & 数据迁移
+  // ════════════════════════════════════════
+
+  /** 列出仓库中所有用户目录 */
+  async listUsers(): Promise<string[]> {
+    if (!this.config) throw new Error('Sync not configured')
+    const token = this.authService.getAccessToken()
+    if (!token) throw new Error('Not authenticated with GitHub')
+
+    const repo = this.config.repoFullName
+    const dirs = await this.listDir(token, repo, 'users')
+    return dirs.map(d => d.name)
+  }
+
+  /**
+   * 从 v1（根级平铺结构）迁移到 v2（多用户 users/{login}/ 结构）
+   * 
+   * 将根级的 manifest.json、projects.json、templates.json、runs/、context-db/
+   * 复制到 users/{login}/ 下，然后删除根级文件（保留 README.md）。
+   */
+  async migrateFromV1(): Promise<{ success: boolean; filesMigrated: number }> {
+    if (!this.config) throw new Error('Sync not configured')
+    const token = this.authService.getAccessToken()
+    if (!token) throw new Error('Not authenticated with GitHub')
+
+    const repo = this.config.repoFullName
+    let filesMigrated = 0
+
+    // 检查是否存在根级 manifest（v1 标志）
+    const legacyManifest = await this.getFile(token, repo, 'manifest.json')
+    if (!legacyManifest) {
+      return { success: true, filesMigrated: 0 }
+    }
+
+    // 迁移 projects.json
+    const projectsRaw = await this.getFile(token, repo, 'projects.json')
+    if (projectsRaw) {
+      await this.putFile(token, repo, this.userPath('projects.json'), projectsRaw)
+      await this.deleteFile(token, repo, 'projects.json')
+      filesMigrated++
+    }
+
+    // 迁移 templates.json
+    const templatesRaw = await this.getFile(token, repo, 'templates.json')
+    if (templatesRaw) {
+      await this.putFile(token, repo, this.userPath('templates.json'), templatesRaw)
+      await this.deleteFile(token, repo, 'templates.json')
+      filesMigrated++
+    }
+
+    // 迁移 runs/
+    const runFiles = await this.listDir(token, repo, 'runs')
+    for (const file of runFiles) {
+      if (file.name.endsWith('.json')) {
+        const content = await this.getFile(token, repo, `runs/${file.name}`)
+        if (content) {
+          await this.putFile(token, repo, this.userPath(`runs/${file.name}`), content)
+          await this.deleteFile(token, repo, `runs/${file.name}`)
+          filesMigrated++
+        }
+      }
+    }
+
+    // 迁移 context-db/
+    const contextDirs = await this.listDir(token, repo, 'context-db')
+    for (const dir of contextDirs) {
+      const files = await this.listDir(token, repo, `context-db/${dir.name}`)
+      for (const file of files) {
+        const content = await this.getFile(token, repo, `context-db/${dir.name}/${file.name}`)
+        if (content) {
+          await this.putFile(token, repo, this.userPath(`context-db/${dir.name}/${file.name}`), content)
+          await this.deleteFile(token, repo, `context-db/${dir.name}/${file.name}`)
+          filesMigrated++
+        }
+      }
+    }
+
+    // 迁移 manifest → 创建 v2 用户级 manifest 并删除根级 manifest
+    const manifest = JSON.parse(legacyManifest)
+    manifest.version = 2
+    manifest.userLogin = this.authService.getCurrentUser()?.login
+    manifest.migratedAt = Date.now()
+    await this.putFile(token, repo, this.userPath('manifest.json'), JSON.stringify(manifest, null, 2))
+    await this.deleteFile(token, repo, 'manifest.json')
+    filesMigrated++
+
+    console.log(`[Sync] Migration from v1 to v2 completed: ${filesMigrated} files migrated`)
+    return { success: true, filesMigrated }
   }
 
   /** 创建远端私有仓库（如果不存在） */

@@ -1477,6 +1477,37 @@ export function createApiRouter(deps: {
     }
   })
 
+  /** 从 v1 结构迁移到 v2 多用户结构 */
+  router.post('/sync/migrate', async (_req, res) => {
+    try {
+      const result = await syncService.migrateFromV1()
+      res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 推送共享资源到 shared/ 目录 */
+  router.post('/sync/push-shared', async (req, res) => {
+    try {
+      const { templates, contextFiles } = req.body || {}
+      const result = await syncService.pushSharedResources({ templates, contextFiles })
+      res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 列出仓库中所有用户 */
+  router.get('/sync/users', async (_req, res) => {
+    try {
+      const users = await syncService.listUsers()
+      res.json({ success: true, data: users })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
   /** 创建同步专用私有仓库 */
   router.post('/sync/create-repo', async (req, res) => {
     const { repoName } = req.body
@@ -1487,6 +1518,54 @@ export function createApiRouter(deps: {
     try {
       const result = await syncService.createSyncRepo(repoName)
       res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /**
+   * 获取远端项目列表及匹配状态
+   * 新设备可用此接口查看哪些远端项目已通过 gitRemote 自动匹配、哪些还需手动添加
+   */
+  router.get('/sync/remote-projects', async (_req, res) => {
+    try {
+      const projects = await syncService.getRemoteProjects()
+      res.json({ success: true, data: { projects } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 获取当前路径映射配置（兜底方案，非 git 项目可手动配置） */
+  router.get('/sync/path-mapping', (_req, res) => {
+    const mapping = syncService.getPathMapping()
+    res.json({ success: true, data: { mapping } })
+  })
+
+  /**
+   * 设置项目路径映射（兜底方案，适用于非 git 项目）
+   * 正常情况下 Pull 会通过 gitRemote 自动匹配，无需手动配置。
+   * Body: { mapping: { "proj_xxx": "/local/path" }, merge?: boolean }
+   */
+  router.post('/sync/path-mapping', async (req, res) => {
+    const { mapping, merge } = req.body
+    if (!mapping || typeof mapping !== 'object') {
+      res.status(400).json({ success: false, error: 'mapping is required and must be an object like { "proj_id": "/local/path" }' })
+      return
+    }
+    try {
+      const result = await syncService.setPathMapping(mapping, merge !== false)
+      res.json({ success: true, data: { mapping: result } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 删除单个路径映射 */
+  router.delete('/sync/path-mapping/:projectId', async (req, res) => {
+    try {
+      await syncService.removePathMapping(req.params.projectId)
+      res.json({ success: true })
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message })
     }

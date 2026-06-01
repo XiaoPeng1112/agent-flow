@@ -566,6 +566,8 @@ export interface ProjectData {
   description?: string
   contextConfig?: ProjectContext
   enabledAgentIds?: string[]       // 项目启用的 Agent ID 列表（未设置 = 全部启用）
+  /** Git remote URL（跨设备同步时用于自动匹配同一项目） */
+  gitRemote?: string
   createdAt: number
   lastActiveAt: number
 }

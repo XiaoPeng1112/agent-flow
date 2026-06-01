@@ -18,6 +18,7 @@ import {
   ExperimentOutlined,
   BranchesOutlined,
   HistoryOutlined,
+  SyncOutlined,
 } from '@ant-design/icons'
 
 /**
@@ -40,7 +41,7 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.7.1</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.7.2</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
@@ -633,6 +634,45 @@ export function AboutPage() {
               icon={<DesktopOutlined />}
               title="SyncPanel 前端面板"
               desc="Sidebar 底部同步面板：显示同步状态、上次同步时间、文件数统计、手动 Push/Pull 按钮、GitHub 未登录引导。"
+              color="#d97706"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.7.2 多用户同步 + 跨设备项目匹配 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<SyncOutlined />} title="多用户同步 + 跨设备项目匹配（v2.7.2）" color="green" />
+          <div className="bg-gradient-to-r from-green-50 to-teal-50 border border-green-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.7.2 将数据同步从单用户模式升级为<strong>多用户隔离架构</strong>，远端仓库按 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">users/{'{github_login}'}/ + shared/</code> 结构组织数据。
+              同时实现了<strong>跨设备项目自动匹配</strong>——通过 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-[12px]">gitRemote</code> 字段自动关联不同设备上的同一项目，
+              Pull 时自动用远端项目 ID 替换本地临时 ID，无需手动路径映射。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<SyncOutlined />}
+              title="多用户隔离架构"
+              desc="远端仓库按 users/{login}/ 隔离个人数据，shared/ 存放共享资源。不同用户的数据互不干扰，支持团队协作场景。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<GithubOutlined />}
+              title="gitRemote 自动匹配"
+              desc="添加项目时自动检测 git remote URL，Pull 时通过 normalizeGitRemote() 标准化 SSH/HTTPS 地址进行跨设备匹配。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="replaceProjectId"
+              desc="Pull 匹配成功后，自动将本地临时项目 ID 替换为远端全局 ID，确保 Runs、Context DB 等关联数据正确对齐。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<ToolOutlined />}
+              title="pathMapping 兜底"
+              desc="对于非 Git 管理的项目，保留手动路径映射作为备用方案，通过 API 配置远端项目与本地路径的对应关系。"
               color="#d97706"
             />
           </div>

@@ -15,6 +15,32 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.7.2',
+    date: '2026-06-01',
+    title: '多用户数据隔离 + 跨设备 gitRemote 自动匹配',
+    type: 'feature',
+    highlights: [
+      '多用户远端仓库结构（users/{github_login}/ + shared/）',
+      'gitRemote 字段自动检测（添加项目时 git remote get-url origin）',
+      'normalizeGitRemote() SSH/HTTPS URL 标准化匹配',
+      'mergeProjects() 跨设备项目智能匹配（gitRemote 优先 + pathMapping 兜底）',
+      'replaceProjectId() 本地临时 ID → 远端全局 ID 自动替换',
+      '新增 4 条 API 路由（remote-projects + path-mapping CRUD）',
+      'ProjectData 新增 gitRemote 字段',
+    ],
+    details: `v2.7.2 将数据同步从单用户模式升级为多用户隔离架构，并实现了跨设备项目自动匹配，解决"新电脑 Pull 后项目路径对不上"的问题。
+
+【多用户隔离】远端仓库从扁平结构重构为 users/{github_login}/ 按用户隔离，每个用户的 projects/templates/runs/context-db 独立存储。shared/ 目录预留用于未来团队共享资源。
+
+【gitRemote 自动检测】ProjectService.addProject() 新增 detectGitRemote() 逻辑，添加项目时自动执行 git remote get-url origin 获取远程仓库地址并存入 ProjectData.gitRemote 字段。
+
+【跨设备自动匹配】SyncService.mergeProjects() 重写匹配逻辑：Pull 远端项目列表后，优先通过 normalizeGitRemote()（将 SSH/HTTPS 统一为 github.com/user/repo 格式）匹配本地已有项目；匹配成功后调用 replaceProjectId() 将本地临时 ID 替换为远端全局 ID，确保 Runs/ContextDB 等关联数据正确对齐。
+
+【pathMapping 兜底】对于非 Git 管理的项目，提供手动路径映射 API（GET/POST/DELETE /sync/path-mapping），用户可显式指定远端项目 ID 与本地路径的对应关系。
+
+【使用流程】用户只需：① 在新设备 clone 项目代码 → ② 在 AgentFlow 中添加项目（自动检测 gitRemote）→ ③ Pull 同步数据（自动匹配并替换 ID），全程无需手动配置路径映射。`,
+  },
+  {
     version: 'v2.7.1',
     date: '2026-06-01',
     title: 'GitHub Private Repo 数据同步 + Context DB 多设备同步',
