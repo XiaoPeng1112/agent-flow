@@ -561,6 +561,45 @@ export function AboutPage() {
           </div>
         </section>
 
+        {/* ═══ v2.7.1 数据同步 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<CloudServerOutlined />} title="数据同步 — 多设备互通（v2.7.1）" color="cyan" />
+          <div className="bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.7.1 实现了基于 <strong>GitHub Private Repo</strong> 的多设备数据同步，解决"公司电脑和家里电脑数据不互通"的痛点。
+              用户登录 GitHub 后，系统自动创建私有仓库作为数据中心，通过 Contents API 实现文件级同步。
+              采用 <strong>LWW（Last Write Wins）</strong>冲突策略，系统启动自动 pull、写操作防抖 push，日常使用完全无感知。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<CloudServerOutlined />}
+              title="SyncService"
+              desc="基于 GitHub Contents API 的文件级同步服务（~740 行），支持 Base64 编解码、SHA 校验、递归目录扫描。自动创建 agent-flow-data 私有仓库。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="Context DB 同步"
+              desc="将项目级 .agent-flow/context/ 知识文件（架构文档、开发日志、技术决策）同步到远端 context-db/{projectId}/，支持任意深度目录。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<SafetyCertificateOutlined />}
+              title="LWW 冲突策略"
+              desc="Push 以本地为准覆盖远端；Pull 对比文件 mtime 与 lastSyncAt，本地更新则跳过覆盖。启动自动 pull + 写操作防抖 push。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<DesktopOutlined />}
+              title="SyncPanel 前端面板"
+              desc="Sidebar 底部同步面板：显示同步状态、上次同步时间、文件数统计、手动 Push/Pull 按钮、GitHub 未登录引导。"
+              color="#d97706"
+            />
+          </div>
+        </section>
+
         {/* ═══ v2.7.0 反馈闭环 ═══ */}
         <section className="mb-12">
           <SectionTitle icon={<ExperimentOutlined />} title="反馈闭环 + 轻量迭代（v2.7.0）" color="orange" />
