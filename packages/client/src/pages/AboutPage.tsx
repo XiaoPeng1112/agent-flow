@@ -561,6 +561,44 @@ export function AboutPage() {
           </div>
         </section>
 
+        {/* ═══ v2.7.0 反馈闭环 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<ExperimentOutlined />} title="反馈闭环 + 轻量迭代（v2.7.0）" color="orange" />
+          <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.7.0 建立了"<strong>发现问题 → 记录 → 决策改进</strong>"的最小反馈闭环。系统自动采集审批打回、Diff 丢弃、执行失败等反馈信号，
+              汇总为周报摘要供用户决策。同时明确拒绝了完整自演进系统，确立了<strong>ADR-016：信息收集可以自动化，决策执行必须人在回路</strong>的设计原则。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="FeedbackCollector"
+              desc="三个触发点自动记录反馈（review_reject / diff_discard / execution_failure），JSON Lines 持久化，支持按时间/类型/严重度查询。"
+              color="#d97706"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="WeeklyDigest"
+              desc="汇总 feedback + metrics 生成 Markdown 周报：执行概览、反馈统计、高频问题 Top 5、Agent 表现排行。"
+              color="#9333ea"
+            />
+            <ArchCard
+              icon={<DesktopOutlined />}
+              title="Feedback 子 Tab"
+              desc="MetricsPanel 内新增反馈视图：4 个统计卡片 + 反馈记录列表 + 生成周报按钮。复用现有面板，零新增顶级导航。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<SafetyCertificateOutlined />}
+              title="ADR-016 约束规则"
+              desc="数据采集只收集不决策；系统改进通过'用户+AI对话'而非自动修改代码；新功能复用现有UI容器；自动化默认关闭。"
+              color="#dc2626"
+            />
+          </div>
+        </section>
+
         {/* ═══ v2.7.1 数据同步 ═══ */}
         <section className="mb-12">
           <SectionTitle icon={<CloudServerOutlined />} title="数据同步 — 多设备互通（v2.7.1）" color="cyan" />
@@ -596,44 +634,6 @@ export function AboutPage() {
               title="SyncPanel 前端面板"
               desc="Sidebar 底部同步面板：显示同步状态、上次同步时间、文件数统计、手动 Push/Pull 按钮、GitHub 未登录引导。"
               color="#d97706"
-            />
-          </div>
-        </section>
-
-        {/* ═══ v2.7.0 反馈闭环 ═══ */}
-        <section className="mb-12">
-          <SectionTitle icon={<ExperimentOutlined />} title="反馈闭环 + 轻量迭代（v2.7.0）" color="orange" />
-          <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 rounded-xl p-6 mb-5">
-            <p className="text-[14px] text-gray-700 leading-[1.8]">
-              v2.7.0 建立了"<strong>发现问题 → 记录 → 决策改进</strong>"的最小反馈闭环。系统自动采集审批打回、Diff 丢弃、执行失败等反馈信号，
-              汇总为周报摘要供用户决策。同时明确拒绝了完整自演进系统，确立了<strong>ADR-016：信息收集可以自动化，决策执行必须人在回路</strong>的设计原则。
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <ArchCard
-              icon={<DatabaseOutlined />}
-              title="FeedbackCollector"
-              desc="三个触发点自动记录反馈（review_reject / diff_discard / execution_failure），JSON Lines 持久化，支持按时间/类型/严重度查询。"
-              color="#d97706"
-            />
-            <ArchCard
-              icon={<ExperimentOutlined />}
-              title="WeeklyDigest"
-              desc="汇总 feedback + metrics 生成 Markdown 周报：执行概览、反馈统计、高频问题 Top 5、Agent 表现排行。"
-              color="#9333ea"
-            />
-            <ArchCard
-              icon={<DesktopOutlined />}
-              title="Feedback 子 Tab"
-              desc="MetricsPanel 内新增反馈视图：4 个统计卡片 + 反馈记录列表 + 生成周报按钮。复用现有面板，零新增顶级导航。"
-              color="#0891b2"
-            />
-            <ArchCard
-              icon={<SafetyCertificateOutlined />}
-              title="ADR-016 约束规则"
-              desc="数据采集只收集不决策；系统改进通过'用户+AI对话'而非自动修改代码；新功能复用现有UI容器；自动化默认关闭。"
-              color="#dc2626"
             />
           </div>
         </section>
