@@ -15,6 +15,29 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.7.1',
+    date: '2026-06-01',
+    title: 'GitHub Private Repo 数据同步 + Context DB 多设备同步',
+    type: 'feature',
+    highlights: [
+      'SyncService 数据同步服务（基于 GitHub Contents API，文件级同步）',
+      'Context DB 递归同步（项目级 .agent-flow/context/ 知识文件多设备互通）',
+      'LWW 冲突策略（Last Write Wins + 本地文件 mtime 保护）',
+      '前端 SyncPanel（手动 Push/Pull + 同步状态展示 + GitHub 登录引导）',
+      '新增 8 条 API 路由（sync push/pull/status/context-db 等）',
+      '后端服务 21 → 22 个模块',
+    ],
+    details: `v2.7.1 实现了基于 GitHub Private Repo 的多设备数据同步，解决"公司电脑和家里电脑数据不互通"的痛点。
+
+【SyncService】新增数据同步服务（~740 行），用户登录 GitHub 后系统自动创建私有仓库（agent-flow-data）作为数据中心。通过 GitHub Contents API 实现文件级别的 CRUD 同步，支持 Base64 编解码、SHA 校验、递归目录扫描。同步范围：项目配置（projects.json）、工作流模板（templates.json）、Run 元数据（runs/*.json）、同步清单（manifest.json）。
+
+【Context DB 同步】核心创新——将各项目的 .agent-flow/context/ 目录（架构文档、开发日志、技术决策等知识资产）同步到远端 context-db/{projectId}/ 路径下。实现了 scanDirRecursive（递归扫描本地文件）和 pullDirRecursive（递归下载远端文件）两个方法，支持任意深度的目录结构。
+
+【LWW 冲突策略】采用 Last Write Wins 策略：push 时以本地为准直接覆盖远端；pull 时对比本地文件 mtime 与 lastSyncAt，本地更新则跳过覆盖。系统启动时自动 pull，关键写操作后防抖 push（5 秒延迟合并），日常使用完全无感知。
+
+【前端 SyncPanel】Sidebar 底部新增同步面板，显示同步状态（上次同步时间 + 文件数统计）、手动 Push/Pull 按钮、GitHub 未登录时引导登录。`,
+  },
+  {
     version: 'v2.7.0',
     date: '2026-05-31',
     title: '反馈闭环（FeedbackCollector + WeeklyDigest）+ 轻量迭代机制',
