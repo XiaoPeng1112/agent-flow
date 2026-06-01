@@ -645,14 +645,27 @@ export class SyncService {
         }
       }
 
-      // 下载文件内容
-      const content = await this.getFile(token, repo, entryRemotePath)
-      if (content !== null) {
-        const localPath = join(localDir, entry.name)
-        const dir = localPath.replace(/\/[^/]+$/, '')
-        await mkdir(dir, { recursive: true })
-        await writeFile(localPath, content, 'utf-8')
-        count++
+      // 下载文件内容（LWW：本地文件更新则跳过覆盖）
+      const localPath = join(localDir, entry.name)
+      let shouldWrite = true
+      try {
+        const localStat = await stat(localPath)
+        // 如果本地文件比远端仓库最后同步时间更新，则跳过（本地优先）
+        if (localStat.mtimeMs > (this.config.lastSyncAt || 0)) {
+          shouldWrite = false
+        }
+      } catch {
+        // 本地文件不存在，直接写入
+      }
+
+      if (shouldWrite) {
+        const content = await this.getFile(token, repo, entryRemotePath)
+        if (content !== null) {
+          const dir = localPath.replace(/\/[^/]+$/, '')
+          await mkdir(dir, { recursive: true })
+          await writeFile(localPath, content, 'utf-8')
+          count++
+        }
       }
     }
 
