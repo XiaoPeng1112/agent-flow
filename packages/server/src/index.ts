@@ -24,6 +24,7 @@ import { ArtifactMergeService } from './services/artifact-merge.js'
 import { MetricsCollector } from './services/metrics-collector.js'
 import { FeedbackCollector } from './services/feedback-collector.js'
 import { WeeklyDigest } from './services/weekly-digest.js'
+import { SyncService } from './services/sync.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -57,6 +58,7 @@ const metricsCollector = new MetricsCollector()
 const feedbackCollector = new FeedbackCollector()
 const weeklyDigest = new WeeklyDigest(feedbackCollector, metricsCollector)
 const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService)
+const syncService = new SyncService(authService, projectService, workflowEngine, templateService)
 
 // ═══════════════ Express 应用 ═══════════════
 
@@ -86,13 +88,14 @@ app.use('/api', createApiRouter({
   metricsCollector,
   feedbackCollector,
   weeklyDigest,
+  syncService,
 }))
 
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.7.0',
+    version: '2.7.1',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
@@ -136,7 +139,7 @@ function broadcast(message: WsMessage): void {
   }
 }
 
-// 注册 WorkflowEngine 事件 → 广播给所有 WebSocket 客户端 + 指标采集
+// 注册 WorkflowEngine 事件 → 广播给所有 WebSocket 客户端 + 指标采集 + 自动同步
 workflowEngine.onEvent((message) => {
   broadcast(message)
 
@@ -152,7 +155,22 @@ workflowEngine.onEvent((message) => {
         break
     }
   }
+
+  // 自动同步：Run 状态变化时标记 dirty 并触发 debounce push
+  if (message.type === 'run:status_changed' || message.type === 'run:node_updated') {
+    syncService.markDirty()
+    debouncedAutoSync()
+  }
 })
+
+// Debounced auto-sync（防止频繁推送，5秒内只触发一次）
+let autoSyncTimer: ReturnType<typeof setTimeout> | null = null
+function debouncedAutoSync() {
+  if (autoSyncTimer) clearTimeout(autoSyncTimer)
+  autoSyncTimer = setTimeout(() => {
+    syncService.autoSyncIfNeeded()
+  }, 5000)
+}
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[WS] Client connected')
@@ -210,6 +228,16 @@ async function start() {
   await authService.load()
   await contextDBService.initialize()
   await metricsCollector.load()
+  await syncService.load()
+
+  // 启动时尝试从远端拉取最新数据（静默，不中断启动）
+  if (syncService.getConfig()?.autoSync) {
+    syncService.pull().then(() => {
+      console.log('[Sync] Startup pull completed')
+    }).catch((err) => {
+      console.warn('[Sync] Startup pull failed (non-blocking):', err.message)
+    })
+  }
 
   console.log(`[Projects]  Loaded ${projectService.getProjects().length} projects`)
   console.log(`[Templates] Loaded ${templateService.getTemplates().length} workflow templates`)

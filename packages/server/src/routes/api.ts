@@ -19,6 +19,7 @@ import type { ArtifactMergeService } from '../services/artifact-merge.js'
 import type { MetricsCollector } from '../services/metrics-collector.js'
 import type { FeedbackCollector } from '../services/feedback-collector.js'
 import type { WeeklyDigest } from '../services/weekly-digest.js'
+import type { SyncService } from '../services/sync.js'
 
 export function createApiRouter(deps: {
   agentService: AgentService
@@ -41,6 +42,7 @@ export function createApiRouter(deps: {
   metricsCollector: MetricsCollector
   feedbackCollector: FeedbackCollector
   weeklyDigest: WeeklyDigest
+  syncService: SyncService
 }): Router {
   const router = Router()
   const {
@@ -50,7 +52,7 @@ export function createApiRouter(deps: {
     permissionIsolationService, a2aProtocolService,
     contractValidatorService, robustnessService, dynamicAgentFactory,
     contextDBService, artifactMergeService, metricsCollector,
-    feedbackCollector, weeklyDigest,
+    feedbackCollector, weeklyDigest, syncService,
   } = deps
 
   // ════════════════════════════════════════
@@ -1394,6 +1396,97 @@ export function createApiRouter(deps: {
       }
       const entry = feedbackCollector.recordManualNote({ runId, nodeId, note })
       res.json({ success: true, data: { entry } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  // ════════════════════════════════════════
+  // Sync API (GitHub 数据同步)
+  // ════════════════════════════════════════
+
+  /** 获取同步状态 */
+  router.get('/sync/status', (_req, res) => {
+    const status = syncService.getStatus()
+    res.json({ success: true, data: status })
+  })
+
+  /** 获取同步配置 */
+  router.get('/sync/config', (_req, res) => {
+    const config = syncService.getConfig()
+    res.json({ success: true, data: { config } })
+  })
+
+  /** 配置同步（设置远端仓库） */
+  router.post('/sync/config', async (req, res) => {
+    const { repoFullName, autoSync } = req.body
+    if (!repoFullName) {
+      res.status(400).json({ success: false, error: 'repoFullName is required' })
+      return
+    }
+    try {
+      const config = await syncService.configure(repoFullName, autoSync !== false)
+      res.json({ success: true, data: { config } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 更新自动同步开关 */
+  router.patch('/sync/config', async (req, res) => {
+    const { autoSync } = req.body
+    if (autoSync === undefined) {
+      res.status(400).json({ success: false, error: 'autoSync is required' })
+      return
+    }
+    try {
+      await syncService.setAutoSync(autoSync)
+      res.json({ success: true })
+    } catch (err) {
+      res.status(400).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 断开同步 */
+  router.delete('/sync/config', async (_req, res) => {
+    try {
+      await syncService.disconnect()
+      res.json({ success: true })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 推送本地数据到远端 */
+  router.post('/sync/push', async (_req, res) => {
+    try {
+      const result = await syncService.push()
+      res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 从远端拉取数据到本地 */
+  router.post('/sync/pull', async (_req, res) => {
+    try {
+      const result = await syncService.pull()
+      res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 创建同步专用私有仓库 */
+  router.post('/sync/create-repo', async (req, res) => {
+    const { repoName } = req.body
+    if (!repoName) {
+      res.status(400).json({ success: false, error: 'repoName is required' })
+      return
+    }
+    try {
+      const result = await syncService.createSyncRepo(repoName)
+      res.json({ success: true, data: result })
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message })
     }

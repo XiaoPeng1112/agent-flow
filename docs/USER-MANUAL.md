@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.7.0 | 更新日期：2026-05-31  
+> 版本：v2.7.1 | 更新日期：2026-06-01  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -819,6 +819,7 @@ npm run test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.7.1 | 2026-06-01 | GitHub Private Repo 数据同步 + Context DB 多设备同步 |
 | v2.7.0 | 2026-05-31 | 反馈闭环（FeedbackCollector + WeeklyDigest）+ 轻量迭代机制 |
 | v2.6.0 | 2026-05-31 | 产出物闭环（Diff Review + Merge/Discard）+ 可观测性增强（Metrics 指标采集 + 可视化） |
 | v2.5.0 | 2026-05-31 | DAG 可视化 + DET/HYB 执行模式 + Dynamic Agent + Context DB + Agent Tree + Checkpoint UI + Per-Project Agent 配置 + A2A 消息面板 |

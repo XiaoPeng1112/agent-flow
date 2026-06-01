@@ -108,6 +108,7 @@ npm run deploy
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.7.1 | 2026-06-01 | GitHub Private Repo 数据同步 + Context DB 多设备同步 |
 | v2.7.0 | 2026-05-31 | 反馈闭环（FeedbackCollector + WeeklyDigest）+ 轻量迭代机制 |
 | v2.6.0 | 2026-05-31 | 产出物闭环（Diff Review + Merge）+ 可观测性增强（Metrics 指标采集 + 可视化） |
 | v2.5.0 | 2026-05-31 | Per-Project Agent 配置（项目级 Agent 启用/禁用 + DAG 节点过滤） |

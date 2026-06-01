@@ -250,6 +250,15 @@ export class WorkflowEngine {
   }
 
   /**
+   * 导入 Run（从外部数据源，如远端同步）
+   * 如果本地已存在同 ID 的 Run，则覆盖
+   */
+  async importRun(runData: Run): Promise<void> {
+    this.runs.set(runData.id, runData)
+    await this.persist()
+  }
+
+  /**
    * 获取所有 Turn 数据（供 MetricsCollector 使用）
    */
   getAllTurns(): Map<string, AgentTurn[]> {

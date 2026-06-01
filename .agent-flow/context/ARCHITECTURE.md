@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-05-31（v2.7.0 — 反馈闭环 + 周报摘要）  
+> 最后更新：2026-06-01（v2.7.1 — GitHub Private Repo 数据同步 + Context DB 同步）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -66,11 +66,15 @@ agent-flow/
 │           │   ├── artifact-merge.ts      # [v2.6.0] 产出物闭环（Git worktree Diff Review + Merge/Discard）
 │           │   ├── metrics-collector.ts   # [v2.6.0] 可观测性指标采集（时间/Token/质量评分）
 │           │   ├── feedback-collector.ts  # [v2.7.0] 反馈采集器（审批打回/Discard/失败 自动记录）
-│           │   └── weekly-digest.ts       # [v2.7.0] 周报摘要生成器（汇总指标+反馈→Markdown）
+│           │   ├── weekly-digest.ts       # [v2.7.0] 周报摘要生成器（汇总指标+反馈→Markdown）
+│           │   └── sync.ts               # [v2.7.1] GitHub Private Repo 数据同步服务
 │           └── types/
 │               └── index.ts   # 核心类型定义（含 NodeContext、EdgeCondition、A2A、RBAC 等）
 ├── .agent-flow/
 │   └── context/         # 项目上下文文档（本目录）
+├── docs/
+│   ├── SYSTEM-INTRODUCTION.md  # 系统介绍文档
+│   └── USER-MANUAL.md          # 用户手册
 ├── scripts/
 │   └── sync-context.ts  # Context 同步检查脚本
 ├── package.json         # Monorepo 根配置
@@ -108,7 +112,17 @@ agent-flow/
 - 工作流模板：`~/.agent-flow/templates.json`
 - Run 历史：`~/.agent-flow/runs/index.json`
 - 认证信息：`~/.agent-flow/auth.json`
+- 同步配置：`~/.agent-flow/sync-config.json`
 - 日志：localStorage（前端，最近 200 条）
+
+### 数据同步（GitHub Private Repo）[v2.7.1]
+
+- 同步仓库：用户 GitHub 账号下的私有仓库（如 `agent-flow-data`）
+- 同步范围：projects.json、templates.json、runs/（元数据）、context-db/（项目上下文）
+- 不同步：auth.json（敏感）、sync-config.json（设备本地）、Run 完整输出日志（体积过大）
+- 同步机制：GitHub Contents API（无需本地 git CLI）
+- 冲突策略：LWW（Last Write Wins，以时间戳较新为准）
+- 触发时机：系统启动时自动 pull、关键写操作后防抖 push、手动触发
 
 ## 核心架构原理
 
@@ -328,6 +342,7 @@ API：`POST /api/robustness/retry`、`GET /api/robustness/dlq`、`POST /api/robu
 - **Agent 可见性控制**: [v2.5.0] 项目级 Agent 启用/禁用，限制用户只能使用已配置的 Agent
 - **产出物闭环**: [v2.6.0] Git worktree Diff Review + 三种合并策略，代码变更可审可控
 - **可观测性**: [v2.6.0] 全链路指标采集 + 持久化，运行效率可量化可追溯
+- **数据同步**: [v2.7.1] GitHub Private Repo 同步，多设备数据互通，Context DB 知识资产不丢失
 
 ## 运行方式
 

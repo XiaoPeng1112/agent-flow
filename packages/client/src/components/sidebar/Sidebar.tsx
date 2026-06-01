@@ -14,6 +14,7 @@ import { useAppStore } from '../../store/appStore'
 import { projectApi } from '../../api'
 import { AddProjectModal } from './AddProjectModal'
 import { UserPanel } from './UserPanel'
+import { SyncPanel } from './SyncPanel'
 import type { ServerStatus } from '../../hooks/useServerStatus'
 
 /** 从当前 URL pathname 中提取 projectId */
@@ -174,6 +175,8 @@ export function Sidebar({ serverStatus }: SidebarProps) {
           </button>
           {/* GitHub 登录 */}
           <UserPanel />
+          {/* 数据同步 */}
+          <SyncPanel />
         </div>
 
         {/* 添加项目按钮 */}

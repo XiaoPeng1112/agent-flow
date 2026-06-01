@@ -1,5 +1,78 @@
 # 开发日志
 
+## 2026-06-01 — v2.7.1 GitHub Private Repo 数据同步
+
+### 设计决策
+
+用户需要在公司电脑和休息日使用的其他设备间同步数据。经过方案对比（GitHub Gist、Supabase、自建服务器），最终选择 **GitHub Private Repo** 方案：利用用户已有的 GitHub 账号，创建一个独立的私有仓库（`agent-flow-data`）专门托管数据，通过 GitHub Contents API 进行文件 CRUD，无需本地 git CLI。
+
+核心设计原则：
+- 数据与系统代码解耦（独立仓库，不污染 agent-flow 主仓库）
+- 仅同步关键元数据和知识资产，不同步大体积日志和敏感信息
+- LWW（Last Write Wins）冲突策略，以时间戳较新为准
+- 无感知自动同步（启动 pull + 变更后防抖 push），同时保留手动触发入口
+
+### SyncService 后端（~720 行）
+
+新增 `packages/server/src/services/sync.ts`，核心能力：
+
+- **GitHub Contents API 封装**：`getFile` / `putFile` / `deleteFile` / `listDir` 四个基础方法
+- **Push（本地 → 远端）**：推送 projects.json、templates.json、runs/（每个 Run 一个文件）、context-db/（递归上传项目级上下文文件）、manifest.json
+- **Pull（远端 → 本地）**：拉取远端数据并合并到本地，支持 LWW 冲突检测
+- **Context DB 同步**：`pushContextDb()` 递归扫描各项目的 `.agent-flow/context/` 目录上传到远端 `context-db/{projectId}/`；`pullContextDb()` 递归下载到对应本地路径
+- **自动同步**：`markDirty()` 标记数据变更，`autoSyncIfNeeded()` 检测并触发 push
+- **仓库管理**：`createSyncRepo()` 一键创建私有仓库，`ensureRepoStructure()` 初始化远端目录结构
+
+### 远端仓库结构
+
+```
+agent-flow-data/  (private)
+├── manifest.json          (元信息：版本、同步时间、数据计数)
+├── projects.json          (项目列表)
+├── templates.json         (工作流模板)
+├── runs/
+│   └── {runId}.json       (每个 Run 独立文件，不含完整 output)
+└── context-db/
+    ├── _global/           (全局 SYS/L0/L1/L2 层)
+    └── {projectId}/       (项目级 context 文件)
+```
+
+### Sync API 路由
+
+新增 6 条路由：
+- `GET /api/sync/status` — 获取同步状态（configured / authenticated / dirty / lastSyncAt）
+- `GET /api/sync/config` — 获取同步配置
+- `POST /api/sync/config` — 配置同步仓库（repoFullName + autoSync）
+- `PATCH /api/sync/config` — 更新自动同步开关
+- `DELETE /api/sync/config` — 断开同步
+- `POST /api/sync/push` — 手动触发 push
+- `POST /api/sync/pull` — 手动触发 pull
+- `POST /api/sync/create-repo` — 创建同步仓库
+
+### 前端 SyncPanel 组件
+
+新增 `packages/client/src/components/sidebar/SyncPanel.tsx`（~350 行）：
+- 同步状态指示灯（已配置/未配置/同步中）
+- Push / Pull 按钮 + 操作结果反馈
+- Auto Sync 开关
+- 断开同步操作
+- `SyncConfigModal` 弹窗：仓库选择（列出用户 repos）或创建新仓库
+
+### 主入口集成
+
+- `packages/server/src/index.ts`：实例化 SyncService，启动时加载配置 + 自动 pull，WorkflowEngine 事件触发 markDirty + 防抖 autoSync
+- `packages/client/src/components/sidebar/Sidebar.tsx`：集成 SyncPanel 组件
+- `packages/client/src/api/index.ts`：新增 `syncApi` 客户端方法
+
+### 实际验证
+
+- 创建了私有仓库 `XiaoPeng1112/agent-flow-data`
+- 首次 push 成功同步 13 个文件（2 项目 + 4 模板 + 4 Run + 6 Context 文件 + manifest）
+- curl 验证远端仓库结构和文件内容完全正确
+- 后端服务模块数 21 → 22（+SyncService）
+
+---
+
 ## 2026-05-31 — v2.7.0 反馈闭环 + 周报摘要
 
 ### 设计决策

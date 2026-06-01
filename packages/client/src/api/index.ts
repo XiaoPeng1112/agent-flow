@@ -458,6 +458,61 @@ export const a2aApi = {
     }),
 }
 
+// ═══════════════ Sync API (GitHub 数据同步) ═══════════════
+
+export const syncApi = {
+  /** 获取同步状态 */
+  getStatus: () => request<{
+    configured: boolean
+    repoFullName: string | null
+    autoSync: boolean
+    lastSyncAt: number | null
+    lastCommitSha: string | null
+    authenticated: boolean
+    dirty: boolean
+  }>('/sync/status'),
+
+  /** 获取同步配置 */
+  getConfig: () => request<{ config: any }>('/sync/config'),
+
+  /** 配置同步仓库 */
+  configure: (repoFullName: string, autoSync = true) =>
+    request<{ config: any }>('/sync/config', {
+      method: 'POST',
+      body: JSON.stringify({ repoFullName, autoSync }),
+    }),
+
+  /** 更新自动同步开关 */
+  setAutoSync: (autoSync: boolean) =>
+    request<void>('/sync/config', {
+      method: 'PATCH',
+      body: JSON.stringify({ autoSync }),
+    }),
+
+  /** 断开同步 */
+  disconnect: () =>
+    request<void>('/sync/config', { method: 'DELETE' }),
+
+  /** 推送到远端 */
+  push: () =>
+    request<{ success: boolean; filesUpdated: number; commitSha?: string }>('/sync/push', {
+      method: 'POST',
+    }),
+
+  /** 从远端拉取 */
+  pull: () =>
+    request<{ success: boolean; filesRead: number; conflicts: string[] }>('/sync/pull', {
+      method: 'POST',
+    }),
+
+  /** 创建同步专用私有仓库 */
+  createRepo: (repoName: string) =>
+    request<{ full_name: string; html_url: string }>('/sync/create-repo', {
+      method: 'POST',
+      body: JSON.stringify({ repoName }),
+    }),
+}
+
 // ═══════════════ WebSocket（带生命周期管理的重连机制） ═══════════════
 
 /**

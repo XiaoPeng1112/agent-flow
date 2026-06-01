@@ -1,7 +1,7 @@
 # AgentFlow 系统介绍
 
 > 面向团队讲解的完整系统说明  
-> 版本：v2.7.0 | 作者：@XiaoPeng1112 | 日期：2026-05-31
+> 版本：v2.7.1 | 作者：@XiaoPeng1112 | 日期：2026-06-01
 
 ---
 
@@ -89,9 +89,17 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 **WeeklyDigest**——汇总 feedback + metrics 数据，输出 Markdown 周报摘要，包含执行概览、反馈统计、高频问题 Top 5、Agent 表现排行。
 
-这是"发现问题 → 记录 → 决策改进"的最小闭环。
+这是“发现问题 → 记录 → 决策改进”的最小闭环。
 
-### 3.6 前端可视化
+### 3.6 数据同步（v2.7.1）
+
+**SyncService**——基于 GitHub Private Repo 的多设备数据同步服务。用户登录 GitHub 后，系统自动创建一个私有仓库（`agent-flow-data`）作为数据中心，通过 GitHub Contents API 实现文件级别的同步。
+
+同步范围包括项目配置、工作流模板、Run 元数据、以及最重要的 Context DB（项目级上下文知识文件）。采用 LWW（Last Write Wins）冲突策略，系统启动时自动 pull、关键写操作后防抖 push，日常使用无感知。
+
+这解决了“公司电脑和家里电脑数据不互通”的痛点，确保知识资产（架构文档、决策记录、开发日志）在多设备间始终保持一致。
+
+### 3.7 前端可视化
 
 - DAG 图形化视图（基于 @xyflow/react，拓扑分层自动布局，状态着色动画）
 - A2A 消息面板（SVG 拓扑图 + 时间线 + 统计三视图）
@@ -101,7 +109,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 - Checkpoint 面板（Timeline 快照 + 恢复 + 健康监控）
 - Context DB 编辑器（四层上下文 CRUD + 装配预览）
 
-### 3.7 工程质量
+### 3.8 工程质量
 
 - TypeScript 全量类型覆盖（Server + Client 零 TS 错误）
 - Vitest 单元测试 68 cases 覆盖工作流引擎、A2A 协议、合同验证三大核心
@@ -109,7 +117,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 - ErrorBoundary 全局错误隔离
 - 文件系统路径穿越防护 + OAuth CSRF 防护 + Agent 权限隔离
 
-### 3.8 完整技术栈
+### 3.9 完整技术栈
 
 前端：React 19 + TypeScript 6 + Vite 8 + Tailwind CSS v4 + Ant Design 6 + Zustand 5 + React Router 7
 
@@ -199,7 +207,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 ### 6.1 短期（当前可用）
 
-当前 v2.7.0 已经是一个功能完整的闭环系统：
+当前 v2.7.1 已经是一个功能完整的闭环系统：
 
 ```
 需求输入 → DAG 编排 → Agent 执行 → 人工审查 → Diff Review → 合并/丢弃
@@ -207,7 +215,9 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
      ← ← ← ← ← Feedback 反馈 ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 ```
 
-可以直接在个人开发中使用，验证"AI 多角色协作开发"这套流程是否真的能提升效率。
+同时，v2.7.1 新增的 GitHub Private Repo 数据同步能力，让用户可以在多台设备间无缝切换工作，数据自动互通。
+
+可以直接在个人开发中使用，验证“AI 多角色协作开发”这套流程是否真的能提升效率。
 
 ### 6.2 中期演进方向
 
@@ -237,13 +247,13 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 | 维度 | 数据 |
 |------|------|
-| 后端服务模块 | 21 个 |
+| 后端服务模块 | 22 个 |
 | 前端组件/页面 | ~30 个 |
 | 单元测试 | 68 cases |
 | 技术决策记录（ADR） | 16 个 |
 | 内置工作流模板 | 4 个 |
-| REST API 端点 | ~50 个 |
-| 版本迭代 | v1.0.0 → v2.7.0（9 个版本） |
+| REST API 端点 | ~58 个 |
+| 版本迭代 | v1.0.0 → v2.7.1（10 个版本） |
 | 开发方式 | 人 + AI（CatDesk）对话式协作 |
 
 ---
