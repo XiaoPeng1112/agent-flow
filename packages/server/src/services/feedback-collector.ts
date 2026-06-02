@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, readdir } from 'fs/promises'
+import { readFile, mkdir, readdir } from 'fs/promises'
 import { join } from 'path'
 
 // ═══════════════════════════════════════════════════

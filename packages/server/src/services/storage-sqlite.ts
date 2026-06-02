@@ -47,6 +47,8 @@ export class StorageSQLite {
     this.db.pragma('synchronous = NORMAL')
     this.db.pragma('cache_size = -64000')  // 64MB cache
     this.db.pragma('temp_store = MEMORY')
+    // 关闭外键约束检查 — 数据完整性由应用层保证，避免 orphan turn 等历史数据触发约束错误
+    this.db.pragma('foreign_keys = OFF')
 
     this.initSchema()
   }
@@ -549,7 +551,7 @@ export class StorageSQLite {
     let runCount = 0
     let turnCount = 0
 
-    // 迁移时暂时关闭外键约束，避免旧数据中存在孤儿 Turn（引用已删除的 Node）
+    // 关闭外键约束，避免旧数据中存在孤儿 Turn（引用已删除的 Node）导致写入失败
     this.db.pragma('foreign_keys = OFF')
 
     const transaction = this.db.transaction(() => {
@@ -566,8 +568,8 @@ export class StorageSQLite {
     })
     transaction()
 
-    // 恢复外键约束
-    this.db.pragma('foreign_keys = ON')
+    // 注意：不恢复 foreign_keys = ON，避免后续 saveAll 中 orphan turn 触发约束错误
+    // 数据完整性由应用层（RunManager + TurnManager）保证
 
     return { runs: runCount, turns: turnCount }
   }

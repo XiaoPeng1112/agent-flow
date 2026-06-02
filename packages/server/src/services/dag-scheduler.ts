@@ -1,6 +1,7 @@
 import type {
   Run, TaskNode, DAGEdge, AgentTurn,
   WsMessage, NodeContext, PredecessorOutput,
+  EntryCondition, ExitCondition,
 } from '../types/index.js'
 
 /**
@@ -73,12 +74,151 @@ export class DAGScheduler {
           return sourceNode?.status === 'completed' || sourceNode?.status === 'skipped'
         })
         if (allPredecessorsCompleted) {
+          // 检查 entryConditions（如果定义了，必须全部满足才能进入 ready）
+          if (node.entryConditions && node.entryConditions.length > 0) {
+            const entryResult = this.evaluateEntryConditions(run, node)
+            if (!entryResult.passed) {
+              // 条件不满足：跳过该节点，记录原因
+              node.status = 'skipped'
+              node.error = `准入条件未满足: ${entryResult.failedReason}`
+              this.emitter('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
+              continue
+            }
+          }
+
           node.status = 'ready'
           // Context Chaining
           node.context = this.buildNodeContext(run, node, edgesToCheck)
           this.emitter('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
         }
       }
+    }
+  }
+
+  // ═══════════════ 准入/准出条件评估 ═══════════════
+
+  /**
+   * 评估节点准入条件（entryConditions）
+   * 所有条件必须全部满足才通过
+   */
+  evaluateEntryConditions(run: Run, node: TaskNode): { passed: boolean; failedReason?: string } {
+    if (!node.entryConditions || node.entryConditions.length === 0) {
+      return { passed: true }
+    }
+
+    for (const cond of node.entryConditions) {
+      const result = this.checkEntryCondition(run, cond)
+      if (!result.passed) {
+        return { passed: false, failedReason: result.reason || cond.description || `条件 ${cond.type}:${cond.value} 不满足` }
+      }
+    }
+    return { passed: true }
+  }
+
+  private checkEntryCondition(run: Run, cond: EntryCondition): { passed: boolean; reason?: string } {
+    switch (cond.type) {
+      case 'predecessor_status': {
+        // value 格式: "{nodeId}:{expectedStatus}" 或直接 "{nodeId}"（默认检查 completed）
+        const [nodeRef, expectedStatus = 'completed'] = cond.value.split(':')
+        const targetNode = run.nodes.find(n => n.id.endsWith(nodeRef) || n.name === nodeRef)
+        if (!targetNode) {
+          return { passed: false, reason: `前置节点 "${nodeRef}" 不存在` }
+        }
+        if (targetNode.status !== expectedStatus) {
+          return { passed: false, reason: `前置节点 "${targetNode.name}" 状态为 ${targetNode.status}，需要 ${expectedStatus}` }
+        }
+        return { passed: true }
+      }
+
+      case 'artifact_exists': {
+        // value 格式: "{nodeId}.{contractId/title}"
+        const dotIdx = cond.value.indexOf('.')
+        if (dotIdx === -1) {
+          return { passed: false, reason: `artifact_exists 格式错误: "${cond.value}"` }
+        }
+        const nodeRef = cond.value.slice(0, dotIdx)
+        const artifactRef = cond.value.slice(dotIdx + 1)
+        const targetNode = run.nodes.find(n => n.id.endsWith(nodeRef) || n.name === nodeRef)
+        if (!targetNode) {
+          return { passed: false, reason: `节点 "${nodeRef}" 不存在` }
+        }
+        const hasArtifact = targetNode.artifacts.some(a =>
+          a.title.toLowerCase().includes(artifactRef.toLowerCase()) ||
+          a.id === artifactRef
+        )
+        if (!hasArtifact) {
+          return { passed: false, reason: `节点 "${targetNode.name}" 缺少产出物 "${artifactRef}"` }
+        }
+        return { passed: true }
+      }
+
+      case 'expression':
+        // 预留：可扩展为自定义表达式求值
+        return { passed: true }
+
+      default:
+        return { passed: true }
+    }
+  }
+
+  /**
+   * 评估节点准出条件（exitConditions）
+   * 在节点提交完成前调用，所有条件全部满足才允许节点标记为 completed
+   */
+  evaluateExitConditions(run: Run, node: TaskNode): { passed: boolean; failedReason?: string } {
+    if (!node.exitConditions || node.exitConditions.length === 0) {
+      return { passed: true }
+    }
+
+    for (const cond of node.exitConditions) {
+      const result = this.checkExitCondition(run, node, cond)
+      if (!result.passed) {
+        return { passed: false, failedReason: result.reason || cond.description || `准出条件 ${cond.type}:${cond.value} 不满足` }
+      }
+    }
+    return { passed: true }
+  }
+
+  private checkExitCondition(_run: Run, node: TaskNode, cond: ExitCondition): { passed: boolean; reason?: string } {
+    switch (cond.type) {
+      case 'output_contains': {
+        // 检查最后一个 Turn 的输出是否包含指定关键字
+        const nodeTurns = this.turnManager.getTurns(node.id)
+        const lastTurn = [...nodeTurns].reverse().find(t => t.status === 'completed')
+        if (!lastTurn?.output?.includes(cond.value)) {
+          return { passed: false, reason: `节点输出中未包含 "${cond.value}"` }
+        }
+        return { passed: true }
+      }
+
+      case 'lint_pass': {
+        // 检查 output 中是否有 lint 通过标记（约定性检查）
+        const nodeTurns = this.turnManager.getTurns(node.id)
+        const lastTurn = [...nodeTurns].reverse().find(t => t.status === 'completed')
+        const hasLintIssue = lastTurn?.output?.includes('lint error') || lastTurn?.output?.includes('eslint')
+        if (hasLintIssue) {
+          return { passed: false, reason: `存在 lint 错误` }
+        }
+        return { passed: true }
+      }
+
+      case 'test_pass': {
+        // 检查 output 中是否有 test 通过标记
+        const nodeTurns = this.turnManager.getTurns(node.id)
+        const lastTurn = [...nodeTurns].reverse().find(t => t.status === 'completed')
+        const hasTestFail = lastTurn?.output?.includes('FAIL') || lastTurn?.output?.includes('test failed')
+        if (hasTestFail) {
+          return { passed: false, reason: `存在测试失败` }
+        }
+        return { passed: true }
+      }
+
+      case 'expression':
+        // 预留扩展
+        return { passed: true }
+
+      default:
+        return { passed: true }
     }
   }
 

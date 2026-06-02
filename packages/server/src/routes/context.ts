@@ -19,6 +19,17 @@ export function createContextRouter(deps: {
     }
   })
 
+  /** 按 runId 批量列出该 Run 所有节点的 L2 文件 */
+  router.get('/L2-by-run/:runId', async (req, res) => {
+    const { runId } = req.params
+    try {
+      const files = await contextDBService.listL2FilesByRunId(runId)
+      res.json({ success: true, data: { files } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
   /** 列出某层级某 scope 下的所有上下文文件 */
   router.get('/:level/:scopeId', async (req, res) => {
     const { level, scopeId } = req.params

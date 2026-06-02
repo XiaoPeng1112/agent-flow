@@ -17,6 +17,41 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.8.0',
+    date: '2026-06-02',
+    title: 'Context DB 四层体系闭环 + 模板声明式重构 + 项目 Settings 增强 + DAG 准入准出引擎',
+    type: 'feature',
+    highlights: [
+      'L0/L2 种子文件自动生成（创建项目/Run 时即刻写入引导模板）',
+      'L2 面板重构：按 Run 批量加载 + 节点筛选器（中文标签）',
+      'Sidebar 新增 Context DB · SYS / L1 全局编辑入口（独立页面）',
+      '模板声明式重构：roleStatement + inputs + entryConditions + exitConditions',
+      'DynamicAgentFactory 异步化 + Context DB 四层装配内化到 createInstance',
+      'Agent Prompt 装配顺序重构（严格 SYS→L0→L1→inputs→L2→userInput 分层）',
+      'DAG 准入/准出条件评估引擎（EntryCondition + ExitCondition 自动门控）',
+      '项目 Settings 面板增强（运行统计/Token 趋势/数据导出/Run 清理/上下文预览）',
+      '新增 6 条项目级 API（stats/token-trend/export/cleanup-runs/context-preview）',
+      '修复 FOREIGN KEY constraint failed 阻断 Run 创建',
+    ],
+    details: `v2.8.0 是 Context DB 四层上下文体系的闭环版本，同时完成了模板声明式重构和 Agent Prompt 装配链路的全面升级，使"上下文从哪里来、怎么装配、注入到哪里"的完整链路清晰可控。
+
+【Context DB 种子文件】创建项目时自动生成 L0 种子（architecture.md + tech-stack.md），创建 Run 时按节点类型动态生成 L2 种子（context.md），内容根据节点角色差异化引导：specify 侧重需求背景、design 侧重架构约束、implement 侧重编码规范、review 侧重审查标准、test 侧重测试策略、deliver 侧重部署流程。新增 ensureL0Seeds() 在服务启动时为所有旧项目幂等补种。
+
+【L2 面板重构】原 ContextDBPanel 因未传入 nodeId 导致 L2 层始终为空。重构后传入 runId，通过新 API GET /context-db/L2-by-run/:runId 批量加载该 Run 所有节点的 L2 文件。新增节点筛选 Select（带中文标签如 specify（需求定义）、implement（编码实现）等），文件列表显示所属节点名，支持按节点过滤和编辑。
+
+【Context DB SYS/L1 编辑入口】Sidebar 底部新增 Context DB · SYS 和 Context DB · L1 两个导航按钮，分别跳转到独立的全局编辑页面（ContextDBSysPage / ContextDBL1Page），补全了 SYS 和 L1 层此前缺失的编辑入口，四层上下文至此全部可管理。原更新日志和项目介绍链接收入折叠"更多"区域。
+
+【模板声明式重构】TemplateNode 新增四个核心字段：roleStatement（角色身份声明，取代原 prompt 的"你是什么角色"部分）、inputs（声明式输入依赖，格式 "{nodeId}.{contractId}"）、entryConditions（准入条件）、exitConditions（准出条件）。模板职责边界明确：只声明流程骨架，不硬编码任何具体项目/规范/任务信息。标准 SDD 模板全部节点已重写为新格式。
+
+【DynamicAgentFactory 异步化】createInstance() 从同步改为 async，内部自动 await Context DB 四层装配（assembleContext），不再需要路由层手动调 contextDBService。buildFullPrompt() 按严格分层顺序组装：角色身份 → SYS 全局规则 → L0 项目信息 → L1 协作协议 → inputs 前置产出物 → L2 节点指令 → userInput 用户输入。越往后越具体、优先级越高。
+
+【DAG 准入/准出条件引擎】DAGScheduler.computeReadyNodes() 新增 entryConditions 评估：predecessor_status（指定前置节点状态检查）、artifact_exists（指定产出物存在性检查）、expression（自定义表达式）。条件不满足时节点自动 skip 并记录原因。ExitCondition 支持 output_contains / lint_pass / test_pass / expression 四种类型，供节点完成时校验。类型系统新增 EntryCondition / ExitCondition 接口定义。
+
+【项目 Settings 增强】SettingsPanel 从简单表单升级为多模块管理面板：RunInsights（运行统计卡片 + Token 趋势图）、数据导出（快照打包）、Run 批量清理（按天数/状态/指定 ID）、上下文装配预览（可视化查看 Agent 实际收到的完整 Prompt）。新增 5 条后端 API：GET /:id/stats、GET /:id/token-trend、POST /:id/export、POST /:id/cleanup-runs、POST /:id/context-preview。
+
+【FOREIGN KEY 修复】StorageSqlite 构造函数显式设置 foreign_keys = OFF，解决 migrateFromJson() 遗留 foreign_keys = ON 导致后续 Run 创建被外键约束阻断的问题。`,
+  },
+  {
     version: 'v2.7.3',
     date: '2026-06-02',
     title: 'SQLite 持久化迁移 + WorkflowEngine Facade 拆分 + 路由模块化',

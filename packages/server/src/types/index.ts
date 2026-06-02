@@ -85,7 +85,12 @@ export interface TaskNode {
   agentRole: AgentRole           // 由哪种角色的 Agent 执行
   skillIds: string[]             // 绑定的 Skills
   artifacts: Artifact[]          // 产出物
-  prompt?: string                // 节点级 prompt
+  prompt?: string                // 节点级 prompt（向后兼容）
+  roleStatement?: string         // 角色声明（新模板使用）
+  inputs?: string[]              // 声明式输入依赖（从模板继承）
+  outputContracts?: OutputContract[] // 产出物契约（从模板继承）
+  entryConditions?: EntryCondition[] // 准入条件（从模板继承）
+  exitConditions?: ExitCondition[]   // 准出条件（从模板继承）
   userInput?: string             // 用户补充输入
   context?: NodeContext          // 从前置节点继承的上下文
   order: number                  // 执行顺序（DAG 拓扑排序用）
@@ -277,11 +282,70 @@ export interface TemplateNode {
   description: string
   agentRole: AgentRole
   skillIds: string[]
-  prompt?: string                // 默认 prompt 模板
+
+  /**
+   * 节点角色声明（精简版 prompt）
+   * 只描述"你是谁、你在流程中的位置、你的职能边界"
+   * 不包含具体任务细节（那是 L2 的事）、不包含项目信息（那是 L0 的事）
+   * 不包含协作规则（那是 L1 的事）、不包含编码规范（那是 SYS 的事）
+   */
+  roleStatement: string
+
+  /**
+   * 向后兼容的 prompt 字段（deprecated，迁移期保留）
+   * 新模板应使用 roleStatement + Context DB 四层体系
+   */
+  prompt?: string
+
+  /**
+   * 声明式输入依赖：本节点需要哪些前置节点的产出物
+   * 格式: "{sourceNodeId}.{outputContractId}" 或 "{sourceNodeId}.*"（全部产出物）
+   * 装配引擎会自动将这些产出物注入到 Agent 的 prompt 中
+   */
+  inputs?: string[]
+
+  /**
+   * 产出物契约：本节点必须/可选输出的结构化产物
+   * 下游节点可通过 inputs 字段引用这些产出物
+   */
   outputContracts?: OutputContract[]
+
+  /**
+   * 准入条件：前置节点满足什么状态/输出条件才能启动本节点
+   * 默认：所有前置节点 status === 'completed'
+   */
+  entryConditions?: EntryCondition[]
+
+  /**
+   * 准出条件：本节点完成的标准（除了 outputContracts 全部满足之外的额外条件）
+   */
+  exitConditions?: ExitCondition[]
+
   executionMode?: ExecutionMode  // 执行模式，默认 'llm'
   script?: string                // DET/HYB 模式下的脚本命令
   scriptCwd?: string             // 脚本执行的工作目录（相对于项目根目录）
+}
+
+/**
+ * 准入条件：节点启动前的检查项
+ */
+export interface EntryCondition {
+  type: 'predecessor_status' | 'artifact_exists' | 'expression'
+  /** predecessor_status: 指定前置节点 ID; artifact_exists: "{nodeId}.{contractId}"; expression: 自定义表达式 */
+  value: string
+  /** 条件描述（用于 UI 展示和 Agent 理解） */
+  description?: string
+}
+
+/**
+ * 准出条件：节点完成的额外验证规则
+ */
+export interface ExitCondition {
+  type: 'output_contains' | 'lint_pass' | 'test_pass' | 'expression'
+  /** 具体的验证值或规则 */
+  value: string
+  /** 条件描述 */
+  description?: string
 }
 
 // ─── Repo Isolation (仓库隔离) ───
@@ -524,17 +588,28 @@ export interface DynamicAgentInstance {
 
 /**
  * 作用域上下文：动态注入到 Agent 的精确上下文
- * 包含系统指令、节点信息、前置产出物、项目上下文等
+ * 
+ * 装配顺序（buildFullPrompt 的组装优先级）：
+ * 1. roleStatement — 角色身份声明（你是谁、你的职能边界）
+ * 2. SYS 上下文   — 全局规则（编码规范、安全策略、输出格式）
+ * 3. L0 上下文    — 项目级信息（技术栈、架构、业务背景）
+ * 4. L1 上下文    — 模板级协作协议（节点间数据流契约、质量基线）
+ * 5. inputs 产出物 — 从前置节点声明式获取的产出物内容
+ * 6. L2 上下文    — 节点级精确指令（本次具体任务的补充说明）
+ * 7. userInput    — 用户的本次输入
  */
 export interface ScopedContext {
-  systemPrompt: string              // 角色系统提示（基于 agentRole 动态生成）
+  /** 角色声明（优先使用 roleStatement，兜底使用 agentRole 自动生成） */
+  roleStatement: string
+  /** 系统角色提示（向后兼容：当 roleStatement 不存在时使用） */
+  systemPrompt: string
   nodeDescription: string           // 节点描述
-  nodePrompt?: string               // 节点级 prompt
-  predecessorSummaries: string[]    // 前置节点摘要
-  projectContext?: string           // 项目上下文（产品 + 技术）
+  nodePrompt?: string               // 节点级 prompt（向后兼容）
+  predecessorSummaries: string[]    // 前置节点摘要（从 inputs 声明解析）
+  projectContext?: string           // 项目上下文（L0 不可用时的兜底）
   skills: string[]                  // 注入的 skill ID 列表
   variables: Record<string, string> // 模板变量
-  contextLayers?: ContextLayer[]    // 多层上下文（预留 Context DB 集成）
+  contextLayers?: ContextLayer[]    // Context DB 四层上下文
 }
 
 /**

@@ -12,6 +12,8 @@ const ProjectPage = lazy(() => import('../pages/ProjectPage'))
 const RunDetailPage = lazy(() => import('../pages/RunDetailPage'))
 const ChangelogPage = lazy(() => import('../pages/ChangelogPage'))
 const AboutPage = lazy(() => import('../pages/AboutPage'))
+const ContextDBSysPage = lazy(() => import('../pages/ContextDBSysPage'))
+const ContextDBL1Page = lazy(() => import('../pages/ContextDBL1Page'))
 
 /**
  * 企业级路由配置
@@ -64,6 +66,14 @@ export const router = createBrowserRouter(
         {
           path: 'about',
           element: <SuspenseWrapper><AboutPage /></SuspenseWrapper>,
+        },
+        {
+          path: 'context-db/sys',
+          element: <SuspenseWrapper><ContextDBSysPage /></SuspenseWrapper>,
+        },
+        {
+          path: 'context-db/l1',
+          element: <SuspenseWrapper><ContextDBL1Page /></SuspenseWrapper>,
         },
       ],
     },

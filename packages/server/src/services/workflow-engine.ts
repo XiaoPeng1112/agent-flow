@@ -8,6 +8,7 @@ import type {
 import { RunManager } from './run-manager.js'
 import { DAGScheduler } from './dag-scheduler.js'
 import { TurnManager } from './turn-manager.js'
+import type { ContextDBService } from './context-db.js'
 
 type EventHandler = (message: WsMessage) => void
 
@@ -52,6 +53,7 @@ export class WorkflowEngine {
       dagScheduler: {
         computeReadyNodes: (run: Run) => this.dagScheduler.computeReadyNodes(run),
         getDownstreamNodes: (run: Run, nodeId: string) => this.dagScheduler.getDownstreamNodes(run, nodeId),
+        evaluateExitConditions: (run: Run, node: TaskNode) => this.dagScheduler.evaluateExitConditions(run, node),
       },
       turnManager: {
         getTurns: (nodeId: string) => this.turnManager.getTurns(nodeId),
@@ -62,6 +64,11 @@ export class WorkflowEngine {
   }
 
   // ═══════════════ 初始化 ═══════════════
+
+  /** 注入 ContextDBService（用于 L2 种子文件自动生成） */
+  injectContextDB(contextDBService: ContextDBService): void {
+    this.runManager.injectContextDB(contextDBService)
+  }
 
   async load(): Promise<void> {
     await this.runManager.load()

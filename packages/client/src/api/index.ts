@@ -53,6 +53,48 @@ export const projectApi = {
       method: 'PUT',
       body: JSON.stringify({ enabledAgentIds }),
     }),
+
+  /** 获取项目运行统计 */
+  getStats: (id: string) =>
+    request<{
+      totalRuns: number
+      completedRuns: number
+      failedRuns: number
+      runningRuns: number
+      successRate: number
+      totalNodes: number
+      completedNodes: number
+      totalTokens: number
+      totalInputTokens: number
+      totalOutputTokens: number
+      avgDuration: number
+      lastRunAt: number | null
+    }>(`/projects/${id}/stats`),
+
+  /** 获取项目 Token 使用趋势 */
+  getTokenTrend: (id: string, days = 14) =>
+    request<{ trend: Array<{ date: string; runs: number; tokens: number }>; days: number }>(`/projects/${id}/token-trend?days=${days}`),
+
+  /** 导出项目数据快照 */
+  exportData: (id: string, options?: { includeRuns?: boolean; includeContext?: boolean }) =>
+    request<any>(`/projects/${id}/export`, {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    }),
+
+  /** 批量清理项目 Runs */
+  cleanupRuns: (id: string, params: { olderThanDays?: number; status?: string; runIds?: string[] }) =>
+    request<{ deleted: number; total: number }>(`/projects/${id}/cleanup-runs`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  /** 获取上下文装配预览 */
+  getContextPreview: (id: string, params?: { templateId?: string; nodeId?: string }) =>
+    request<{ layers: any[]; formatted: string; totalLayers: number; totalChars: number }>(`/projects/${id}/context-preview`, {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }),
 }
 
 // ═══════════════ Template API ═══════════════
@@ -362,6 +404,10 @@ export const contextDBApi = {
   /** 列出某层级的文件列表 */
   listFiles: (level: string, scopeId: string) =>
     request<{ files: Array<{ filename: string; level: string; scopeId: string; size: number }> }>(`/context-db/${level}/${scopeId}`),
+
+  /** 按 runId 批量列出该 Run 所有节点的 L2 文件 */
+  listL2ByRun: (runId: string) =>
+    request<{ files: Array<{ filename: string; level: string; scopeId: string; size: number; nodeName: string }> }>(`/context-db/L2-by-run/${runId}`),
 
   /** 读取上下文文件 */
   getFile: (level: string, scopeId: string, filename: string) =>

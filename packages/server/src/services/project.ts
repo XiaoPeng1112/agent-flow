@@ -4,6 +4,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import type { ProjectData, SkillConfig, ProjectContext } from '../types/index.js'
 import { SkillService } from './skill.js'
+import type { ContextDBService } from './context-db.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -15,11 +16,17 @@ export class ProjectService {
   private projects: ProjectData[] = []
   private storagePath: string
   private skillService: SkillService
+  private contextDBService?: ContextDBService
 
   constructor(skillService: SkillService) {
     this.skillService = skillService
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
     this.storagePath = join(home, '.agent-flow', 'projects.json')
+  }
+
+  /** 注入 ContextDBService（延迟注入避免循环依赖） */
+  injectContextDB(contextDBService: ContextDBService): void {
+    this.contextDBService = contextDBService
   }
 
   /** 加载已保存的项目列表 */
@@ -29,6 +36,18 @@ export class ProjectService {
       this.projects = JSON.parse(raw)
     } catch {
       this.projects = []
+    }
+  }
+
+  /** 为所有已有项目补种 L0 种子文件（幂等：seedIfNotExists 不会覆盖已有文件） */
+  async ensureL0Seeds(): Promise<void> {
+    if (!this.contextDBService) return
+    for (const project of this.projects) {
+      try {
+        await this.contextDBService.seedL0ForProject(project.id, project.name)
+      } catch (err) {
+        console.warn(`[ProjectService] Failed to ensure L0 seed for ${project.id}:`, (err as Error).message)
+      }
     }
   }
 
@@ -69,6 +88,16 @@ export class ProjectService {
     }
     this.projects.push(project)
     await this.save()
+
+    // 为新项目生成 L0 种子文件（architecture.md + tech-stack.md）
+    if (this.contextDBService) {
+      try {
+        await this.contextDBService.seedL0ForProject(project.id, project.name)
+      } catch (err) {
+        console.warn(`[ProjectService] Failed to seed L0 context for project ${project.id}:`, (err as Error).message)
+      }
+    }
+
     return project
   }
 

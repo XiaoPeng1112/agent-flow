@@ -60,6 +60,10 @@ const weeklyDigest = new WeeklyDigest(feedbackCollector, metricsCollector)
 const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService)
 const syncService = new SyncService(authService, projectService, workflowEngine, templateService)
 
+// 注入 ContextDBService 到需要它的服务（延迟注入避免循环依赖）
+projectService.injectContextDB(contextDBService)
+workflowEngine.injectContextDB(contextDBService)
+
 // ═══════════════ Express 应用 ═══════════════
 
 const app = express()
@@ -227,6 +231,7 @@ async function start() {
   await templateService.load()
   await authService.load()
   await contextDBService.initialize()
+  await projectService.ensureL0Seeds()
   await metricsCollector.load()
   await syncService.load()
 

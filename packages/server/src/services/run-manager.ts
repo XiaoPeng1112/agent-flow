@@ -7,6 +7,7 @@ import type {
   InboxItem, WsMessage,
 } from '../types/index.js'
 import { StorageSQLite } from './storage-sqlite.js'
+import type { ContextDBService } from './context-db.js'
 
 type EventHandler = (message: WsMessage) => void
 
@@ -35,6 +36,7 @@ export class RunManager {
   private dagScheduler!: {
     computeReadyNodes(run: Run): void
     getDownstreamNodes(run: Run, nodeId: string): TaskNode[]
+    evaluateExitConditions(run: Run, node: TaskNode): { passed: boolean; failedReason?: string }
   }
 
   /** 外部注入的 TurnManager 引用（用于 orphan 清理） */
@@ -43,6 +45,9 @@ export class RunManager {
     setTurns(nodeId: string, turns: AgentTurn[]): void
     getAllTurnsMap(): Map<string, AgentTurn[]>
   }
+
+  /** 外部注入的 ContextDBService（用于 L2 种子文件生成） */
+  private contextDBService?: ContextDBService
 
   constructor() {
     this.storage = new StorageSQLite()
@@ -57,6 +62,11 @@ export class RunManager {
   }): void {
     this.dagScheduler = deps.dagScheduler
     this.turnManager = deps.turnManager
+  }
+
+  /** 注入 ContextDBService（延迟注入） */
+  injectContextDB(contextDBService: ContextDBService): void {
+    this.contextDBService = contextDBService
   }
 
   // ═══════════════ 初始化 & 持久化 ═══════════════
@@ -155,6 +165,11 @@ export class RunManager {
       skillIds: tplNode.skillIds,
       artifacts: [],
       prompt: tplNode.prompt,
+      roleStatement: tplNode.roleStatement,
+      inputs: tplNode.inputs,
+      outputContracts: tplNode.outputContracts,
+      entryConditions: tplNode.entryConditions,
+      exitConditions: tplNode.exitConditions,
       order: idx,
       executionMode: tplNode.executionMode,
       script: tplNode.script,
@@ -180,6 +195,26 @@ export class RunManager {
     this.runs.set(runId, run)
     this.dagScheduler.computeReadyNodes(run)
     await this.persist()
+
+    // 为每个节点生成 L2 种子文件（根据节点模板信息动态生成对应内容）
+    if (this.contextDBService) {
+      try {
+        await this.contextDBService.seedL2ForRun(nodes.map(n => ({
+          id: n.id,
+          name: n.name,
+          type: n.type,
+          description: n.description,
+          agentRole: n.agentRole,
+          roleStatement: n.roleStatement,
+          inputs: n.inputs,
+          outputContracts: n.outputContracts,
+          exitConditions: n.exitConditions,
+        })))
+      } catch (err) {
+        console.warn(`[RunManager] Failed to seed L2 context for run ${runId}:`, (err as Error).message)
+      }
+    }
+
     return run
   }
 
@@ -300,12 +335,24 @@ export class RunManager {
       case 'waiting_user_review':
         node.status = 'wait_user_review'
         break
-      case 'completed':
+      case 'completed': {
+        // 准出条件验证：如果定义了 exitConditions，必须全部满足才能标记为 completed
+        if (node.exitConditions && node.exitConditions.length > 0) {
+          const exitResult = this.dagScheduler.evaluateExitConditions(run, node)
+          if (!exitResult.passed) {
+            // 准出条件不满足：不标记为完成，而是保持 running 并记录警告
+            node.error = `准出条件未满足: ${exitResult.failedReason}`
+            this.emit('run:node_updated', { runId, nodeId, status: node.status, warning: exitResult.failedReason })
+            await this.persist()
+            return node
+          }
+        }
         node.status = 'completed'
         node.completedAt = Date.now()
         this.dagScheduler.computeReadyNodes(run)
         this.checkRunCompletion(run)
         break
+      }
       case 'failed':
         node.status = 'failed'
         node.error = error

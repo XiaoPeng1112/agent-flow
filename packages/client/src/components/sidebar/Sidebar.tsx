@@ -9,6 +9,10 @@ import {
   RocketOutlined,
   FileTextOutlined,
   InfoCircleOutlined,
+  SafetyCertificateOutlined,
+  ApartmentOutlined,
+  SettingOutlined,
+  DownOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { projectApi } from '../../api'
@@ -149,35 +153,34 @@ export function Sidebar({ serverStatus }: SidebarProps) {
 
       {/* 底部区域 */}
       <div className="border-t border-white/5">
-        {/* 导航链接 */}
+        {/* Context DB 导航 */}
         <div className="px-3 pt-3 pb-1 flex flex-col gap-0.5">
           <button
-            onClick={() => navigate('/changelog')}
+            onClick={() => navigate('/context-db/sys')}
             className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
-              location.pathname === '/changelog'
+              location.pathname === '/context-db/sys'
                 ? 'text-white bg-white/10'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <FileTextOutlined className="text-[13px]" />
-            <span>更新日志</span>
+            <SafetyCertificateOutlined className="text-[13px]" />
+            <span>Context DB · SYS</span>
           </button>
           <button
-            onClick={() => navigate('/about')}
+            onClick={() => navigate('/context-db/l1')}
             className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
-              location.pathname === '/about'
+              location.pathname === '/context-db/l1'
                 ? 'text-white bg-white/10'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <InfoCircleOutlined className="text-[13px]" />
-            <span>项目介绍</span>
+            <ApartmentOutlined className="text-[13px]" />
+            <span>Context DB · L1</span>
           </button>
-          {/* GitHub 登录 */}
-          <UserPanel />
-          {/* 数据同步 */}
-          <SyncPanel />
         </div>
+
+        {/* 账号/同步/其他 — 可折叠 */}
+        <CollapsibleMoreSection navigate={navigate} location={location} />
 
         {/* 添加项目按钮 */}
         <div className="px-3 py-2">
@@ -211,5 +214,51 @@ export function Sidebar({ serverStatus }: SidebarProps) {
 
       {showAdd && <AddProjectModal onClose={() => setShowAdd(false)} />}
     </aside>
+  )
+}
+
+/** 可折叠的更多功能区域（同步、更新日志、项目介绍） */
+function CollapsibleMoreSection({ navigate, location }: { navigate: (path: string) => void; location: { pathname: string } }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className="px-3 py-1">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+      >
+        <SettingOutlined className="text-[13px]" />
+        <span className="flex-1 text-left">更多</span>
+        <DownOutlined className={`text-[10px] transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      <div className={`overflow-hidden transition-all duration-200 ${expanded ? 'max-h-[300px] opacity-100' : 'max-h-0 opacity-0'}`}>
+        <div className="flex flex-col gap-0.5 pt-1">
+          <UserPanel />
+          <SyncPanel />
+          <button
+            onClick={() => navigate('/changelog')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
+              location.pathname === '/changelog'
+                ? 'text-white bg-white/10'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <FileTextOutlined className="text-[13px]" />
+            <span>更新日志</span>
+          </button>
+          <button
+            onClick={() => navigate('/about')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
+              location.pathname === '/about'
+                ? 'text-white bg-white/10'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <InfoCircleOutlined className="text-[13px]" />
+            <span>项目介绍</span>
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

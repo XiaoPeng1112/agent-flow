@@ -385,7 +385,7 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
         </div>
       ) : runDetailTab === 'context-db' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
-          <ContextDBPanel projectId={run.projectId} templateId={run.templateId} />
+          <ContextDBPanel projectId={run.projectId} templateId={run.templateId} runId={run.id} />
         </div>
       ) : runDetailTab === 'a2a' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">

@@ -2,16 +2,13 @@ import { Router } from 'express'
 import type { AgentService } from '../services/agent.js'
 import type { WorkflowEngine } from '../services/workflow-engine.js'
 import type { DynamicAgentFactory } from '../services/dynamic-agent-factory.js'
-import type { ContextDBService } from '../services/context-db.js'
-
 export function createAgentsRouter(deps: {
   agentService: AgentService
   workflowEngine: WorkflowEngine
   dynamicAgentFactory: DynamicAgentFactory
-  contextDBService: ContextDBService
 }): Router {
   const router = Router()
-  const { agentService, workflowEngine, dynamicAgentFactory, contextDBService } = deps
+  const { agentService, workflowEngine, dynamicAgentFactory } = deps
 
   // ═══════════════ Agent API ═══════════════
 
@@ -150,7 +147,7 @@ export function createAgentsRouter(deps: {
   // ═══════════════ Dynamic Agent Instance API ═══════════════
 
   /** 为节点创建动态 Agent 实例 */
-  router.post('/instances/create', (req, res) => {
+  router.post('/instances/create', async (req, res) => {
     const { nodeId, runId, preferredAgentId } = req.body
     if (!nodeId || !runId) {
       res.status(400).json({ success: false, error: 'nodeId and runId are required' })
@@ -167,7 +164,7 @@ export function createAgentsRouter(deps: {
         res.status(404).json({ success: false, error: `Node not found: ${nodeId}` })
         return
       }
-      const instance = dynamicAgentFactory.createInstance(node, run, preferredAgentId)
+      const instance = await dynamicAgentFactory.createInstance(node, run, preferredAgentId)
       res.json({ success: true, data: { instance } })
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message })
@@ -205,28 +202,16 @@ export function createAgentsRouter(deps: {
         return
       }
 
-      // 1. 创建动态实例
-      const instance = dynamicAgentFactory.createInstance(node, run, preferredAgentId)
+      // 1. 创建动态实例（内部已 await Context DB 四层装配）
+      const instance = await dynamicAgentFactory.createInstance(node, run, preferredAgentId)
 
-      // 2. 预装配 Context DB 层级（同步等待，确保 prompt 包含上下文）
-      try {
-        const contextLayers = await contextDBService.assembleContext({
-          projectId: run.projectId,
-          templateId: run.templateId,
-          nodeId: node.id,
-        })
-        if (contextLayers.length > 0) {
-          instance.scopedContext.contextLayers = contextLayers
-        }
-      } catch { /* Context DB 不可用时降级 */ }
-
-      // 3. 构建完整 prompt（含 scoped context + context DB 层级）
+      // 2. 构建完整 prompt（含 scoped context + context DB 层级）
       const fullPrompt = dynamicAgentFactory.buildFullPrompt(instance, userInput)
 
-      // 4. 激活实例
+      // 3. 激活实例
       dynamicAgentFactory.activateInstance(instance.id)
 
-      // 5. 启动 Agent Turn
+      // 4. 启动 Agent Turn
       const turnId = agentService.startTurnAsync({
         agentId: instance.baseAgentId,
         nodeId,
