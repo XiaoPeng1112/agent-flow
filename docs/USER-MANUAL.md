@@ -717,7 +717,7 @@ yarn deploy
 
 该命令执行：
 1. 构建前端（`tsc -b && vite build`）
-2. 复制 `index.html` 为 `404.html`（SPA 路由兼容）
+2. 拷贝静态 `404.html` 到产物目录（GitHub Pages 兜底页面）
 3. 通过 gh-pages 推送 `dist/` 到 GitHub Pages
 
 部署后访问：https://xiaopeng1112.github.io/agent-flow/

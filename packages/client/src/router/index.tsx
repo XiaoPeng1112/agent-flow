@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createHashRouter, Navigate } from 'react-router-dom'
 import { AppLayout } from '../components/layout/AppLayout'
 import { RouteLoadingFallback } from '../components/common/RouteLoadingFallback'
 
@@ -37,7 +37,7 @@ function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<RouteLoadingFallback />}>{children}</Suspense>
 }
 
-export const router = createBrowserRouter(
+export const router = createHashRouter(
   [
     {
       path: '/',
@@ -78,7 +78,4 @@ export const router = createBrowserRouter(
       ],
     },
   ],
-  {
-    basename: '/agent-flow',
-  }
 )

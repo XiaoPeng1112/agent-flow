@@ -37,12 +37,12 @@ export function UserPanel() {
       .finally(() => setLoading(false))
   }, [])
 
-  // 处理 OAuth 回调（页面加载时检查 hash 中是否有 auth 成功标记）
+  // 处理 OAuth 回调（页面加载时检查 query 中是否有 auth 成功标记）
   useEffect(() => {
-    const hash = window.location.hash
-    if (hash.includes('auth=success')) {
-      // 清理 hash 并重新获取用户信息
-      window.history.replaceState(null, '', window.location.pathname)
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('auth') === 'success') {
+      // 清理 query 并重新获取用户信息
+      window.history.replaceState(null, '', window.location.pathname + window.location.hash)
       authApi.me().then((res) => {
         if (res.authenticated && res.user) {
           setUser(res.user)

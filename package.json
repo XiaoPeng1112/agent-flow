@@ -16,7 +16,7 @@
     "dev:client": "yarn workspace @agent-flow/client dev",
     "dev:server": "yarn workspace @agent-flow/server dev",
     "build": "yarn workspace @agent-flow/client build && yarn workspace @agent-flow/server build",
-    "predeploy": "yarn workspace @agent-flow/client build && cp packages/client/dist/index.html packages/client/dist/404.html",
+    "predeploy": "yarn workspace @agent-flow/client build && cp packages/client/public/404.html packages/client/dist/404.html",
     "deploy": "gh-pages -d packages/client/dist",
     "sync-context": "tsx scripts/sync-context.ts"
   },

@@ -33,10 +33,10 @@ export function createAuthRouter(deps: {
       const user = await authService.login(accessToken)
       // 重定向回前端页面
       const frontendUrl = process.env.FRONTEND_URL || '/agent-flow/'
-      res.redirect(`${frontendUrl}#auth=success&user=${encodeURIComponent(user.login)}`)
+      res.redirect(`${frontendUrl}?auth=success&user=${encodeURIComponent(user.login)}`)
     } catch (err) {
       const frontendUrl = process.env.FRONTEND_URL || '/agent-flow/'
-      res.redirect(`${frontendUrl}#auth=error&message=${encodeURIComponent((err as Error).message)}`)
+      res.redirect(`${frontendUrl}?auth=error&message=${encodeURIComponent((err as Error).message)}`)
     }
   })
 
