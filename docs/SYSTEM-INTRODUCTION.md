@@ -1,7 +1,7 @@
 # AgentFlow 系统介绍
 
 > 面向团队讲解的完整系统说明  
-> 版本：v2.7.2 | 作者：@XiaoPeng1112 | 日期：2026-06-01
+> 版本：v2.7.3 | 作者：@XiaoPeng1112 | 日期：2026-06-02
 
 ---
 
@@ -101,7 +101,17 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 这解决了"公司电脑和家里电脑数据不互通"的痛点，确保知识资产（架构文档、决策记录、开发日志）在多设备间始终保持一致。
 
-### 3.7 前端可视化
+### 3.7 架构重构（v2.7.3）
+
+**SQLite + WAL 持久化迁移**——将原有 JSON 文件存储替换为 SQLite + WAL 模式（better-sqlite3）。新建 `storage-sqlite.ts` 服务（~400 行），提供 ACID 事务保障和高并发读写能力。系统启动时自动检测 JSON 遗留数据并执行平滑迁移（JSON → SQLite 一次性导入），迁移完成后原 JSON 文件保留为备份。采用 `inject()` 模式解决 ESM 循环依赖问题。
+
+**WorkflowEngine Facade 拆分**——原 1068 行的 God Object 按职责拆分为四个模块：WorkflowEngine Facade（248 行，对外统一入口）+ RunManager（564 行，Run/Node 生命周期）+ DAGScheduler（214 行，拓扑排序与就绪节点计算）+ TurnManager（271 行，Agent Turn 管理）。遵循 ADR-018 Facade 模式，外部调用者无需感知内部拆分。
+
+**api.ts 路由拆分**——原 1575 行的单文件路由拆分为 12 个子路由文件（run、node、turn、template、project、agent 等）+ ~146 行的路由注册协调器，每个文件职责单一、可独立维护。
+
+**新增测试**——Vitest 测试从 68 cases 增长到 122 cases，新增 dag-scheduler、turn-manager、storage-sqlite 三个测试套件，确保重构后行为不变。
+
+### 3.8 前端可视化
 
 - DAG 图形化视图（基于 @xyflow/react，拓扑分层自动布局，状态着色动画）
 - A2A 消息面板（SVG 拓扑图 + 时间线 + 统计三视图）
@@ -111,21 +121,21 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 - Checkpoint 面板（Timeline 快照 + 恢复 + 健康监控）
 - Context DB 编辑器（四层上下文 CRUD + 装配预览）
 
-### 3.8 工程质量
+### 3.9 工程质量
 
 - TypeScript 全量类型覆盖（Server + Client 零 TS 错误）
-- Vitest 单元测试 68 cases 覆盖工作流引擎、A2A 协议、合同验证三大核心
+- Vitest 单元测试 122 cases 覆盖工作流引擎、DAG 调度、Turn 管理、A2A 协议、合同验证、SQLite 存储六大核心
 - React.lazy 路由级代码分割，页面 chunk 独立加载
 - ErrorBoundary 全局错误隔离
 - 文件系统路径穿越防护 + OAuth CSRF 防护 + Agent 权限隔离
 
-### 3.9 完整技术栈
+### 3.10 完整技术栈
 
 前端：React 19 + TypeScript 6 + Vite 8 + Tailwind CSS v4 + Ant Design 6 + Zustand 5 + React Router 7
 
 后端：Express 5 + WebSocket(ws) + Node.js 20+ + Vitest
 
-数据持久化：JSON 文件（零依赖，人类可读，本地工具场景完全够用）
+数据持久化：SQLite + WAL 模式（better-sqlite3，高并发读写，ACID 事务保障，自动从 JSON 平滑迁移）
 
 部署：GitHub Pages（前端静态托管） + 本地后端（需访问文件系统和 CLI 工具）
 
@@ -149,7 +159,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 ### 4.2 复杂数据库
 
-没有引入 PostgreSQL / MongoDB 等数据库。本地开发工具、单用户场景，JSON 文件完全够用，零依赖，人类可读，便于调试。等真正出现性能瓶颈时再迁移到 SQLite。
+没有引入 PostgreSQL / MongoDB 等外部数据库服务。v2.7.3 已将持久化从 JSON 文件迁移到 SQLite + WAL 模式（better-sqlite3），获得 ACID 事务保障和高并发读写能力，同时保持零外部服务依赖、单文件部署的轻量特性。不需要更重的关系型数据库。
 
 ### 4.3 多人实时协作
 
@@ -201,7 +211,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 - 事件驱动的松耦合设计（Metrics/Feedback 通过事件总线零侵入采集）
 - 三层状态机 + DAG 编排引擎的实现方式
 - TypeScript 全量类型安全 + Vitest 单元测试最佳实践
-- 产品从 0 到 1 的完整设计思考和技术决策记录（16 个 ADR）
+- 产品从 0 到 1 的完整设计思考和技术决策记录（18 个 ADR）
 
 ---
 
@@ -209,7 +219,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 ### 6.1 短期（当前可用）
 
-当前 v2.7.2 已经是一个功能完整的闭环系统：
+当前 v2.7.3 已经是一个功能完整的闭环系统：
 
 ```
 需求输入 → DAG 编排 → Agent 执行 → 人工审查 → Diff Review → 合并/丢弃
@@ -217,7 +227,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
      ← ← ← ← ← Feedback 反馈 ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 ```
 
-同时，v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通，无需手动路径配置。
+v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通。v2.7.3 完成了 SQLite 持久化迁移和 WorkflowEngine 架构拆分，系统稳定性和可维护性大幅提升。
 
 可以直接在个人开发中使用，验证“AI 多角色协作开发”这套流程是否真的能提升效率。
 
@@ -227,7 +237,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 **模板生态丰富**——基于实际使用经验沉淀更多工作流模板：重构流程、性能优化流程、文档撰写流程、测试补全流程等。
 
-**数据持久化升级**——当项目/Run 数据量增大后，从 JSON 文件平滑迁移到 SQLite。
+**数据持久化升级**——✅ 已在 v2.7.3 完成 SQLite 迁移，启动时自动从 JSON 平滑迁移。
 
 ### 6.3 长期愿景
 
@@ -249,13 +259,13 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 | 维度 | 数据 |
 |------|------|
-| 后端服务模块 | 22 个 |
+| 后端服务模块 | 25 个 |
 | 前端组件/页面 | ~30 个 |
-| 单元测试 | 68 cases |
-| 技术决策记录（ADR） | 16 个 |
+| 单元测试 | 122 cases |
+| 技术决策记录（ADR） | 18 个 |
 | 内置工作流模板 | 4 个 |
-| REST API 端点 | ~58 个 |
-| 版本迭代 | v1.0.0 → v2.7.2（11 个版本） |
+| REST API 端点 | ~58 个（12 个子路由文件） |
+| 版本迭代 | v1.0.0 → v2.7.3（12 个版本） |
 | 开发方式 | 人 + AI（CatDesk）对话式协作 |
 
 ---

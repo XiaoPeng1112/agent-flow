@@ -17,6 +17,30 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.7.3',
+    date: '2026-06-02',
+    title: 'SQLite 持久化迁移 + WorkflowEngine Facade 拆分 + 路由模块化',
+    type: 'feature',
+    highlights: [
+      'SQLite + WAL 持久化（better-sqlite3，ACID 事务，启动自动 JSON→SQLite 迁移）',
+      'WorkflowEngine God Object 拆分：Facade(248) + RunManager(564) + DAGScheduler(214) + TurnManager(271)',
+      'api.ts 1575 行拆分为 12 个子路由文件 + ~146 行协调器',
+      'inject() 模式解决 ESM 循环依赖',
+      'Vitest 68 → 122 cases（新增 dag-scheduler / turn-manager / storage-sqlite）',
+      '后端服务 22 → 25 个模块',
+      'Node 20+ 必须；切换 Node 版本后需 npm rebuild better-sqlite3',
+    ],
+    details: `v2.7.3 是一次以"可维护性"和"数据可靠性"为目标的架构重构版本，不新增用户可见功能，全面提升内部工程质量。
+
+【SQLite + WAL 持久化】新增 storage-sqlite.ts 服务（~400 行），使用 better-sqlite3 + WAL 模式替代原有 JSON 文件存储。系统启动时自动检测 ~/.agent-flow/data/ 下的 JSON 遗留数据，在事务中一次性导入 SQLite（迁移时关闭 FOREIGN KEY 约束避免孤儿数据报错），迁移完成后原 JSON 保留为备份。表结构包含 runs、nodes、turns、templates、projects 五张表，外键约束确保引用完整性。采用 inject() 延迟注入模式解决 ESM 模块循环依赖。
+
+【WorkflowEngine Facade 拆分】原 workflow-engine.ts 1068 行 God Object 按职责拆分为四个模块：WorkflowEngine（248 行，Facade 统一入口，事件总线）→ RunManager（564 行，Run/Node 生命周期管理）→ DAGScheduler（214 行，拓扑排序、就绪节点计算、条件分支评估）→ TurnManager（271 行，Agent Turn CRUD 与状态管理）。遵循 ADR-018 Facade 模式，所有外部调用者通过 WorkflowEngine 统一入口访问，内部拆分对外透明。
+
+【api.ts 路由拆分】原 api.ts 1575 行单文件拆分为 12 个子路由文件（routes/run.ts、routes/node.ts、routes/turn.ts、routes/template.ts、routes/project.ts、routes/agent.ts 等）+ ~146 行的 api.ts 路由注册协调器。每个子路由文件职责单一，独立导出 Router，便于维护和 Code Review。
+
+【测试增强】Vitest 单元测试从 68 cases 增长到 122 cases，新增三个测试套件：dag-scheduler.test.ts（拓扑排序、并行节点、条件分支）、turn-manager.test.ts（Turn 生命周期、并发安全）、storage-sqlite.test.ts（CRUD、迁移、事务回滚）。确保重构后所有行为与原实现一致。`,
+  },
+  {
     version: 'v2.7.2',
     date: '2026-06-01',
     title: '多用户数据隔离 + 跨设备 gitRemote 自动匹配',

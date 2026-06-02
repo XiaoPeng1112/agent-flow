@@ -2,12 +2,23 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { WorkflowEngine } from '../src/services/workflow-engine.js'
 import type { WorkflowTemplate } from '../src/types/index.js'
 
-// Mock fs 操作，避免测试时写入磁盘
-vi.mock('fs/promises', () => ({
-  readFile: vi.fn().mockRejectedValue(new Error('No file')),
-  writeFile: vi.fn().mockResolvedValue(undefined),
-  mkdir: vi.fn().mockResolvedValue(undefined),
-}))
+// Mock StorageSQLite 为内存模式
+vi.mock('../src/services/storage-sqlite.js', () => {
+  return {
+    StorageSQLite: class MockStorageSQLite {
+      private data = { runs: [] as any[], turns: new Map<string, any[]>() }
+
+      getAllRuns() { return this.data.runs }
+      getAllTurns() { return this.data.turns }
+      getStats() { return { runs: 0, nodes: 0, turns: 0, artifacts: 0, dbSizeKB: 0 } }
+      saveAll(runs: any[], turnsMap: Map<string, any[]>) {
+        this.data.runs = runs
+        this.data.turns = turnsMap
+      }
+      async migrateFromJson() { return { runs: 0, turns: 0 } }
+    },
+  }
+})
 
 describe('WorkflowEngine', () => {
   let engine: WorkflowEngine

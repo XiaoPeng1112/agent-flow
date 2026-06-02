@@ -41,7 +41,7 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.7.2</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.7.3</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
@@ -198,7 +198,7 @@ export function AboutPage() {
                 'WebSocket (ws 库)',
                 'GitHub OAuth 2.0',
                 'Node.js 20+ (tsx 热更新)',
-                'JSON 文件持久化',
+                'SQLite + WAL 持久化 (better-sqlite3)',
                 'CLI 进程管理 (Codex/Claude)',
                 'Vitest (单元测试框架)',
               ]}
@@ -674,6 +674,45 @@ export function AboutPage() {
               title="pathMapping 兜底"
               desc="对于非 Git 管理的项目，保留手动路径映射作为备用方案，通过 API 配置远端项目与本地路径的对应关系。"
               color="#d97706"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.7.3 架构重构 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<ThunderboltOutlined />} title="架构重构（v2.7.3）" color="purple" />
+          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.7.3 是一次以<strong>可维护性</strong>和<strong>数据可靠性</strong>为目标的架构重构版本。将持久化从 JSON 文件迁移到 SQLite + WAL 模式，
+              将 1068 行的 WorkflowEngine God Object 拆分为四个职责单一的模块，并将 1575 行的 api.ts 拆分为 12 个子路由文件。
+              Vitest 测试从 68 增长到 122 cases。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="SQLite + WAL 持久化"
+              desc="使用 better-sqlite3 + WAL 模式替代 JSON 文件存储，提供 ACID 事务保障。启动时自动检测 JSON 遗留数据并平滑迁移，采用 inject() 模式解决 ESM 循环依赖。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<AppstoreOutlined />}
+              title="WorkflowEngine Facade 拆分"
+              desc="God Object 按职责拆分为 Facade(248行) + RunManager(564行) + DAGScheduler(214行) + TurnManager(271行)，外部调用者无需感知内部拆分。"
+              color="#4f46e5"
+            />
+            <ArchCard
+              icon={<BranchesOutlined />}
+              title="api.ts 路由模块化"
+              desc="1575 行单文件拆分为 12 个子路由文件 + ~146 行路由注册协调器，每个文件职责单一、可独立维护和 Code Review。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<SafetyCertificateOutlined />}
+              title="测试增强 68 → 122 cases"
+              desc="新增 dag-scheduler、turn-manager、storage-sqlite 三个测试套件，覆盖拓扑排序、Turn 生命周期、CRUD 迁移等核心逻辑。"
+              color="#059669"
             />
           </div>
         </section>

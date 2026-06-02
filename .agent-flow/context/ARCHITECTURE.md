@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-06-01（v2.7.2 — 多用户数据隔离 + 跨设备 gitRemote 自动匹配）  
+> 最后更新：2026-06-01（v2.7.1 — GitHub Private Repo 数据同步 + Context DB 同步）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位

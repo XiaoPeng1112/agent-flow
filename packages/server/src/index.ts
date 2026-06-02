@@ -95,7 +95,7 @@ app.use('/api', createApiRouter({
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.7.2',
+    version: '2.7.3',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
