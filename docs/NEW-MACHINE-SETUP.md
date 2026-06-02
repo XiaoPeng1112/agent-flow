@@ -105,15 +105,15 @@ curl -X POST http://localhost:3001/api/sync/path-mapping \
 
 ---
 
-### 问题三：Runs 列表可见但 Token 数据为空
+### 问题三：Runs 列表可见但 Token 数据为空（已修复）
 
 **现象**：Pull 后 Runs 列表能显示，但每个 Run 内部的 Token 消耗、Agent 输出等数据为空白。
 
-**原因**：已知的同步遗漏问题。`turns` 数据（包含 Token 统计和 Agent 输出）在 Push 时没有被序列化到 run 文件中，Pull 时自然也无法恢复。
+**原因**：`turns` 数据（包含 Token 统计和 Agent 输出）在 Push 时没有被序列化到 run 文件中，Pull 时自然也无法恢复。
 
-**当前状态**：待修复（`sync.ts` Push/Pull 逻辑需要补充 turns 序列化）。
+**修复**：Push 时每个 run 文件附带 `_turns` 字段（通过 `getRunTurns()` 收集该 Run 所有节点的 turns），Pull 时 `mergeRun()` 提取 `_turns` 传入 `importRun()` 写入本地 turns 存储。
 
-**影响范围**：仅影响跨设备同步场景。在原始设备上数据完整，新设备 Pull 后只能看到 Run 的结构和状态，看不到执行过程中的 Token 和输出详情。
+**注意**：修复前已推送到远端的 run 数据不包含 turns。需要在原始设备（数据完整的设备）上重新 Push 一次，将含 turns 的完整数据写到远端，其他设备再 Pull 即可恢复。
 
 ---
 

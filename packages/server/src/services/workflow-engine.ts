@@ -253,9 +253,30 @@ export class WorkflowEngine {
    * 导入 Run（从外部数据源，如远端同步）
    * 如果本地已存在同 ID 的 Run，则覆盖
    */
-  async importRun(runData: Run): Promise<void> {
+  async importRun(runData: Run, turnsData?: Record<string, AgentTurn[]>): Promise<void> {
     this.runs.set(runData.id, runData)
+    if (turnsData) {
+      for (const [nodeId, nodeTurns] of Object.entries(turnsData)) {
+        this.turns.set(nodeId, nodeTurns)
+      }
+    }
     await this.persist()
+  }
+
+  /**
+   * 获取某个 Run 关联的所有 Turns（按 node.id 收集）
+   */
+  getRunTurns(runId: string): Record<string, AgentTurn[]> {
+    const run = this.runs.get(runId)
+    if (!run) return {}
+    const result: Record<string, AgentTurn[]> = {}
+    for (const node of run.nodes) {
+      const nodeTurns = this.turns.get(node.id)
+      if (nodeTurns && nodeTurns.length > 0) {
+        result[node.id] = nodeTurns
+      }
+    }
+    return result
   }
 
   /**

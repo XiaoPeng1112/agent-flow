@@ -309,12 +309,17 @@ export class SyncService {
       await this.putFile(token, repo, this.userPath('templates.json'), JSON.stringify(templates, null, 2))
       filesUpdated++
 
-      // 3. 推送 runs（用户级，每个 Run 一个文件）
+      // 3. 推送 runs（用户级，每个 Run 一个文件，包含关联的 turns）
       const runs = this.workflowEngine.getRuns()
       for (const run of runs) {
         const runDetail = this.workflowEngine.getRun(run.id)
         if (runDetail) {
-          await this.putFile(token, repo, this.userPath(`runs/${run.id}.json`), JSON.stringify(runDetail, null, 2))
+          const runTurns = this.workflowEngine.getRunTurns(run.id)
+          const runPayload = {
+            ...runDetail,
+            _turns: runTurns,  // 附带 turns 数据一起同步
+          }
+          await this.putFile(token, repo, this.userPath(`runs/${run.id}.json`), JSON.stringify(runPayload, null, 2))
           filesUpdated++
         }
       }
@@ -558,16 +563,21 @@ export class SyncService {
 
   /** 合并单个 Run */
   private async mergeRun(remoteRun: any): Promise<void> {
-    const localRun = this.workflowEngine.getRun(remoteRun.id)
+    // 提取 _turns 数据（push 时附带的 turns 序列化字段）
+    const turnsData = remoteRun._turns || undefined
+    // 从 run 对象中移除 _turns，避免污染 Run 数据结构
+    const { _turns, ...runData } = remoteRun
+
+    const localRun = this.workflowEngine.getRun(runData.id)
     if (!localRun) {
-      // 远端有、本地没有 → 导入
-      await this.workflowEngine.importRun(remoteRun)
+      // 远端有、本地没有 → 导入（含 turns）
+      await this.workflowEngine.importRun(runData, turnsData)
     } else {
       // 都有 → 比较最后活跃时间，取更新的
-      const remoteTime = remoteRun.completedAt || remoteRun.startedAt || remoteRun.createdAt || 0
+      const remoteTime = runData.completedAt || runData.startedAt || runData.createdAt || 0
       const localTime = localRun.completedAt || localRun.startedAt || localRun.createdAt || 0
       if (remoteTime > localTime) {
-        await this.workflowEngine.importRun(remoteRun)
+        await this.workflowEngine.importRun(runData, turnsData)
       }
     }
   }
