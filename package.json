@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "AI Agent Workflow Orchestrator - 总控平台",
+  "packageManager": "yarn@1.22.22",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -11,11 +12,11 @@
     "packages/server"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:client": "npm run dev -w packages/client",
-    "dev:server": "npm run dev -w packages/server",
-    "build": "npm run build -w packages/client && npm run build -w packages/server",
-    "predeploy": "npm run build -w packages/client && cp packages/client/dist/index.html packages/client/dist/404.html",
+    "dev": "concurrently \"yarn dev:server\" \"yarn dev:client\"",
+    "dev:client": "yarn workspace @agent-flow/client dev",
+    "dev:server": "yarn workspace @agent-flow/server dev",
+    "build": "yarn workspace @agent-flow/client build && yarn workspace @agent-flow/server build",
+    "predeploy": "yarn workspace @agent-flow/client build && cp packages/client/dist/index.html packages/client/dist/404.html",
     "deploy": "gh-pages -d packages/client/dist",
     "sync-context": "tsx scripts/sync-context.ts"
   },

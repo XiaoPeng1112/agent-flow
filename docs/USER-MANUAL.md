@@ -35,7 +35,7 @@ cd agent-flow
 nvm use 20
 
 # 安装依赖（Monorepo，一次安装前后端所有依赖）
-npm install
+yarn install
 ```
 
 ### 2.3 环境变量配置（可选）
@@ -56,7 +56,7 @@ export ALLOWED_FILE_ROOTS=/path/to/project1,/path/to/project2
 ### 3.1 开发模式
 
 ```bash
-npm run dev
+yarn dev
 ```
 
 该命令会同时启动前后端：
@@ -72,10 +72,10 @@ npm run dev
 
 ```bash
 # 构建前端
-npm run build -w packages/client
+yarn workspace @agent-flow/client build
 
 # 部署到 GitHub Pages
-npm run deploy
+yarn deploy
 ```
 
 ### 3.3 常见启动问题
@@ -712,7 +712,7 @@ agent-flow/
 
 ```bash
 # 一键构建 + 部署
-npm run deploy
+yarn deploy
 ```
 
 该命令执行：
@@ -733,7 +733,7 @@ AgentFlow 采用**前端部署 + 本地后端**架构：
 因此，即使通过 GitHub Pages 访问前端，也需要在本地启动后端服务：
 
 ```bash
-cd agent-flow && nvm use 20 && npm run dev
+cd agent-flow && nvm use 20 && yarn dev
 ```
 
 ---
@@ -774,10 +774,10 @@ cd agent-flow && nvm use 20 && npm run dev
 
 ```bash
 # 仅启动后端（带 watch 热更新）
-npm run dev:server
+yarn dev:server
 
 # 仅启动前端
-npm run dev:client
+yarn dev:client
 
 # TypeScript 类型检查
 cd packages/server && npx tsc --noEmit
@@ -788,13 +788,13 @@ cd packages/client && npx tsc --noEmit
 
 ```bash
 # 运行全部单元测试（需要 Node 20+）
-cd packages/server && npm test
+cd packages/server && yarn test
 
 # Watch 模式（文件变更自动重跑）
-npm run test:watch
+yarn test:watch
 
 # 生成覆盖率报告
-npm run test:coverage
+yarn test:coverage
 ```
 
 ---
@@ -803,7 +803,7 @@ npm run test:coverage
 
 | 问题 | 原因 | 解决方案 |
 |------|------|----------|
-| 红色"后端服务未连接"横幅 | 后端未启动 | 执行 `npm run dev` |
+| 红色"后端服务未连接"横幅 | 后端未启动 | 执行 `yarn dev` |
 | 前端显示空白 | Node.js 版本过低 | `nvm use 20` |
 | EADDRINUSE 端口冲突 | 旧进程未退出 | `lsof -ti:3001 \| xargs kill -9` |
 | HMR 不生效 | FSEvents 不触发 | 已配置 usePolling，硬刷新 `Cmd+Shift+R` |

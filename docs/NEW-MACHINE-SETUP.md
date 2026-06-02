@@ -12,14 +12,14 @@ node -v  # 确认输出 v20.x
 # 2. 克隆项目 & 安装依赖
 git clone https://github.com/XiaoPeng1112/agent-flow.git
 cd agent-flow
-npm install
+yarn install
 
 # 3. 配置环境变量
 cp .env.example .env
 # 编辑 .env，填入 GitHub OAuth 凭证（见下方说明）
 
 # 4. 启动后端服务
-npm run dev:server
+yarn dev:server
 
 # 5. 打开前端（GitHub Pages，无需本地启动）
 open https://xiaopeng1112.github.io/agent-flow/

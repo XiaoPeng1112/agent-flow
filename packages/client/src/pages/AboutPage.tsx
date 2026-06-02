@@ -325,7 +325,7 @@ export function AboutPage() {
                     <p className="mt-1">当后端离线时，页面顶部出现红色横幅，包含启动后端的完整终端命令（可直接复制），并提供「重试连接」按钮。后端恢复后自动检测并切回在线状态。</p>
                     <p className="mt-3"><strong>启动命令：</strong></p>
                     <code className="block bg-gray-900 rounded-md p-3 mt-1 text-[12px] text-green-400 font-mono leading-[1.8]">
-                      {`$ cd ~/Desktop/work/agent-flow\n$ nvm use 20\n$ npm run dev`}
+                      {`$ cd ~/Desktop/work/agent-flow\n$ nvm use 20\n$ yarn dev`}
                     </code>
                   </div>
                 ),
@@ -727,22 +727,22 @@ export function AboutPage() {
             <div className="text-gray-400 mb-1"># 2. 安装依赖（需 Node.js 20+）</div>
             <div className="text-green-400 mb-1">cd agent-flow</div>
             <div className="text-green-400 mb-1">nvm use 20</div>
-            <div className="text-green-400 mb-3">npm install</div>
+            <div className="text-green-400 mb-3">yarn install</div>
 
             <div className="text-gray-400 mb-1"># 3. 配置 GitHub OAuth（可选，用于登录功能）</div>
             <div className="text-yellow-400 mb-3">export GITHUB_CLIENT_ID=your_id<br/>export GITHUB_CLIENT_SECRET=your_secret</div>
 
             <div className="text-gray-400 mb-1"># 4. 启动开发服务器（前后端同时启动）</div>
-            <div className="text-green-400 mb-3">npm run dev</div>
+            <div className="text-green-400 mb-3">yarn dev</div>
 
             <div className="text-gray-400 mb-1"># 5. 打开浏览器（侧边栏底部显示绿色状态灯即表示后端正常）</div>
             <div className="text-cyan-400 mb-3">open http://localhost:5173/agent-flow/</div>
 
             <div className="text-gray-400 mb-1"># 6. 部署前端到 GitHub Pages（可选）</div>
-            <div className="text-green-400">npm run deploy</div>
+            <div className="text-green-400">yarn deploy</div>
           </div>
           <p className="text-[12px] text-gray-400 mt-3 leading-relaxed">
-            注：后端服务运行在本地 localhost:3001，前端（包括 GitHub Pages 上的版本）通过浏览器直接连接本地后端。如果看到红色"后端服务未连接"横幅，请先在终端执行 npm run dev 启动后端。
+            注：后端服务运行在本地 localhost:3001，前端（包括 GitHub Pages 上的版本）通过浏览器直接连接本地后端。如果看到红色"后端服务未连接"横幅，请先在终端执行 yarn dev 启动后端。
           </p>
         </section>
 

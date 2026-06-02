@@ -76,7 +76,7 @@ export function AppLayout() {
             <div className="mt-1.5 px-3 py-2 bg-slate-900 rounded-md font-mono text-[11px] text-green-300 leading-[1.8] select-all">
               <div><span className="text-slate-500">$</span> cd ~/Desktop/work/agent-flow</div>
               <div><span className="text-slate-500">$</span> nvm use 20</div>
-              <div><span className="text-slate-500">$</span> npm run dev</div>
+              <div><span className="text-slate-500">$</span> yarn dev</div>
             </div>
           </div>
         )}

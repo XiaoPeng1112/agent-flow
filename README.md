@@ -46,10 +46,10 @@ cd agent-flow
 nvm use 20
 
 # 安装依赖
-npm install
+yarn install
 
 # 启动开发服务器（前后端同时启动）
-npm run dev
+yarn dev
 
 # 打开浏览器
 open http://localhost:5173/agent-flow/
@@ -82,20 +82,20 @@ agent-flow/
 
 ```bash
 # 运行单元测试
-cd packages/server && npm test
+cd packages/server && yarn test
 
 # Watch 模式
-npm run test:watch
+yarn test:watch
 
 # 覆盖率报告
-npm run test:coverage
+yarn test:coverage
 ```
 
 ## 部署
 
 ```bash
 # 一键部署前端到 GitHub Pages
-npm run deploy
+yarn deploy
 ```
 
 后端运行在本地 `localhost:3001`，前端通过浏览器直接连接本地后端。

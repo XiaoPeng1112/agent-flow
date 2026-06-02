@@ -358,7 +358,7 @@ function ExecutionModeSection() {
           <Radio value="det">
             <div>
               <Text strong className="text-xs"><CodeOutlined className="mr-1" />DET 确定性模式</Text>
-              <div className="text-[11px] text-gray-500 ml-5">执行预定义脚本（如 npm test、lint），无 AI 参与。适合构建、测试、部署等可重复流程</div>
+              <div className="text-[11px] text-gray-500 ml-5">执行预定义脚本（如 yarn test、lint），无 AI 参与。适合构建、测试、部署等可重复流程</div>
             </div>
           </Radio>
           <Radio value="hyb">
