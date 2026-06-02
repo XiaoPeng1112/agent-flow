@@ -337,6 +337,15 @@ describe('WorkflowEngine', () => {
       expect(engine.getRun(run.id)).toBeUndefined()
     })
 
+    it('should remove deleted run from project-scoped results', async () => {
+      const run = await engine.createRun('proj_1', mockTemplate)
+      await engine.createRun('proj_1', mockTemplate)
+
+      await engine.deleteRun(run.id)
+
+      expect(engine.getRuns('proj_1')).toHaveLength(1)
+    })
+
     it('should return false for non-existent run', async () => {
       expect(await engine.deleteRun('run_nonexist')).toBe(false)
     })

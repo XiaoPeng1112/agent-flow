@@ -161,7 +161,7 @@ workflowEngine.onEvent((message) => {
   }
 
   // 自动同步：Run 状态变化时标记 dirty 并触发 debounce push
-  if (message.type === 'run:status_changed' || message.type === 'run:node_updated') {
+  if (message.type === 'run:status_changed' || message.type === 'run:node_updated' || message.type === 'run:deleted') {
     syncService.markDirty()
     debouncedAutoSync()
   }

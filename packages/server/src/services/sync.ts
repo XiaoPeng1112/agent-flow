@@ -94,6 +94,7 @@ export class SyncService {
   private configPath: string
   private localDataVersion = 0  // 本地数据版本号（每次变更 +1）
   private lastSyncVersion = 0   // 上次同步时的版本号
+  private pushQueue: Promise<unknown> = Promise.resolve()
 
   constructor(
     private authService: AuthService,
@@ -291,12 +292,23 @@ export class SyncService {
 
   /** 推送本地数据到远端 GitHub 仓库（用户隔离目录 users/{login}/） */
   async push(): Promise<{ success: boolean; filesUpdated: number; commitSha?: string }> {
+    const queuedPush = this.pushQueue.then(
+      () => this.performPush(),
+      () => this.performPush(),
+    )
+    this.pushQueue = queuedPush.then(() => undefined, () => undefined)
+    return queuedPush
+  }
+
+  /** 执行一次实际的 push，同一时刻只允许一个实例运行 */
+  private async performPush(): Promise<{ success: boolean; filesUpdated: number; commitSha?: string }> {
     if (!this.config) throw new Error('Sync not configured')
     const token = this.authService.getAccessToken()
     if (!token) throw new Error('Not authenticated with GitHub')
 
     const repo = this.config.repoFullName
     let filesUpdated = 0
+    const syncTargetVersion = this.localDataVersion
 
     try {
       // 1. 推送 projects.json（用户级）
@@ -347,7 +359,7 @@ export class SyncService {
 
       // 7. 更新同步状态
       this.config.lastSyncAt = Date.now()
-      this.lastSyncVersion = this.localDataVersion
+      this.lastSyncVersion = syncTargetVersion
       await this.saveConfig()
 
       return { success: true, filesUpdated }
@@ -611,8 +623,40 @@ export class SyncService {
 
   /** 创建或更新远端文件 */
   private async putFile(token: string, repo: string, path: string, content: string): Promise<void> {
-    // 先获取现有文件的 SHA（更新时需要）
-    let sha: string | undefined
+    let sha = await this.getFileSha(token, repo, path)
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const body: Record<string, string> = {
+        message: `sync: update ${path}`,
+        content: Buffer.from(content, 'utf-8').toString('base64'),
+      }
+      if (sha) body.sha = sha
+
+      const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+
+      if (res.ok) return
+
+      const err = await res.json().catch(() => ({}))
+      if (res.status === 409 && attempt === 0) {
+        console.warn(`[Sync] Conflict detected for ${path}, refreshing SHA and retrying once`)
+        sha = await this.getFileSha(token, repo, path)
+        continue
+      }
+
+      throw new Error(`Failed to put file ${path}: ${res.status} ${(err as any)?.message || res.statusText}`)
+    }
+  }
+
+  /** 获取远端文件当前 SHA（文件不存在时返回 undefined） */
+  private async getFileSha(token: string, repo: string, path: string): Promise<string | undefined> {
     try {
       const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
         headers: {
@@ -620,33 +664,11 @@ export class SyncService {
           Accept: 'application/vnd.github.v3+json',
         },
       })
-      if (res.ok) {
-        const data = await res.json() as GitHubFileContent
-        sha = data.sha
-      }
+      if (!res.ok) return undefined
+      const data = await res.json() as GitHubFileContent
+      return data.sha
     } catch {
-      // 文件不存在，sha 为 undefined（创建新文件）
-    }
-
-    const body: any = {
-      message: `sync: update ${path}`,
-      content: Buffer.from(content, 'utf-8').toString('base64'),
-    }
-    if (sha) body.sha = sha
-
-    const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(`Failed to put file ${path}: ${res.status} ${(err as any)?.message || res.statusText}`)
+      return undefined
     }
   }
 

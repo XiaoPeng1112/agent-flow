@@ -268,7 +268,10 @@ export class RunManager {
 
   async deleteRun(runId: string): Promise<boolean> {
     const deleted = this.runs.delete(runId)
-    if (deleted) await this.persist()
+    if (deleted) {
+      this.emit('run:deleted', { runId })
+      await this.persist()
+    }
     return deleted
   }
 

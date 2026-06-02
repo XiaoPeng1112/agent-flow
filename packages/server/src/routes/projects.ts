@@ -48,6 +48,13 @@ export function createProjectsRouter(deps: {
   })
 
   router.delete('/:id', async (req, res) => {
+    if (workflowEngine) {
+      const projectRuns = workflowEngine.getRuns(req.params.id)
+      for (const run of projectRuns) {
+        await workflowEngine.deleteRun(run.id)
+      }
+    }
+
     const success = await projectService.removeProject(req.params.id)
     if (!success) {
       res.status(404).json({ success: false, error: 'Project not found' })

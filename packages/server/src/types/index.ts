@@ -670,6 +670,7 @@ export type WsMessageType =
   // Run 状态
   | 'run:status_changed'
   | 'run:node_updated'
+  | 'run:deleted'
   // Agent Turn
   | 'agent:turn_started'
   | 'agent:turn_output'
