@@ -58,18 +58,18 @@ export const projectApi = {
 // ═══════════════ Template API ═══════════════
 
 export const templateApi = {
-  list: () => request<{ templates: any[] }>('/templates'),
+  list: () => request<{ templates: any[] }>('/projects/templates'),
 
-  get: (id: string) => request<{ template: any }>(`/templates/${id}`),
+  get: (id: string) => request<{ template: any }>(`/projects/templates/${id}`),
 
   create: (data: any) =>
-    request<{ template: any }>('/templates', {
+    request<{ template: any }>('/projects/templates', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
   delete: (id: string) =>
-    request<void>(`/templates/${id}`, { method: 'DELETE' }),
+    request<void>(`/projects/templates/${id}`, { method: 'DELETE' }),
 }
 
 // ═══════════════ Run API ═══════════════
@@ -280,7 +280,7 @@ export const metricsApi = {
 
   /** 获取趋势对比 */
   getTrend: (templateId: string) =>
-    request<{ trend: any[] }>(`/metrics/trend/${templateId}`),
+    request<{ trend: any[] }>(`/artifacts/metrics/trend/${templateId}`),
 }
 
 // ═══════════════ Feedback API (反馈闭环) ═══════════════
@@ -288,26 +288,26 @@ export const metricsApi = {
 export const feedbackApi = {
   /** 查询反馈记录 */
   query: (params?: { type?: string; runId?: string; limit?: number }) =>
-    request<{ entries: any[] }>('/feedback', { method: 'POST', body: JSON.stringify(params || {}) }),
+    request<{ entries: any[] }>('/artifacts/feedback', { method: 'POST', body: JSON.stringify(params || {}) }),
 
   /** 获取反馈统计 */
   getStats: (days = 7) =>
-    request<{ stats: any }>(`/feedback/stats?days=${days}`),
+    request<{ stats: any }>(`/artifacts/feedback/stats?days=${days}`),
 
   /** 生成周报摘要 */
   generateDigest: (days = 7) =>
-    request<{ digest: any }>(`/feedback/digest`, { method: 'POST', body: JSON.stringify({ days }) }),
+    request<{ digest: any }>(`/artifacts/feedback/digest`, { method: 'POST', body: JSON.stringify({ days }) }),
 }
 
 // ═══════════════ Skill API ═══════════════
 
 export const skillApi = {
-  list: () => request<{ skills: any[] }>('/skills'),
+  list: () => request<{ skills: any[] }>('/files/skills'),
 
-  get: (name: string) => request<any>(`/skills/${name}`),
+  get: (name: string) => request<any>(`/files/skills/${name}`),
 
   reload: (paths?: string[]) =>
-    request<{ skills: any[]; count: number }>('/skills/reload', {
+    request<{ skills: any[]; count: number }>('/files/skills/reload', {
       method: 'POST',
       body: JSON.stringify({ paths }),
     }),

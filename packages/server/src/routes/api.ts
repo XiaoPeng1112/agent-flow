@@ -84,11 +84,12 @@ export function createApiRouter(deps: {
     authService: deps.authService,
   }))
 
-  router.use('/projects', createProjectsRouter({
+  const projectsRouter = createProjectsRouter({
     projectService: deps.projectService,
     agentService: deps.agentService,
     templateService: deps.templateService,
-  }))
+  })
+  router.use('/projects', projectsRouter)
 
   router.use('/runs', createRunsRouter({
     workflowEngine: deps.workflowEngine,
@@ -102,11 +103,12 @@ export function createApiRouter(deps: {
     contextDBService: deps.contextDBService,
   }))
 
-  router.use('/files', createFilesRouter({
+  const filesRouter = createFilesRouter({
     fileService: deps.fileService,
     skillService: deps.skillService,
     skillMaterializationService: deps.skillMaterializationService,
-  }))
+  })
+  router.use('/files', filesRouter)
 
   router.use('/git', createGitRouter({
     gitService: deps.gitService,
@@ -130,13 +132,14 @@ export function createApiRouter(deps: {
     contextDBService: deps.contextDBService,
   }))
 
-  router.use('/artifacts', createArtifactsRouter({
+  const artifactsRouter = createArtifactsRouter({
     artifactMergeService: deps.artifactMergeService,
     metricsCollector: deps.metricsCollector,
     feedbackCollector: deps.feedbackCollector,
     weeklyDigest: deps.weeklyDigest,
     workflowEngine: deps.workflowEngine,
-  }))
+  })
+  router.use('/artifacts', artifactsRouter)
 
   router.use('/sync', createSyncRouter({
     syncService: deps.syncService,
