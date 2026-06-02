@@ -2,18 +2,38 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { WorkflowEngine } from '../src/services/workflow-engine.js'
 import type { WorkflowTemplate } from '../src/types/index.js'
 
+const mockStorageState = {
+  runs: [] as any[],
+  turns: new Map<string, any[]>(),
+}
+
 // Mock StorageSQLite 为内存模式
 vi.mock('../src/services/storage-sqlite.js', () => {
   return {
     StorageSQLite: class MockStorageSQLite {
-      private data = { runs: [] as any[], turns: new Map<string, any[]>() }
-
-      getAllRuns() { return this.data.runs }
-      getAllTurns() { return this.data.turns }
+      getAllRuns() { return mockStorageState.runs }
+      getAllTurns() { return mockStorageState.turns }
       getStats() { return { runs: 0, nodes: 0, turns: 0, artifacts: 0, dbSizeKB: 0 } }
       saveAll(runs: any[], turnsMap: Map<string, any[]>) {
-        this.data.runs = runs
-        this.data.turns = turnsMap
+        const runMap = new Map(mockStorageState.runs.map(run => [run.id, run]))
+        for (const run of runs) {
+          runMap.set(run.id, run)
+        }
+        mockStorageState.runs = Array.from(runMap.values())
+
+        for (const [nodeId, turns] of turnsMap) {
+          mockStorageState.turns.set(nodeId, turns)
+        }
+      }
+      deleteRun(runId: string) {
+        const run = mockStorageState.runs.find(item => item.id === runId)
+        if (!run) return false
+
+        mockStorageState.runs = mockStorageState.runs.filter(item => item.id !== runId)
+        for (const node of run.nodes) {
+          mockStorageState.turns.delete(node.id)
+        }
+        return true
       }
       async migrateFromJson() { return { runs: 0, turns: 0 } }
     },
@@ -39,6 +59,8 @@ describe('WorkflowEngine', () => {
   }
 
   beforeEach(async () => {
+    mockStorageState.runs = []
+    mockStorageState.turns = new Map()
     engine = new WorkflowEngine()
     await engine.load()
   })
@@ -335,6 +357,24 @@ describe('WorkflowEngine', () => {
       const run = await engine.createRun('proj_1', mockTemplate)
       expect(await engine.deleteRun(run.id)).toBe(true)
       expect(engine.getRun(run.id)).toBeUndefined()
+    })
+
+    it('should keep deleted runs removed after reload', async () => {
+      const run = await engine.createRun('proj_1', mockTemplate)
+      const node = run.nodes[0]
+
+      const turn = engine.startTurn(node.id, run.id, 'agent_1', 'Delete me')
+      engine.recordTurnResult(turn.id, node.id, 'succeeded')
+      engine.finalizeTurn(turn.id, node.id)
+
+      await engine.deleteRun(run.id)
+
+      const reloadedEngine = new WorkflowEngine()
+      await reloadedEngine.load()
+
+      expect(reloadedEngine.getRun(run.id)).toBeUndefined()
+      expect(reloadedEngine.getRuns('proj_1')).toHaveLength(0)
+      expect(reloadedEngine.getAllTurns().size).toBe(0)
     })
 
     it('should remove deleted run from project-scoped results', async () => {

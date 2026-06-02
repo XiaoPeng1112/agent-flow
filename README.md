@@ -22,7 +22,7 @@ AgentFlow 是一个 **Agent 编排调度中心（Orchestrator）**，核心理�
 - **可观测性**：全链路指标采集（时间/Token/质量）+ 效率评分 + 持久化 + 可视化仪表盘
 - **实时通信**：WebSocket 推送 Agent 输出流，前端即时展示执行进度
 - **数据同步**：GitHub Private Repo 多设备同步 + 多用户隔离 + gitRemote 跨设备自动匹配
-- **工程质量**：React.lazy 代码分割、ErrorBoundary 错误隔离、Vitest 单元测试（122 cases）
+- **工程质量**：React.lazy 代码分割、ErrorBoundary 错误隔离、Vitest 单元测试（128 cases）
 - **架构健康**：SQLite + WAL 持久化、WorkflowEngine Facade 模式、路由模块化（12 个子路由文件）
 
 ## 技术栈
@@ -70,7 +70,7 @@ agent-flow/
 │   │       ├── router/      # 路由配置
 │   │       └── store/       # Zustand 状态管理
 │   └── server/          # 后端 Express 服务
-│       ├── tests/       # Vitest 单元测试（122 cases）
+│       ├── tests/       # Vitest 单元测试（128 cases）
 │       └── src/
 │           ├── routes/    # 路由模块（12 个子路由文件）
 │           └── services/  # 业务服务层（25 个模块）
@@ -111,7 +111,9 @@ yarn deploy
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
-| v2.7.3 | 2026-06-02 | SQLite+WAL 持久化迁移 + WorkflowEngine Facade 拆分 + api.ts 路由模块化 + Vitest 122 cases |
+| v2.8.1 | 2026-06-02 | Run 删除持久化修复 + SQLite 显式清理补强 + 文档版本口径对齐 |
+| v2.8.0 | 2026-06-02 | Context DB 四层体系闭环 + 模板声明式重构 + 项目 Settings 增强 + DAG 准入准出引擎 |
+| v2.7.3 | 2026-06-02 | SQLite+WAL 持久化迁移 + WorkflowEngine Facade 拆分 + 路由模块化 + Vitest 122 cases |
 | v2.7.2 | 2026-06-01 | 多用户数据隔离 + gitRemote 跨设备自动匹配 |
 | v2.7.1 | 2026-06-01 | GitHub Private Repo 数据同步 + Context DB 多设备同步 |
 | v2.7.0 | 2026-05-31 | 反馈闭环（FeedbackCollector + WeeklyDigest）+ 轻量迭代机制 |

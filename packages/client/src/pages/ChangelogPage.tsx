@@ -17,6 +17,33 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.8.1',
+    date: '2026-06-02',
+    title: 'Run 删除持久化修复 + SQLite 清理补强 + 文档版本口径对齐',
+    type: 'fix',
+    highlights: [
+      '修复删除 Run 仅从内存移除、服务重启后重新出现的问题',
+      'RunManager.deleteRun 改为同步清理内存 turns 并直接调用 storage.deleteRun',
+      'StorageSQLite.deleteRun 改为显式事务删除 artifacts / turns / edges / nodes / runs',
+      '修复关闭 foreign_keys 后错误依赖 CASCADE 的删除假设',
+      '新增删除后重载不复活测试，Vitest 保持 128 cases 全通过',
+      '统一 README / 手册 / 系统介绍 / About / DEVLOG 的版本口径到 v2.8.1',
+    ],
+    details: `v2.8.1 是一个稳定性补丁版本，聚焦修复 Run 删除后的持久化一致性问题。
+
+【删除后“复活”问题】此前前端删除 Run 后，当前列表虽然会立刻消失，但 SQLite 中旧行没有被真正清理，服务重启后已删除 Run 可能重新出现。根因是 RunManager.deleteRun() 只删除了内存中的 runs Map，再走 saveAll() 全量 upsert 路径，而 saveAll() 不会自动删除已不存在的旧记录。
+
+【删除链路修复】RunManager.deleteRun() 现在会先清理对应节点的内存 turns，再直接调用 storage.deleteRun(runId) 执行持久化删除，确保内存态和落盘态同步生效。
+
+【SQLite 显式清理】由于 StorageSQLite 初始化时关闭了 foreign_keys，原先依赖 ON DELETE CASCADE 的假设并不成立。v2.8.1 将 deleteRun() 改为事务内显式删除 artifacts、turns、edges、nodes、runs，避免孤儿数据残留。
+
+【历史脏数据处理】本轮修复同时清理了本地 SQLite 中已残留的历史测试 Run，避免升级后重启再次回流。
+
+【回归保障】新增“删除后重载不复活”的工作流测试和 SQLite 删除归零测试，服务端维持 7 个测试文件、128 个用例全通过。
+
+【文档对齐】同步调整了 Changelog、About、README、使用手册、系统介绍、架构文档和开发日志中的版本号与说明，明确 v2.8.0 对应 Context DB/模板升级，v2.8.1 对应本次稳定性修复。`,
+  },
+  {
     version: 'v2.8.0',
     date: '2026-06-02',
     title: 'Context DB 四层体系闭环 + 模板声明式重构 + 项目 Settings 增强 + DAG 准入准出引擎',

@@ -150,6 +150,25 @@ describe('StorageSQLite', () => {
       expect(retrieved).toHaveLength(1)
       expect(retrieved[0].status).toBe('completed')
     })
+
+    it('should delete a run and its turns permanently', () => {
+      const run = makeRun('run_1')
+      const turns = new Map<string, AgentTurn[]>([
+        ['run_1_n1', [makeTurn('run_1_n1', 0)]],
+      ])
+
+      storage.saveAll([run], turns)
+
+      expect(storage.deleteRun('run_1')).toBe(true)
+      expect(storage.getAllRuns()).toHaveLength(0)
+      expect(storage.getAllTurns().size).toBe(0)
+      expect(storage.getStats()).toMatchObject({
+        runs: 0,
+        nodes: 0,
+        turns: 0,
+        artifacts: 0,
+      })
+    })
   })
 
   describe('turns', () => {

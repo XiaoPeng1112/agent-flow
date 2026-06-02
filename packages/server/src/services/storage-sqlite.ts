@@ -284,10 +284,24 @@ export class StorageSQLite {
   }
 
   deleteRun(runId: string): boolean {
-    // CASCADE 会自动删除关联的 nodes, edges, artifacts
-    const result = this.db.prepare('DELETE FROM runs WHERE id = ?').run(runId)
-    // 手动删除 turns（因为 turns 的 FK 指向 nodes，CASCADE 链式删除应该处理了）
-    this.db.prepare('DELETE FROM turns WHERE run_id = ?').run(runId)
+    const deleteArtifacts = this.db.prepare(`
+      DELETE FROM artifacts
+      WHERE node_id IN (SELECT id FROM nodes WHERE run_id = ?)
+    `)
+    const deleteTurns = this.db.prepare('DELETE FROM turns WHERE run_id = ?')
+    const deleteEdges = this.db.prepare('DELETE FROM edges WHERE run_id = ?')
+    const deleteNodes = this.db.prepare('DELETE FROM nodes WHERE run_id = ?')
+    const deleteRun = this.db.prepare('DELETE FROM runs WHERE id = ?')
+
+    const transaction = this.db.transaction(() => {
+      deleteArtifacts.run(runId)
+      deleteTurns.run(runId)
+      deleteEdges.run(runId)
+      deleteNodes.run(runId)
+      return deleteRun.run(runId)
+    })
+
+    const result = transaction()
     return result.changes > 0
   }
 

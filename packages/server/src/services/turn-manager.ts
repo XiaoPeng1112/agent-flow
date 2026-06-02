@@ -44,6 +44,10 @@ export class TurnManager {
     this.turns.set(nodeId, turns)
   }
 
+  deleteTurns(nodeId: string): void {
+    this.turns.delete(nodeId)
+  }
+
   getAllTurnsMap(): Map<string, AgentTurn[]> {
     return this.turns
   }

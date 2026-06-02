@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.7.2 | 更新日期：2026-06-01  
+> 版本：v2.8.1 | 更新日期：2026-06-02  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -661,13 +661,11 @@ Context DB 自动管理四层上下文文件，Agent 执行时注入合并后的
 
 ## 8. 数据存储
 
-所有数据以 JSON 文件持久化存储在用户目录下：
+当前版本使用 SQLite + WAL 作为本地核心持久化层，辅以少量 JSON 配置文件和上下文目录：
 
 | 文件路径 | 内容 |
 |----------|------|
-| `~/.agent-flow/projects.json` | 项目列表 |
-| `~/.agent-flow/templates.json` | 工作流模板 |
-| `~/.agent-flow/runs/index.json` | Run 历史记录 |
+| `~/.agent-flow/data/agent-flow.db` | 项目、模板、Run、节点、Turn、Artifact 等核心数据 |
 | `~/.agent-flow/auth.json` | OAuth 认证信息 |
 | `~/.agent-flow/context/` | Context DB 四层上下文文件 |
 | `~/.agent-flow/checkpoints/` | Checkpoint 快照数据 |
@@ -821,6 +819,9 @@ yarn test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.8.1 | 2026-06-02 | Run 删除持久化修复 + SQLite 显式清理补强 + 文档版本口径对齐 |
+| v2.8.0 | 2026-06-02 | Context DB 四层体系闭环 + 模板声明式重构 + 项目 Settings 增强 + DAG 准入准出引擎 |
+| v2.7.3 | 2026-06-02 | SQLite+WAL 持久化迁移 + WorkflowEngine Facade 拆分 + 路由模块化 |
 | v2.7.2 | 2026-06-01 | 多用户数据隔离 + 跨设备 gitRemote 自动匹配 |
 | v2.7.1 | 2026-06-01 | GitHub Private Repo 数据同步 + Context DB 多设备同步 |
 | v2.7.0 | 2026-05-31 | 反馈闭环（FeedbackCollector + WeeklyDigest）+ 轻量迭代机制 |
@@ -856,13 +857,11 @@ yarn test:coverage
 - ✅ **Checkpoint UI**：Timeline 快照 + 恢复 + 健康监控
 - ✅ **Context DB 编辑器**：前端可视化编辑四层上下文，支持 CRUD + 装配预览
 - ✅ **A2A 消息面板**：拓扑图 + 时间线 + 统计三视图，全面展示 Agent 间消息流转
+- ✅ **数据持久化**：SQLite + WAL 本地存储，启动时自动从 JSON 平滑迁移
 - ✅ **代码分割**：React.lazy + Suspense 路由级分割
-- ✅ **单元测试**：Vitest 68 cases 覆盖核心服务
+- ✅ **单元测试**：Vitest 128 cases 覆盖核心服务
 - ✅ **错误边界**：React ErrorBoundary 全局错误隔离
 
-### 中期规划
-
-- **数据库迁移**：项目/Run 数据量增大后从 JSON 文件迁移到 SQLite
 ### 长期规划
 
 - **多人协作**：WebSocket 多客户端同步 + 乐观更新 + 冲突解决

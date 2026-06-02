@@ -41,7 +41,7 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.7.3</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.8.1</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
@@ -679,6 +679,82 @@ export function AboutPage() {
           </div>
         </section>
 
+        {/* ═══ v2.8.1 稳定性补丁 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<SafetyCertificateOutlined />} title="稳定性补丁（v2.8.1）" color="rose" />
+          <div className="bg-gradient-to-r from-rose-50 to-orange-50 border border-rose-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.8.1 是一次面向<strong>数据一致性</strong>的补丁版本，重点修复了 Run 删除后 SQLite 旧数据残留、服务重启后已删除 Run 重新出现的问题，
+              同时把版本说明和文档口径统一到了最新状态。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="Run 删除真正落盘"
+              desc="删除 Run 时不再只改内存，而是同步清理对应 turns，并直接触发 SQLite 持久化删除。"
+              color="#e11d48"
+            />
+            <ArchCard
+              icon={<SafetyCertificateOutlined />}
+              title="显式事务清理"
+              desc="StorageSQLite.deleteRun 改为事务内显式删除 artifacts、turns、edges、nodes、runs，避免依赖关闭状态下无效的外键级联。"
+              color="#f97316"
+            />
+            <ArchCard
+              icon={<BranchesOutlined />}
+              title="删除后不再复活"
+              desc="补上删除后重载场景的回归测试，确保服务重启后已删除 Run 不会重新出现在列表中。"
+              color="#fb7185"
+            />
+            <ArchCard
+              icon={<ToolOutlined />}
+              title="版本说明统一"
+              desc="更新日志、项目介绍、README、手册和系统介绍全部对齐到 v2.8.1，版本时间线更清晰。"
+              color="#ea580c"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.8.0 Context DB 四层闭环 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<DatabaseOutlined />} title="Context DB 四层闭环（v2.8.0）" color="emerald" />
+          <div className="bg-gradient-to-r from-emerald-50 to-cyan-50 border border-emerald-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.8.0 在 v2.7.3 的架构重构基础上，继续完成了<strong>Context DB 四层上下文体系的闭环</strong>。
+              从项目创建、Run 创建、模板声明、Prompt 装配，到项目 Settings 里的统计/导出/清理/预览，整条链路都变得可视化、可追踪、可维护。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="四层上下文全链路"
+              desc="创建项目自动生成 L0 种子，创建 Run 按节点动态生成 L2 种子；Sidebar 新增 SYS / L1 独立编辑入口，四层上下文全部可管理。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<ApiOutlined />}
+              title="声明式模板"
+              desc="模板升级为 roleStatement、inputs、entryConditions、exitConditions 的声明式结构，流程骨架与具体项目内容彻底解耦。"
+              color="#0f766e"
+            />
+            <ArchCard
+              icon={<BranchesOutlined />}
+              title="准入准出引擎"
+              desc="DAG 新增 entryConditions / exitConditions 自动门控，节点是否可进入、是否可完成都有结构化条件约束。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<ToolOutlined />}
+              title="Settings 增强"
+              desc="项目 Settings 面板新增运行统计、Token 趋势、数据导出、Run 清理和上下文预览，项目治理能力进一步补齐。"
+              color="#0284c7"
+            />
+          </div>
+        </section>
+
         {/* ═══ v2.7.3 架构重构 ═══ */}
         <section className="mb-12">
           <SectionTitle icon={<ThunderboltOutlined />} title="架构重构（v2.7.3）" color="purple" />
@@ -686,7 +762,7 @@ export function AboutPage() {
             <p className="text-[14px] text-gray-700 leading-[1.8]">
               v2.7.3 是一次以<strong>可维护性</strong>和<strong>数据可靠性</strong>为目标的架构重构版本。将持久化从 JSON 文件迁移到 SQLite + WAL 模式，
               将 1068 行的 WorkflowEngine God Object 拆分为四个职责单一的模块，并将 1575 行的 api.ts 拆分为 12 个子路由文件。
-              Vitest 测试从 68 增长到 122 cases。
+              Vitest 测试从 68 增长到 122 cases，建立起了架构重构后的首轮系统级回归保障。
             </p>
           </div>
 

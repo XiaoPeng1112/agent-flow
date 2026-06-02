@@ -58,6 +58,7 @@ export class WorkflowEngine {
       turnManager: {
         getTurns: (nodeId: string) => this.turnManager.getTurns(nodeId),
         setTurns: (nodeId: string, turns: AgentTurn[]) => this.turnManager.setTurns(nodeId, turns),
+        deleteTurns: (nodeId: string) => this.turnManager.deleteTurns(nodeId),
         getAllTurnsMap: () => this.turnManager.getAllTurnsMap(),
       },
     })

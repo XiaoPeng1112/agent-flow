@@ -43,6 +43,7 @@ export class RunManager {
   private turnManager!: {
     getTurns(nodeId: string): AgentTurn[]
     setTurns(nodeId: string, turns: AgentTurn[]): void
+    deleteTurns(nodeId: string): void
     getAllTurnsMap(): Map<string, AgentTurn[]>
   }
 
@@ -267,12 +268,19 @@ export class RunManager {
   }
 
   async deleteRun(runId: string): Promise<boolean> {
-    const deleted = this.runs.delete(runId)
-    if (deleted) {
-      this.emit('run:deleted', { runId })
-      await this.persist()
+    const run = this.runs.get(runId)
+    if (!run) return false
+
+    for (const node of run.nodes) {
+      this.turnManager.deleteTurns(node.id)
     }
-    return deleted
+
+    this.runs.delete(runId)
+    this.storage.deleteRun(runId)
+
+    this.emit('run:deleted', { runId })
+    await this.persist()
+    return true
   }
 
   async importRun(runData: Run, turnsData?: Record<string, AgentTurn[]>): Promise<void> {

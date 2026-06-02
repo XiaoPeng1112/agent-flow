@@ -289,11 +289,12 @@ agent-flow/
 ├── packages/
 │   ├── server/
 │   │   ├── vitest.config.ts          # 测试配置
-│   │   ├── tests/                    # 单元测试（122 个用例）
+│   │   ├── tests/                    # 单元测试（128 个用例）
 │   │   │   ├── workflow-engine.test.ts     # Facade 集成测试
 │   │   │   ├── dag-scheduler.test.ts       # DAG 调度逻辑测试
 │   │   │   ├── turn-manager.test.ts        # Turn 生命周期测试
 │   │   │   ├── storage-sqlite.test.ts      # SQLite 存储层测试
+│   │   │   ├── sync.test.ts                # GitHub 同步与合并逻辑测试
 │   │   │   ├── a2a-protocol.test.ts        # A2A 协议测试
 │   │   │   └── contract-validator.test.ts  # 输出契约验证测试
 │   │   └── src/
@@ -881,7 +882,7 @@ Turns（Agent 执行回合）在内存中独立于 Run 存储（`Map<nodeId, Age
 | # | 问题 | 建议方案 | 状态 |
 |---|------|----------|------|
 | 1 | 无本地持久化 | 引入 SQLite + WAL（better-sqlite3），单 `.db` 文件，零额外服务 | **✅ 已完成** — `storage-sqlite.ts`，自动迁移旧 JSON |
-| 2 | 无自动化测试 | vitest 单测覆盖核心模块 | **✅ 已完成** — 6 个测试文件，122 个用例全通过 |
+| 2 | 无自动化测试 | vitest 单测覆盖核心模块 | **✅ 已完成** — 7 个测试文件，128 个用例全通过 |
 | 3 | WorkflowEngine 职责过重 | Facade 模式拆分为 RunManager + DAGScheduler + TurnManager | **✅ 已完成** — 外部 API 零变更 |
 | 4 | api.ts 过大（1575 行） | 按域拆分为 12 个子路由文件 | **✅ 已完成** — 协调器仅 ~130 行 |
 | 5 | RunDetail.tsx 过大（1410 行） | 抽取 custom hooks + 拆分子组件 | ⏳ 待改造 |
@@ -900,7 +901,7 @@ Turns（Agent 执行回合）在内存中独立于 Run 存储（`Map<nodeId, Age
 ✅ 第一步：#4 拆分 api.ts → 12 个子路由文件（已完成）
 ✅ 第二步：#3 拆分 WorkflowEngine → Facade + 3 模块（已完成）
 ✅ 第三步：#1 引入 SQLite + WAL 本地持久化（已完成）
-✅ 第四步：#2 引入 vitest 单测，覆盖 122 个用例（已完成）
+✅ 第四步：#2 引入 vitest 单测，覆盖 128 个用例（已完成）
 ⏳ 第五步：#5 拆分 RunDetail.tsx（待改造）
 ```
 
@@ -928,7 +929,7 @@ Turns（Agent 执行回合）在内存中独立于 Run 存储（`Map<nodeId, Age
 | `server/src/routes/runs.ts` | 202 | Run 相关 REST 端点 |
 | `server/src/routes/agents.ts` | 248 | Agent 相关 REST 端点 |
 | `server/src/index.ts` | 298 | 服务启动 + WS 广播 + 优雅关闭 |
-| `server/tests/*.test.ts` | 1867 | **6 个测试文件，122 个用例** |
+| `server/tests/*.test.ts` | 1867 | **7 个测试文件，128 个用例** |
 | `client/src/store/appStore.ts` | 278 | Zustand 全局状态 + WS 消息处理 |
 | `client/src/api/index.ts` | 577 | HTTP + WS 客户端封装 |
 | `client/src/components/detail/RunDetail.tsx` | 1410 | Run 详情页（最复杂的 UI 组件） |
@@ -945,7 +946,7 @@ Turns（Agent 执行回合）在内存中独立于 Run 存储（`Map<nodeId, Age
 4. **了解持久化层** `storage-sqlite.ts` —— 理解数据如何落盘和加载
 5. **然后读 AgentService** —— 理解 Agent 是如何被调用的，CLI 进程如何管理
 6. **最后读 SyncService** —— 理解数据如何跨设备同步
-7. **跑测试** `npx vitest run` —— 通过 122 个用例理解各模块的行为边界
+7. **跑测试** `npx vitest run` —— 通过 128 个用例理解各模块的行为边界
 
 其他服务（ContextDB、A2A、Robustness）可以在需要时再深入。
 
@@ -964,7 +965,7 @@ AgentFlow（内部称 MAF — Multi-Agent Flow）是一个多智能体 DAG 工�
 | 维度 | 数值 |
 |------|------|
 | 服务端核心逻辑 | ~6,500 行（含 4 个新模块） |
-| 服务端测试 | ~1,900 行（6 文件，122 用例） |
+| 服务端测试 | ~1,900 行（7 文件，128 用例） |
 | 客户端代码 | ~3,000+ 行 |
 | 核心服务数 | 11 个（含 RunManager、DAGScheduler、TurnManager、StorageSQLite） |
 | REST API 端点 | 70+（分布在 12 个路由文件中） |
@@ -989,11 +990,11 @@ AgentFlow 在以下方面做出了务实的架构选择：
 
 **风险二：代码可维护性 ⚠️ 大幅改善。** 服务端核心已完成拆分：WorkflowEngine 从 1068 行缩减为 248 行的 Facade，实际逻辑分散到 RunManager（564）、DAGScheduler（214）、TurnManager（271）三个单职责模块；api.ts 从 1575 行拆分为 12 个子路由文件。剩余待改造：客户端 RunDetail.tsx（1410 行）。
 
-**风险三：重构安全性 ✅ 已解决。** 引入 vitest 测试框架，建立 6 个测试文件共 122 个用例，覆盖 DAG 调度、节点状态机、Turn 生命周期、SQLite 持久化等核心路径。后续任何重构都有回归测试保障。
+**风险三：重构安全性 ✅ 已解决。** 引入 vitest 测试框架，建立 7 个测试文件共 128 个用例，覆盖 DAG 调度、节点状态机、Turn 生命周期、SQLite 持久化、同步服务等核心路径。后续任何重构都有回归测试保障。
 
 ### 12.5 一句话总结
 
-AgentFlow 是一个设计清晰、功能完备的多智能体编排系统。经过本轮重构，服务端已建立起 Facade + 单职责模块 + SQLite 持久化 + 122 测试用例的工程基础，具备了规模化迭代的条件。下一步的核心任务是完成客户端 RunDetail.tsx 的拆分，并持续扩展测试覆盖到 SyncService 和 AgentService 等模块。
+AgentFlow 是一个设计清晰、功能完备的多智能体编排系统。经过本轮重构，服务端已建立起 Facade + 单职责模块 + SQLite 持久化 + 128 测试用例的工程基础，具备了规模化迭代的条件。下一步的核心任务是完成客户端 RunDetail.tsx 的拆分，并持续扩展测试覆盖到 AgentService 等模块。
 
 ---
 

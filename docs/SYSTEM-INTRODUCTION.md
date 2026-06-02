@@ -1,7 +1,7 @@
 # AgentFlow 系统介绍
 
 > 面向团队讲解的完整系统说明  
-> 版本：v2.7.3 | 作者：@XiaoPeng1112 | 日期：2026-06-02
+> 版本：v2.8.1 | 作者：@XiaoPeng1112 | 日期：2026-06-02
 
 ---
 
@@ -101,7 +101,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 这解决了"公司电脑和家里电脑数据不互通"的痛点，确保知识资产（架构文档、决策记录、开发日志）在多设备间始终保持一致。
 
-### 3.7 架构重构（v2.7.3）
+### 3.7 架构重构、上下文闭环与稳定性补丁（v2.7.3 → v2.8.1）
 
 **SQLite + WAL 持久化迁移**——将原有 JSON 文件存储替换为 SQLite + WAL 模式（better-sqlite3）。新建 `storage-sqlite.ts` 服务（~400 行），提供 ACID 事务保障和高并发读写能力。系统启动时自动检测 JSON 遗留数据并执行平滑迁移（JSON → SQLite 一次性导入），迁移完成后原 JSON 文件保留为备份。采用 `inject()` 模式解决 ESM 循环依赖问题。
 
@@ -110,6 +110,10 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 **api.ts 路由拆分**——原 1575 行的单文件路由拆分为 12 个子路由文件（run、node、turn、template、project、agent 等）+ ~146 行的路由注册协调器，每个文件职责单一、可独立维护。
 
 **新增测试**——Vitest 测试从 68 cases 增长到 122 cases，新增 dag-scheduler、turn-manager、storage-sqlite 三个测试套件，确保重构后行为不变。
+
+**v2.8.0 Context DB 四层闭环**——在 v2.7.3 工程基础上，系统继续完成了 Context DB 的全链路闭环：创建项目时自动生成 L0 种子文件，创建 Run 时按节点动态生成 L2 种子；Sidebar 新增 SYS / L1 全局编辑入口；ContextDBPanel 改为按 Run 批量加载 L2；DynamicAgentFactory 内化四层上下文装配；模板升级为 `roleStatement + inputs + entryConditions + exitConditions` 的声明式结构；DAG 新增准入/准出条件评估；项目 Settings 面板新增运行统计、Token 趋势、数据导出、Run 清理、上下文预览能力。
+
+**v2.8.1 稳定性补丁**——在 v2.8.0 之后，系统针对 Run 删除链路补齐了持久化一致性：删除操作不再只改内存，而是同步清理 turns 并在 SQLite 中显式事务删除相关数据；同时补上“删除后重载不复活”的回归测试，并统一更新了更新日志、项目介绍、README 与手册中的版本口径。此时服务端测试扩展到 128 cases。
 
 ### 3.8 前端可视化
 
@@ -124,7 +128,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 ### 3.9 工程质量
 
 - TypeScript 全量类型覆盖（Server + Client 零 TS 错误）
-- Vitest 单元测试 122 cases 覆盖工作流引擎、DAG 调度、Turn 管理、A2A 协议、合同验证、SQLite 存储六大核心
+- Vitest 单元测试 128 cases 覆盖工作流引擎、DAG 调度、Turn 管理、A2A 协议、合同验证、SQLite 存储、同步服务等核心路径
 - React.lazy 路由级代码分割，页面 chunk 独立加载
 - ErrorBoundary 全局错误隔离
 - 文件系统路径穿越防护 + OAuth CSRF 防护 + Agent 权限隔离
@@ -159,7 +163,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 ### 4.2 复杂数据库
 
-没有引入 PostgreSQL / MongoDB 等外部数据库服务。v2.7.3 已将持久化从 JSON 文件迁移到 SQLite + WAL 模式（better-sqlite3），获得 ACID 事务保障和高并发读写能力，同时保持零外部服务依赖、单文件部署的轻量特性。不需要更重的关系型数据库。
+没有引入 PostgreSQL / MongoDB 等外部数据库服务。v2.7.3 已将持久化从 JSON 文件迁移到 SQLite + WAL 模式（better-sqlite3），v2.8.0 则在这一基础上继续完善了 Context DB 与声明式模板链路，获得 ACID 事务保障、高并发读写能力和更清晰的上下文装配边界，同时保持零外部服务依赖、单文件部署的轻量特性。不需要更重的关系型数据库。
 
 ### 4.3 多人实时协作
 
@@ -219,7 +223,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 ### 6.1 短期（当前可用）
 
-当前 v2.7.3 已经是一个功能完整的闭环系统：
+当前 v2.8.1 已经是一个功能完整的闭环系统：
 
 ```
 需求输入 → DAG 编排 → Agent 执行 → 人工审查 → Diff Review → 合并/丢弃
@@ -227,7 +231,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
      ← ← ← ← ← Feedback 反馈 ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 ```
 
-v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通。v2.7.3 完成了 SQLite 持久化迁移和 WorkflowEngine 架构拆分，系统稳定性和可维护性大幅提升。
+v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通。v2.7.3 完成了 SQLite 持久化迁移和 WorkflowEngine 架构拆分，v2.8.0 补齐了 Context DB 四层体系、声明式模板和准入准出条件引擎，v2.8.1 则进一步修复了删除链路的数据一致性问题。
 
 可以直接在个人开发中使用，验证“AI 多角色协作开发”这套流程是否真的能提升效率。
 
@@ -237,7 +241,7 @@ v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用
 
 **模板生态丰富**——基于实际使用经验沉淀更多工作流模板：重构流程、性能优化流程、文档撰写流程、测试补全流程等。
 
-**数据持久化升级**——✅ 已在 v2.7.3 完成 SQLite 迁移，启动时自动从 JSON 平滑迁移。
+**数据持久化升级**——✅ 已在 v2.7.3 完成 SQLite 迁移，v2.8.0 在此基础上继续完善上下文种子、Run 清理与装配链路。
 
 ### 6.3 长期愿景
 
@@ -261,11 +265,11 @@ v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用
 |------|------|
 | 后端服务模块 | 25 个 |
 | 前端组件/页面 | ~30 个 |
-| 单元测试 | 122 cases |
+| 单元测试 | 128 cases |
 | 技术决策记录（ADR） | 18 个 |
 | 内置工作流模板 | 4 个 |
 | REST API 端点 | ~58 个（12 个子路由文件） |
-| 版本迭代 | v1.0.0 → v2.7.3（12 个版本） |
+| 版本迭代 | v1.0.0 → v2.8.1（18 个版本） |
 | 开发方式 | 人 + AI（CatDesk）对话式协作 |
 
 ---
