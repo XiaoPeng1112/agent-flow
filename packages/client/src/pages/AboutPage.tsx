@@ -282,13 +282,14 @@ export function AboutPage() {
                     <p>v2.1 引入 React Router，实现完全由 URL 驱动的页面状态：</p>
                     <p className="mt-2"><strong>路由结构：</strong></p>
                     <code className="block bg-gray-100 rounded-md p-3 mt-1 text-[12px] text-gray-700">
-                      {`/                                → 首页
-/projects/:projectId/:tab        → 项目详情
-/projects/:projectId/runs/:runId → Run 详情
-/changelog                       → 更新日志
-/about                           → 项目介绍`}
+                      {`#/                               → 首页
+#/projects/:projectId/:tab       → 项目详情
+#/projects/:projectId/runs/:runId → Run 详情
+#/changelog                      → 更新日志
+#/about                          → 项目介绍`}
                     </code>
-                    <p className="mt-2"><strong>优势：</strong>刷新浏览器不丢失状态、URL 可分享、浏览器前进后退可用、SEO 友好。</p>
+                    <p className="mt-2"><strong>优势：</strong>刷新浏览器不丢失状态、URL 可分享、浏览器前进后退可用，且在 GitHub Pages 上不会触发额外的路径 404 噪音。</p>
+                    <p className="mt-2"><strong>实现方式：</strong>当前使用 HashRouter，既保留 URL 驱动状态，也规避了静态托管环境下对 History 路由的额外适配成本。</p>
                   </div>
                 ),
               },

@@ -624,10 +624,10 @@ WebSocket 消息到达时，直接 patch 对应的 store 切片，UI 自动响�
 
 ### 4.4 路由结构
 
-所有页面组件 lazy 加载，basename 为 `/agent-flow`（适配 GitHub Pages 子路径）：
+所有页面组件 lazy 加载，采用 `HashRouter` 以适配 GitHub Pages 静态托管环境：
 
 ```
-/agent-flow/
+/agent-flow/#/
 ├── /                     → Dashboard（项目概览）
 ├── /projects/:id         → 项目详情 + Run 列表
 ├── /runs/:id             → Run 详情（核心页面，1410 行）

@@ -63,7 +63,7 @@ yarn dev
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| 前端 | http://localhost:5173/agent-flow/ | Vite Dev Server + HMR |
+| 前端 | http://localhost:5173/agent-flow/#/ | Vite Dev Server + HMR |
 | 后端 API | http://localhost:3001/api | Express REST API |
 | WebSocket | ws://localhost:3001/ws | Agent 输出实时推送 |
 | 健康检查 | http://localhost:3001/health | 服务状态检测 |
@@ -721,6 +721,8 @@ yarn deploy
 3. 通过 gh-pages 推送 `dist/` 到 GitHub Pages
 
 部署后访问：https://xiaopeng1112.github.io/agent-flow/
+
+当前前端使用 `HashRouter`，线上深链接形态为 `https://xiaopeng1112.github.io/agent-flow/#/projects/{projectId}/runs/{runId}`，可避免 GitHub Pages 对 History 路径的额外 404 请求。
 
 ### 10.2 架构说明
 
