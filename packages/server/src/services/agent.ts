@@ -728,7 +728,53 @@ export class AgentService {
     parts.push('\n## 当前任务\n')
     parts.push(userPrompt)
 
+    // ★ 产出物格式引导（帮助 extractArtifactsFromOutput 精准识别）
+    parts.push(this.getArtifactFormatGuidance())
+
     return parts.join('\n')
+  }
+
+  /**
+   * 产出物格式引导指令
+   * 
+   * 指导 Agent 以结构化方式标记产出物，使后端解析器能精准提取。
+   * 优先级策略与 extractArtifactsFromOutput 的 4 层识别对齐：
+   *   Tier 1: JSON 结构化声明块
+   *   Tier 2: 命名代码块（```language:filename）
+   *   Tier 3: Markdown 文档段落（## 标题 + 正文）
+   *   Tier 4: 大型无名代码块（>10 行）
+   */
+  private getArtifactFormatGuidance(): string {
+    return `
+
+## 产出物格式规范（重要）
+
+你的输出将被自动解析为结构化产出物。请遵循以下格式规范以确保产出物被正确识别：
+
+### 代码类产出物
+使用带文件名的代码块标记：
+\`\`\`typescript:src/services/example.ts
+// 你的代码内容
+\`\`\`
+
+文件名必须是合法的路径格式（如 \`src/index.ts\`、\`api/routes.ts\`），不要使用描述性文字作为文件名。
+
+### 文档类产出物
+使用 Markdown 二级标题标记每个独立文档段落：
+## 需求分析文档
+
+（正文内容，至少包含一段完整的分析描述...）
+
+## 验收标准
+
+（正文内容...）
+
+每个 ## 标题下的内容应当是一个完整的、有意义的文档段落（不少于 200 字符）。
+
+### 注意事项
+- 不要将简短的代码片段（<10 行）或命令行输出标记为代码块，直接内联即可
+- 每个产出物应当是完整的、可独立使用的内容，而非碎片化的片段
+- 产出物标题应当简洁明确，能体现其核心用途`
   }
 
   /**
@@ -886,6 +932,18 @@ export class AgentService {
 
   /**
    * 从输出文本中提取结构化产出物
+   * 
+   * 提取策略（按优先级）：
+   * 1. JSON 结构化声明块（Agent 显式标记的产出物）
+   * 2. 带明确文件名的代码块（```language:path/to/file.ext）
+   * 3. Markdown 文档段落（## 标题 + 正文，适用于报告/分析类产出物）
+   * 4. 大型无名代码块（>10行 且 >500字符，作为兜底）
+   * 
+   * 排除规则：
+   * - 无文件名且 < 5 行的代码片段（通常是引用/示例）
+   * - 单行代码（如 import、变量声明）
+   * - 标题看起来像代码行的（如 const x = ...）
+   * - 重复标题去重
    */
   private extractArtifactsFromOutput(output: string): Array<{
     title: string
@@ -899,38 +957,19 @@ export class AgentService {
       format: string
       content: string
     }> = []
+    const seenTitles = new Set<string>()
 
-    // 提取带文件名的代码块: ```language:filename 或 ```language // filename
-    const codeBlockRegex = /```(\w+)(?:[:\s]+([^\n]+))?\n([\s\S]*?)```/g
     let match: RegExpExecArray | null
 
-    while ((match = codeBlockRegex.exec(output)) !== null) {
-      const language = match[1]
-      const fileName = match[2]?.trim()
-      const content = match[3].trim()
-
-      // 只提取有明确文件名或较长内容的代码块
-      if (!fileName && content.length < 100) continue
-
-      const title = fileName || `code_snippet.${language}`
-      const category = this.inferCategory(language, fileName || '')
-      
-      artifacts.push({
-        title,
-        category,
-        format: language,
-        content,
-      })
-    }
-
-    // 提取 JSON 结构化输出块（如果 Agent 输出包含 JSON Schema 格式的产出物声明）
+    // ─── 优先级 1: JSON 结构化声明块 ───
     const jsonOutputRegex = /```json\n(\{[\s\S]*?"artifacts?"[\s\S]*?\})\n```/g
     while ((match = jsonOutputRegex.exec(output)) !== null) {
       try {
         const parsed = JSON.parse(match[1])
         if (parsed.artifacts && Array.isArray(parsed.artifacts)) {
           for (const a of parsed.artifacts) {
-            if (a.title && a.content) {
+            if (a.title && a.content && !seenTitles.has(a.title)) {
+              seenTitles.add(a.title)
               artifacts.push({
                 title: a.title,
                 category: a.category || 'document',
@@ -945,7 +984,106 @@ export class AgentService {
       }
     }
 
+    // ─── 优先级 2: 带明确文件名/路径的代码块 ───
+    // 匹配: ```language:filename  或  ```language // filename  或 ```language filename.ext
+    const namedBlockRegex = /```(\w+)(?:[:\s]+([^\n]+))?\n([\s\S]*?)```/g
+    while ((match = namedBlockRegex.exec(output)) !== null) {
+      const language = match[1]
+      const rawName = match[2]?.trim()
+      const content = match[3].trim()
+
+      if (!rawName) continue // 无文件名的在优先级4处理
+      if (!content || content.length < 10) continue
+
+      // 验证文件名是否合理（应该像 path/to/file.ext 而不是一行代码）
+      const isValidFileName = this.isLikelyFileName(rawName)
+      if (!isValidFileName) continue
+
+      const title = rawName
+      if (seenTitles.has(title)) continue
+      seenTitles.add(title)
+
+      const category = this.inferCategory(language, rawName)
+      artifacts.push({ title, category, format: language, content })
+    }
+
+    // ─── 优先级 3: Markdown 文档段落（适用于报告/分析类） ───
+    // 匹配 ## 标题 开头的段落，提取为 document 类型产出物
+    const sectionRegex = /^#{1,3}\s+(.+?)$/gm
+    const sections: { title: string; start: number }[] = []
+    while ((match = sectionRegex.exec(output)) !== null) {
+      sections.push({ title: match[1].trim(), start: match.index + match[0].length })
+    }
+
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i]
+      const end = i + 1 < sections.length ? sections[i + 1].start - sections[i + 1].title.length - 4 : output.length
+      const sectionContent = output.slice(section.start, end).trim()
+
+      // 只提取有实质内容的段落（>200字符，排除纯代码引用段落）
+      if (sectionContent.length < 200) continue
+      // 排除纯代码块段落（内容80%以上是代码块）
+      const codeBlockLen = (sectionContent.match(/```[\s\S]*?```/g) || []).join('').length
+      if (codeBlockLen > sectionContent.length * 0.8) continue
+
+      // 排除目录性质的标题
+      const skipTitles = ['目录', '参考', '附录', 'table of contents', 'references']
+      if (skipTitles.some(t => section.title.toLowerCase().includes(t))) continue
+
+      const title = section.title
+      if (seenTitles.has(title)) continue
+      seenTitles.add(title)
+
+      artifacts.push({
+        title,
+        category: 'document',
+        format: 'markdown',
+        content: sectionContent,
+      })
+    }
+
+    // ─── 优先级 4: 大型无名代码块（兜底） ───
+    const unnamedBlockRegex = /```(\w+)\n([\s\S]*?)```/g
+    while ((match = unnamedBlockRegex.exec(output)) !== null) {
+      const language = match[1]
+      const content = match[2].trim()
+      const lines = content.split('\n').length
+
+      // 严格过滤：必须是有实质内容的大块代码
+      if (lines < 10 || content.length < 500) continue
+
+      // 排除纯注释或日志输出
+      const codeLines = content.split('\n').filter(l => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('#'))
+      if (codeLines.length < 8) continue
+
+      const title = `code_block.${language}`
+      // 用语言+内容hash避免重复
+      const dedupeKey = `${language}_${content.length}_${content.slice(0, 50)}`
+      if (seenTitles.has(dedupeKey)) continue
+      seenTitles.add(dedupeKey)
+
+      const category = this.inferCategory(language, '')
+      artifacts.push({ title, category, format: language, content })
+    }
+
     return artifacts
+  }
+
+  /**
+   * 判断字符串是否像一个文件名/路径
+   * 排除：代码行、URL、纯描述文本
+   */
+  private isLikelyFileName(name: string): boolean {
+    // 包含路径分隔符或文件扩展名
+    if (/[/\\]/.test(name) || /\.\w{1,10}$/.test(name)) {
+      // 但排除看起来像代码的（如 const x = require('./file')）
+      if (/^(const|let|var|import|export|function|class|if|for|while)\s/.test(name)) return false
+      if (/[=(){}\[\];]/.test(name)) return false
+      return true
+    }
+    // 像 "filename.ext" 的格式
+    if (/^[\w\-./]+\.\w{1,10}$/.test(name)) return true
+    return false
   }
 
   /**

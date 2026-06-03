@@ -17,6 +17,33 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.8.7',
+    date: '2026-06-03',
+    title: '产出物体系优化 — Prompt 格式引导 + 模板交付物声明 + 前端展示升级',
+    type: 'improvement',
+    highlights: [
+      '后端 buildContextualPrompt 全局追加产出物格式规范段，与 extractArtifactsFromOutput 4 层解析对齐',
+      '4 个工作流模板 20 个节点 prompt 均补充「你必须产出以下交付物」声明，与 outputContracts 一一对应',
+      '新增 getArtifactFormatGuidance() 方法，指导 Agent 使用 ```lang:filename 标记代码、## 标题标记文档',
+      '前端新增 ArtifactItem 组件：按 category 差异化图标色彩（代码蓝/文档绿/测试紫/报告橙/配置灰）',
+      '产出物支持点击展开内容预览，代码类 SyntaxHighlighter 高亮，文档类 Markdown 预览',
+      'ARTIFACT_CATEGORY_CONFIG 常量映射 5 种产出物类型到图标、颜色、背景色',
+    ],
+    details: `v2.8.7 是一次面向产出物全链路的系统性优化，解决之前"问题分析节点产出 13 个垃圾产出物、修复实现节点产出 60 个碎片"的问题根因。
+
+【问题根因】之前 extractArtifactsFromOutput 虽已重写为 4 层优先级解析（v2.8.6），但 Agent 本身不知道应该以什么格式标记产出物，导致输出中大量代码片段、命令行输出被误识别为产出物。同时前端展示只有简单列表，无法区分产出物类型和重要性。
+
+【后端 Prompt 引导 — agent.ts】新增 getArtifactFormatGuidance() 私有方法，在 buildContextualPrompt 组装 prompt 时自动追加到末尾。内容包含代码类产出物格式（\`\`\`typescript:src/path/file.ts）、文档类产出物格式（## 标题 + 正文 ≥200字符）、注意事项（不要将短片段标记为代码块、产出物应完整可独立使用）。
+
+【模板层 prompt 声明 — template.ts】4 个模板（sdd-standard 7节点、quick-feature 4节点、bug-fix 4节点、parallel-dev 5节点）的每个节点 prompt 字段末尾追加"你必须产出以下交付物"列表。每条声明包含产出物名称、对应的 Markdown 标记方式。例如"需求分析"节点声明产出「需求分析文档」和「验收标准」，"代码实现"节点声明产出带文件名的代码块和变更说明。
+
+【前端 UI 升级 — RunDetail.tsx】新增 ArtifactItem 组件替代原有内联渲染。ARTIFACT_CATEGORY_CONFIG 常量定义 5 种 category 的图标（CodeOutlined/FileTextOutlined/ExperimentOutlined/BarChartOutlined/SettingOutlined）、文字色、背景色和标签。点击有 content 的产出物可展开预览面板：代码类使用 react-syntax-highlighter + oneDark 主题高亮，文档类显示前 1000 字符的预览文本。展开/折叠使用 DownOutlined/RightOutlined 指示器。
+
+【效果预期】Agent 在格式引导下会主动以结构化方式标记产出物（命名代码块 + 文档标题段落），后端解析器精准提取有意义的交付物而非噪音。前端用户可以一眼看到每个节点产出了什么类型的内容，并通过展开查看具体内容。整条链路形成"引导产出 → 精准解析 → 分类展示"的闭环。
+
+编译验证：Client 和 Server tsc --noEmit 均 0 错误。`,
+  },
+  {
     version: 'v2.8.6',
     date: '2026-06-03',
     title: 'Skill 自动沉淀系统 — 执行产出物智能提取为复用 Skill',

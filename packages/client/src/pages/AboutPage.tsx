@@ -41,7 +41,7 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.8.6</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.8.7</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
@@ -880,6 +880,46 @@ export function AboutPage() {
               title="事件驱动 + 非阻塞"
               desc="run:node_updated completed 触发异步提取，失败仅 warn 不阻塞主流程。新增 4 条 REST API 支持统计/日志/手动触发/目录查询。"
               color="#0891b2"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.8.7 产出物体系优化 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<SyncOutlined />} title="产出物体系优化（v2.8.7）" color="cyan" />
+          <div className="bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.8.7 对产出物（Artifact）从生产到展示的完整链路进行系统性优化。
+              <strong>后端</strong>：Agent Prompt 全局注入产出物格式规范，与 4 层解析引擎对齐，确保产出物精准识别而非碎片化噪音。
+              <strong>模板层</strong>：4 个工作流模板（共 20 个节点）的 prompt 均补充了具体交付物清单和标记格式。
+              <strong>前端</strong>：产出物展示组件重构为分类图标 + 可展开内容预览的交互式卡片。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<CodeOutlined />}
+              title="Prompt 产出物格式引导"
+              desc="buildContextualPrompt 末尾自动追加格式规范段，指导 Agent 使用 ```lang:filename 标记代码、## 标题标记文档，与 extractArtifactsFromOutput 4 层解析对齐。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<AppstoreOutlined />}
+              title="模板 prompt 交付物声明"
+              desc="4 个模板 20 个节点均补充「你必须产出以下交付物」清单，明确每个产出物的标题和标记方式，与 outputContracts 一一对应。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<DesktopOutlined />}
+              title="前端分类展示 UI"
+              desc="ArtifactItem 组件按 category 渲染差异化图标和色彩（代码蓝/文档绿/测试紫/报告橙/配置灰），Tag 颜色与分类联动。"
+              color="#2563eb"
+            />
+            <ArchCard
+              icon={<ApiOutlined />}
+              title="可展开内容预览"
+              desc="有 content 的产出物支持点击展开，代码类用 SyntaxHighlighter 高亮渲染，文档类用 Markdown 预览，截断超长内容并提示。"
+              color="#059669"
             />
           </div>
         </section>

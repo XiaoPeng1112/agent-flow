@@ -22,6 +22,12 @@ import {
   CompressOutlined,
   PauseCircleOutlined,
   AppstoreOutlined,
+  CodeOutlined,
+  ExperimentOutlined,
+  BarChartOutlined,
+  SettingOutlined,
+  DownOutlined,
+  RightOutlined,
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -35,7 +41,7 @@ import { ContextDBPanel } from './ContextDBPanel'
 import { A2APanel } from './A2APanel'
 import { DiffReviewPanel } from './DiffReviewPanel'
 import { MetricsPanel } from './MetricsPanel'
-import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab, SkillInfo } from '../../types'
+import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab, SkillInfo, Artifact } from '../../types'
 
 interface Props {
   run: Run
@@ -1209,11 +1215,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
           <h5 className="text-[12px] font-medium text-gray-600 mb-2">产出物 ({node.artifacts.length})</h5>
           <div className="space-y-1.5">
             {node.artifacts.map((art) => (
-              <div key={art.id} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                <FileTextOutlined className="text-gray-400" />
-                <span className="text-[12px] text-gray-600 truncate flex-1">{art.title}</span>
-                <Tag className="!text-[10px] !m-0">{art.format}</Tag>
-              </div>
+              <ArtifactItem key={art.id} artifact={art} />
             ))}
           </div>
         </div>
@@ -1232,6 +1234,65 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
         </div>
       )}
     </Card>
+  )
+}
+
+// ═══════════════ 产出物展示组件 ═══════════════
+
+const ARTIFACT_CATEGORY_CONFIG: Record<string, { icon: React.ReactNode; color: string; bgColor: string; label: string }> = {
+  code: { icon: <CodeOutlined />, color: 'text-blue-600', bgColor: 'bg-blue-50 border-blue-100', label: '代码' },
+  document: { icon: <FileTextOutlined />, color: 'text-green-600', bgColor: 'bg-green-50 border-green-100', label: '文档' },
+  test: { icon: <ExperimentOutlined />, color: 'text-purple-600', bgColor: 'bg-purple-50 border-purple-100', label: '测试' },
+  report: { icon: <BarChartOutlined />, color: 'text-orange-600', bgColor: 'bg-orange-50 border-orange-100', label: '报告' },
+  config: { icon: <SettingOutlined />, color: 'text-gray-600', bgColor: 'bg-gray-50 border-gray-200', label: '配置' },
+}
+
+function ArtifactItem({ artifact }: { artifact: Artifact }) {
+  const [expanded, setExpanded] = useState(false)
+  const config = ARTIFACT_CATEGORY_CONFIG[artifact.category] || ARTIFACT_CATEGORY_CONFIG.document
+  const hasContent = artifact.content && artifact.content.length > 0
+
+  return (
+    <div className={`rounded-lg border ${config.bgColor} overflow-hidden transition-all`}>
+      <div
+        className={`flex items-center gap-2 px-3 py-2 ${hasContent ? 'cursor-pointer hover:opacity-80' : ''}`}
+        onClick={() => hasContent && setExpanded(!expanded)}
+      >
+        <span className={`${config.color} text-[13px]`}>{config.icon}</span>
+        <span className="text-[12px] text-gray-700 truncate flex-1 font-medium">{artifact.title}</span>
+        <Tag className="!text-[10px] !m-0 !border-0 !bg-white/60" color={artifact.category === 'code' ? 'blue' : artifact.category === 'test' ? 'purple' : artifact.category === 'report' ? 'orange' : 'green'}>
+          {artifact.format}
+        </Tag>
+        {hasContent && (
+          <span className="text-[10px] text-gray-400 transition-transform">
+            {expanded ? <DownOutlined /> : <RightOutlined />}
+          </span>
+        )}
+      </div>
+      {expanded && hasContent && (
+        <div className="px-3 pb-3 border-t border-white/50">
+          <div className="mt-2 max-h-[200px] overflow-auto rounded bg-gray-900 text-[11px]">
+            {artifact.category === 'code' ? (
+              <SyntaxHighlighter
+                language={artifact.format === 'typescript' ? 'tsx' : artifact.format || 'text'}
+                style={oneDark}
+                customStyle={{ margin: 0, padding: '10px 12px', fontSize: '11px', background: 'transparent' }}
+                wrapLongLines
+              >
+                {artifact.content || ''}
+              </SyntaxHighlighter>
+            ) : (
+              <div className="p-3 text-gray-200 whitespace-pre-wrap leading-relaxed">
+                {(artifact.content || '').slice(0, 1000)}
+                {(artifact.content || '').length > 1000 && (
+                  <span className="text-gray-500 ml-1">... (已截断)</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
