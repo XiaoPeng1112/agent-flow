@@ -1,4 +1,54 @@
-import{t as e}from"./tag-eOTAUZMC.js";import{t}from"./BranchesOutlined-Dr5PJbm3.js";import{t as n}from"./ThunderboltOutlined-CpYQAzuX.js";import{Cr as r,br as i,gt as a,t as o}from"./index-DngGaqyh.js";var s=r(i(),1),c=o(),l=[{version:`v2.8.3`,date:`2026-06-03`,title:`GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式`,type:`feature`,highlights:[`新增 PR 模式：Agent 产出代码 Review 后可直接推送分支并创建 GitHub Pull Request`,`项目设置新增"代码合入方式"配置：支持 Local Merge 和 PR 模式切换`,`仓库类型自动检测：通过 Owner 类型、Collaborators、Commit 作者多样性、Branch Protection 四维度加权评分`,`团队项目强制 PR 模式：检测为 Organization 或多人协作仓库时自动锁定为 PR 模式，禁止切换回 local`,`DiffReviewPanel 根据 mergeMode 动态展示"Approve & Merge"或"创建 PR"按钮`,`PR 创建成功后显示可点击链接，直达 GitHub PR 页面`],details:`v2.8.3 为团队协作场景引入了完整的 GitHub PR 工作流，确保多人项目的代码合入必须经过 Pull Request 审查。
+import{t as e}from"./tag-DttB8zRg.js";import{t}from"./BranchesOutlined-CBNLPOFW.js";import{t as n}from"./ThunderboltOutlined-D9zs9Mgp.js";import{Cr as r,br as i,gt as a,t as o}from"./index-DZ9sDPtp.js";var s=r(i(),1),c=o(),l=[{version:`v2.8.6`,date:`2026-06-03`,title:`Skill 自动沉淀系统 — 执行产出物智能提取为复用 Skill`,type:`feature`,highlights:[`新增 SkillExtractionService（419行）：节点执行完成后自动评估产出物价值，高置信度结果沉淀为 SKILL.md`,`百分制评分引擎 5 维指标：节点类型权重（0~30）、内容长度（0~15）、Markdown 结构化（0~20）、代码块密度（0~15）、关键词匹配（0~20）`,`Jaccard 词集相似度去重：与项目已有 Skills 对比，相似度 >0.7 自动跳过避免冗余`,`项目级 Skill 存储：project.path/.agent-flow/skills/<slug>/SKILL.md，含 YAML frontmatter，随项目版本控制`,`事件驱动集成：run:node_updated status=completed 触发异步 extractFromNode()，不阻塞主流程`,`手动沉淀 + 自动沉淀双模式：forceExtract() 跳过评分直接持久化（置信度 1.0）`,`SkillService 扩展 5 个方法：reload / loadAdditional / writeSkill / getSkillById / unregisterSkill`,`ProjectService 扩展：.agent-flow/skills 加入搜索路径首位 + getSkillsDir() 获取项目 Skill 目录`,`新增 4 条 REST API：extraction-stats / extraction-log / extract / project-dir`,`修复路由优先级：/skills/:name 通配参数路由移至末尾，避免拦截具名路由`],details:`v2.8.6 实现 Skill 系统的"方向二"：执行产出物自动沉淀。当节点执行完成后，系统自动分析其 Artifacts（产出物）内容的价值并择优沉淀为可复用的 Skill 文件，实现"越用越强"的知识积累闭环。
+
+【核心服务 — SkillExtractionService（419行）】新增 packages/server/src/services/skill-extraction.ts。extractFromNode(node, run) 核心流程：遍历节点 artifacts → 过滤短文本（< 200字）→ evaluateCandidate() 百分制评分 → 置信度 < 0.6 跳过 → isDuplicate() 去重 → persistSkill() 写入磁盘。
+
+【百分制 5 维评分引擎】evaluateCandidate() 满分 100 转 0~1 置信度。节点类型权重（0~30分：design 0.9 / implement 0.8 / specify & test 0.7 / review 0.6 / task 0.5 / deliver 0.4）+ 内容长度梯度（0~15分：≥500字/≥1000字/≥2000字 各+5）+ Markdown 结构化（0~20分：每个标题行 +3）+ 代码块密度（0~15分：每个代码块 +4）+ 关键词匹配（0~20分：16 个关键词如模板/架构/最佳实践/工具等，每命中 +4）。
+
+【Jaccard 去重】isDuplicate() 先检查名称完全匹配，再计算内容 Jaccard 词集相似度（过滤 ≤3 字符短词，计算交集/并集比率），>0.7 视为重复自动跳过。
+
+【自动命名与触发词提取】generateSkillName() 优先使用 artifact.title，fallback 到 node.name，清理非法字符转 slug。extractTriggers() 以 node.type 为基础，提取前 5 个短标题 + 代码语言标记作为触发词。
+
+【存储策略 — persistSkill()】写入路径 project.path/.agent-flow/skills/<skill-name>/SKILL.md，含 YAML frontmatter（name / description / triggers / source / confidence / extractedAt）+ 正文。目录结构随项目 git 版本控制。
+
+【手动沉淀 — forceExtract()】跳过评分引擎，直接将用户指定的 content + name 以置信度 1.0 写入，适用于用户主动选择有价值但评分不达标的产出物。
+
+【SkillService 扩展（5个新方法）】reload() 重新加载 / loadAdditional() 追加加载 / writeSkill() 写入 SKILL.md / getSkillById() 精确查找 / unregisterSkill() 内存移除。
+
+【ProjectService 扩展】scanProjectSkills() 搜索路径首位新增 .agent-flow/skills/，新增 getSkillsDir(projectId) 返回项目 Skill 存储目录。
+
+【事件驱动集成 — index.ts】run:node_updated 事件处理器新增 case 'completed'，异步调用 extractFromNode()，成功输出日志，异常仅 warn 不阻塞主流程。
+
+【API 层 — 4条新路由】GET /skills/extraction-stats 沉淀统计 / GET /skills/extraction-log 沉淀日志（可按 runId 过滤） / POST /skills/extract 手动或自动触发沉淀 / GET /skills/project-dir/:projectId 项目 Skill 目录。
+
+【路由优先级修复】/skills/:name 通配参数路由移至文件末尾，解决 extraction-stats 等具名路径被错误匹配的 404 问题。
+
+编译验证：Client 和 Server tsc --noEmit 均 0 错误。运行时验证：curl 确认 extraction-stats / extraction-log / materialization-stats 均正常返回 JSON。`},{version:`v2.8.5`,date:`2026-06-03`,title:`Skill 物化注入执行链路 + 节点 Skill 绑定 UI`,type:`feature`,highlights:[`Skill 物化正式接入执行链路：DynamicAgentFactory 装配 ScopedContext 时自动读取节点 skillIds 并调用 SkillMaterializationService 注入 prompt`,`新增 PATCH /runs/:runId/nodes/:nodeId/skills API，支持前端动态更新节点绑定的 Skills`,`节点详情面板新增 Skill 绑定组件（Select 多选下拉框），支持搜索过滤和即时持久化`,`ScopedContext 类型扩展 skillPrompt 字段，buildFullPrompt 第 5.5 层注入物化 Skill 内容`,`WorkflowEngine 新增 public persist() 方法，支持节点级变更的即时持久化`],details:`v2.8.5 将 Skill 系统从"已建设但未接入"的状态推进到真正参与节点执行的完整链路。
+
+【核心修复】DynamicAgentFactory.assembleScopedContext() 新增第 7 步 Skill 物化：当节点配置了 skillIds 时，调用 SkillMaterializationService.initWhitelistFromTemplate() 设置白名单，再通过 getSkillPromptForNode() 物化 Skill 文件内容生成 prompt 片段。buildFullPrompt() 在前置产出物与 L2 节点指令之间（第 5.5 步）注入该片段。
+
+【API 层】新增 PATCH /api/runs/:runId/nodes/:nodeId/skills 路由，接收 { skillIds: string[] }，更新节点的 Skill 绑定并通过 WorkflowEngine.persist() 即时写入磁盘。
+
+【前端 UI】NodeSkillBinding 组件从标签平铺改为 Ant Design Select mode="multiple" 下拉框，支持关键词搜索过滤、maxTagCount 响应式折叠、乐观更新 + 失败回滚。
+
+【类型扩展】ScopedContext 接口新增 skillPrompt?: string 字段。
+
+编译验证：Client 和 Server tsc --noEmit 均 0 错误。端到端验证：PATCH API → 节点 skillIds 持久化 → createInstance 物化 → buildFullPrompt 注入 → Agent CLI 接收完整 prompt。`},{version:`v2.8.4`,date:`2026-06-04`,title:`全项目流程审计 + 前后端连通性修复 + 性能优化`,type:`fix`,highlights:[`修复 createPR 缺失 turnId 参数导致 PR 创建功能完全不可用（P0）`,`修复 ExecutionMode 切换未持久化，设置面板执行模式选择形同虚设（P1）`,`修复 MergeMode 自动检测进入设置面板即产生写副作用，改为只读检测（P1）`,`修复项目统计 Token 计数始终为 0，后端聚合路由未实际赋值（P1）`,`修复 AgentsPanel N+1 请求问题，改为单一聚合 API 调用（P2）`,`修复 DiffReviewPanel 串行加载 Review 数据，改为 Promise.all 并行请求（P2）`,`类型安全加固：移除 as any、收窄状态类型、补全 API 类型签名`],details:`v2.8.4 是一次全项目端到端流程审计后的集中修复版本，解决了 v2.8.3 PR 工作流上线后暴露的多处前后端断裂和性能隐患。
+
+【P0 — createPR 不可用】前端 createPR 方法 params 参数标记为可选且不含 turnId，但后端要求 body 必须包含 turnId。修复后前端调用时正确传入 turnId。
+
+【P1 — 执行模式不持久化】ExecutionModeSection 原先是无状态组件，切换模式后只更新本地 state 无保存逻辑。修复后组件接收 project prop，切换时调用 projectApi.update 持久化到后端，后端 updateProject 服务层和路由层同步支持 defaultExecutionMode 字段。
+
+【P1 — 自动检测写副作用】进入 SettingsPanel 的 MergeMode 区域时 useEffect 调用 detectAndSetMergeMode（POST 方法），产生意外的后端写入。修复后改为调用只读 detectRepoType（GET），仅用于展示建议，不自动修改后端数据。
+
+【P1 — Token 统计为 0】GET /projects/:id/stats 路由声明了 totalTokens 等变量但循环体内从未赋值。修复后在遍历 runs 时调用 workflowEngine.getRunTokenStats 聚合实际数据。
+
+【P2 — N+1 请求】AgentsPanel 逐个 await 每个 run 的 token-stats API。改为单一 projectApi.getStats 聚合调用，消除 N+1 问题。
+
+【P2 — 串行加载】DiffReviewPanel loadReviews 逐个 await 每个 node 的 diff review 请求。改为 Promise.all 并行请求，单个失败降级为空结果不影响整体。
+
+【类型安全】projectApi.update 类型签名补充 mergeMode 和 defaultExecutionMode；移除 SettingsPanel 中两处 as any；mode 状态从 string 收窄为联合类型 'llm' | 'det' | 'hyb'。
+
+编译验证：Client 和 Server tsc --noEmit 均 0 错误。`},{version:`v2.8.3`,date:`2026-06-03`,title:`GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式`,type:`feature`,highlights:[`新增 PR 模式：Agent 产出代码 Review 后可直接推送分支并创建 GitHub Pull Request`,`项目设置新增"代码合入方式"配置：支持 Local Merge 和 PR 模式切换`,`仓库类型自动检测：通过 Owner 类型、Collaborators、Commit 作者多样性、Branch Protection 四维度加权评分`,`团队项目强制 PR 模式：检测为 Organization 或多人协作仓库时自动锁定为 PR 模式，禁止切换回 local`,`DiffReviewPanel 根据 mergeMode 动态展示"Approve & Merge"或"创建 PR"按钮`,`PR 创建成功后显示可点击链接，直达 GitHub PR 页面`],details:`v2.8.3 为团队协作场景引入了完整的 GitHub PR 工作流，确保多人项目的代码合入必须经过 Pull Request 审查。
 
 【PR 模式】新增 ArtifactMergeService.pushAndCreatePR() 方法，将 Agent 工作分支推送到远端并通过 GitHub REST API 创建 PR，自动生成包含文件变更清单的 PR 描述。支持检测已存在 PR 避免重复创建。
 
