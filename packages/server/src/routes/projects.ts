@@ -38,8 +38,8 @@ export function createProjectsRouter(deps: {
   })
 
   router.put('/:id', async (req, res) => {
-    const { name, description, contextConfig, enabledAgentIds, mergeMode } = req.body
-    const project = await projectService.updateProject(req.params.id, { name, description, contextConfig, enabledAgentIds, mergeMode })
+    const { name, description, contextConfig, enabledAgentIds, mergeMode, defaultExecutionMode } = req.body
+    const project = await projectService.updateProject(req.params.id, { name, description, contextConfig, enabledAgentIds, mergeMode, defaultExecutionMode })
     if (!project) {
       res.status(404).json({ success: false, error: 'Project not found' })
       return
@@ -131,6 +131,16 @@ export function createProjectsRouter(deps: {
     for (const run of runs) {
       totalNodes += run.nodes.length
       completedNodes += run.nodes.filter(n => n.status === 'completed').length
+
+      // 聚合 token 统计
+      try {
+        const tokenStats = workflowEngine.getRunTokenStats(run.id)
+        totalInputTokens += tokenStats.totalInput
+        totalOutputTokens += tokenStats.totalOutput
+        totalTokens += tokenStats.totalTokens
+      } catch {
+        // 单个 run 获取失败不影响整体
+      }
     }
 
     // 计算成功率

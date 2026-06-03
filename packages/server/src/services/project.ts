@@ -136,7 +136,7 @@ export class ProjectService {
   }
 
   /** 更新项目 */
-  async updateProject(id: string, updates: Partial<Pick<ProjectData, 'name' | 'description' | 'contextConfig' | 'enabledAgentIds' | 'mergeMode'>>): Promise<ProjectData | undefined> {
+  async updateProject(id: string, updates: Partial<Pick<ProjectData, 'name' | 'description' | 'contextConfig' | 'enabledAgentIds' | 'mergeMode' | 'defaultExecutionMode'>>): Promise<ProjectData | undefined> {
     const project = this.projects.find((p) => p.id === id)
     if (!project) return undefined
 
@@ -145,6 +145,7 @@ export class ProjectService {
     if (updates.contextConfig !== undefined) project.contextConfig = updates.contextConfig
     if (updates.enabledAgentIds !== undefined) project.enabledAgentIds = updates.enabledAgentIds
     if (updates.mergeMode !== undefined) project.mergeMode = updates.mergeMode
+    if (updates.defaultExecutionMode !== undefined) project.defaultExecutionMode = updates.defaultExecutionMode
     project.lastActiveAt = Date.now()
 
     await this.save()

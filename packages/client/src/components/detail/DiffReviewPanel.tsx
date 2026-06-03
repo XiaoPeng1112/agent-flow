@@ -101,18 +101,17 @@ export function DiffReviewPanel({ run }: Props) {
     [run.nodes]
   )
 
-  // 加载已有 reviews
+  // 加载已有 reviews（并行请求所有节点）
   useEffect(() => {
     const loadReviews = async () => {
       setLoading(true)
       try {
-        const allReviews: DiffReview[] = []
-        for (const node of reviewableNodes) {
-          const res = await diffReviewApi.getForNode(run.id, node.id)
-          if (res.reviews?.length) {
-            allReviews.push(...res.reviews)
-          }
-        }
+        const results = await Promise.all(
+          reviewableNodes.map(node =>
+            diffReviewApi.getForNode(run.id, node.id).catch(() => ({ reviews: [] }))
+          )
+        )
+        const allReviews: DiffReview[] = results.flatMap(res => res.reviews || [])
         setReviews(allReviews)
         if (allReviews.length > 0 && !selectedReview) {
           setSelectedReview(allReviews[0])
@@ -160,6 +159,7 @@ export function DiffReviewPanel({ run }: Props) {
       const res = await diffReviewApi.createPR(
         selectedReview.runId,
         selectedReview.nodeId,
+        { turnId: selectedReview.turnId },
       )
       if (res.success) {
         setPrResult({ prUrl: res.prUrl, prNumber: res.prNumber })

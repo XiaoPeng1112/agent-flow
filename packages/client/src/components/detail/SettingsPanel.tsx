@@ -343,8 +343,22 @@ function ContextEngineSection({ project }: { project: Project }) {
 
 // ═══════════════ 子组件：默认运行模式 ═══════════════
 
-function ExecutionModeSection() {
-  const [mode, setMode] = useState<string>('llm')
+function ExecutionModeSection({ project }: { project: Project }) {
+  const [mode, setMode] = useState<'llm' | 'det' | 'hyb'>(project.defaultExecutionMode || 'llm')
+  const [saving, setSaving] = useState(false)
+  const { message } = App.useApp()
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await projectApi.update(project.id, { defaultExecutionMode: mode })
+      message.success('默认运行模式已保存')
+    } catch (err: any) {
+      message.error(`保存失败: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div>
@@ -370,7 +384,10 @@ function ExecutionModeSection() {
           </Radio>
         </Space>
       </Radio.Group>
-      <div className="text-[10px] text-gray-400 mt-3">
+      <div className="mt-3">
+        <Button type="primary" size="small" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>保存</Button>
+      </div>
+      <div className="text-[10px] text-gray-400 mt-2">
         默认模式应用于新 Run 中未指定模式的节点。每个模板/节点可单独覆盖。
       </div>
     </div>
@@ -393,12 +410,12 @@ function MergeModeSection({ project }: { project: Project }) {
   } | null>(null)
   const { message } = App.useApp()
 
-  // 首次加载时自动检测
+  // 首次加载时只读检测（不自动设置）
   useEffect(() => {
     const detect = async () => {
       setDetecting(true)
       try {
-        const res = await diffReviewApi.detectAndSetMergeMode(project.id)
+        const res = await diffReviewApi.detectRepoType(project.id)
         setDetection({
           repoType: res.repoType,
           reason: res.reason,
@@ -406,8 +423,11 @@ function MergeModeSection({ project }: { project: Project }) {
           collaboratorCount: res.collaboratorCount,
           recentAuthors: res.recentAuthors,
         })
-        setMergeMode(res.mergeMode)
-        setLocked(res.locked)
+        // 如果是团队项目且当前为 local，提示但不强制切换
+        if (res.repoType === 'team' && res.suggestedMergeMode === 'pr') {
+          setLocked(true)
+          setMergeMode('pr')
+        }
       } catch {
         // 检测失败不影响使用
       } finally {
@@ -420,7 +440,7 @@ function MergeModeSection({ project }: { project: Project }) {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await projectApi.update(project.id, { mergeMode } as any)
+      await projectApi.update(project.id, { mergeMode })
       message.success('合入方式已更新')
     } catch (err: any) {
       message.error(`保存失败: ${err.message}`)
@@ -432,7 +452,7 @@ function MergeModeSection({ project }: { project: Project }) {
   const handleReDetect = async () => {
     setDetecting(true)
     try {
-      const res = await diffReviewApi.detectAndSetMergeMode(project.id)
+      const res = await diffReviewApi.detectRepoType(project.id)
       setDetection({
         repoType: res.repoType,
         reason: res.reason,
@@ -440,8 +460,12 @@ function MergeModeSection({ project }: { project: Project }) {
         collaboratorCount: res.collaboratorCount,
         recentAuthors: res.recentAuthors,
       })
-      setMergeMode(res.mergeMode)
-      setLocked(res.locked)
+      if (res.repoType === 'team' && res.suggestedMergeMode === 'pr') {
+        setLocked(true)
+        setMergeMode('pr')
+      } else {
+        setLocked(false)
+      }
       message.success('检测完成')
     } catch (err: any) {
       message.error(`检测失败: ${err.message}`)
@@ -812,7 +836,7 @@ export function SettingsPanel({ project }: Props) {
           <span className="font-medium">默认运行模式</span>
         </Space>
       ),
-      children: <ExecutionModeSection />,
+      children: <ExecutionModeSection project={project} />,
     },
     {
       key: 'merge-mode',

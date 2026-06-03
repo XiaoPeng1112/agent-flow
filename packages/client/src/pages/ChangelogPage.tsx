@@ -17,6 +17,38 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.8.4',
+    date: '2026-06-04',
+    title: '全项目流程审计 + 前后端连通性修复 + 性能优化',
+    type: 'fix',
+    highlights: [
+      '修复 createPR 缺失 turnId 参数导致 PR 创建功能完全不可用（P0）',
+      '修复 ExecutionMode 切换未持久化，设置面板执行模式选择形同虚设（P1）',
+      '修复 MergeMode 自动检测进入设置面板即产生写副作用，改为只读检测（P1）',
+      '修复项目统计 Token 计数始终为 0，后端聚合路由未实际赋值（P1）',
+      '修复 AgentsPanel N+1 请求问题，改为单一聚合 API 调用（P2）',
+      '修复 DiffReviewPanel 串行加载 Review 数据，改为 Promise.all 并行请求（P2）',
+      '类型安全加固：移除 as any、收窄状态类型、补全 API 类型签名',
+    ],
+    details: `v2.8.4 是一次全项目端到端流程审计后的集中修复版本，解决了 v2.8.3 PR 工作流上线后暴露的多处前后端断裂和性能隐患。
+
+【P0 — createPR 不可用】前端 createPR 方法 params 参数标记为可选且不含 turnId，但后端要求 body 必须包含 turnId。修复后前端调用时正确传入 turnId。
+
+【P1 — 执行模式不持久化】ExecutionModeSection 原先是无状态组件，切换模式后只更新本地 state 无保存逻辑。修复后组件接收 project prop，切换时调用 projectApi.update 持久化到后端，后端 updateProject 服务层和路由层同步支持 defaultExecutionMode 字段。
+
+【P1 — 自动检测写副作用】进入 SettingsPanel 的 MergeMode 区域时 useEffect 调用 detectAndSetMergeMode（POST 方法），产生意外的后端写入。修复后改为调用只读 detectRepoType（GET），仅用于展示建议，不自动修改后端数据。
+
+【P1 — Token 统计为 0】GET /projects/:id/stats 路由声明了 totalTokens 等变量但循环体内从未赋值。修复后在遍历 runs 时调用 workflowEngine.getRunTokenStats 聚合实际数据。
+
+【P2 — N+1 请求】AgentsPanel 逐个 await 每个 run 的 token-stats API。改为单一 projectApi.getStats 聚合调用，消除 N+1 问题。
+
+【P2 — 串行加载】DiffReviewPanel loadReviews 逐个 await 每个 node 的 diff review 请求。改为 Promise.all 并行请求，单个失败降级为空结果不影响整体。
+
+【类型安全】projectApi.update 类型签名补充 mergeMode 和 defaultExecutionMode；移除 SettingsPanel 中两处 as any；mode 状态从 string 收窄为联合类型 'llm' | 'det' | 'hyb'。
+
+编译验证：Client 和 Server tsc --noEmit 均 0 错误。`,
+  },
+  {
     version: 'v2.8.3',
     date: '2026-06-03',
     title: 'GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式',

@@ -1,5 +1,81 @@
 # 开发日志
 
+## 2026-06-04 — v2.8.4 全项目流程审计 + 前后端连通性修复 + 性能优化
+
+### 问题背景
+
+v2.8.3 完成 PR 工作流后，进行了一次全项目端到端流程审计，发现多处前后端断裂、功能形同虚设、性能隐患：前端功能调用后端 API 签名不匹配、设置面板操作不持久化、自动检测产生意外写副作用、统计数据永远为 0、请求性能存在 N+1 问题等。
+
+### 修复内容
+
+**1. createPR 缺失 turnId 参数（P0 — 功能完全不可用）**
+
+- 文件：`packages/client/src/api/index.ts`
+- 问题：`createPR` 方法的 `params` 参数标记为可选且不含 `turnId`，但后端 `POST /artifacts/create-pr/:runId/:nodeId` 要求 body 必须包含 `turnId`
+- 修复：将 `params` 改为必填，类型中增加 `turnId: string`
+- 文件：`packages/client/src/components/detail/DiffReviewPanel.tsx`
+- 修复：`handleCreatePR` 调用时传入 `{ turnId: selectedReview.turnId }`
+
+**2. ExecutionModeSection 执行模式切换未持久化（P1 — 功能形同虚设）**
+
+- 文件：`packages/client/src/components/detail/SettingsPanel.tsx`
+- 问题：`ExecutionModeSection` 是无状态组件，切换模式后只更新本地 state，无保存逻辑
+- 修复：组件接收 `project` prop，新增 `handleSave` 调用 `projectApi.update(project.id, { defaultExecutionMode: mode })`
+- 文件：`packages/server/src/types/index.ts` — `ProjectData` 新增 `defaultExecutionMode?: ExecutionMode`
+- 文件：`packages/server/src/services/project.ts` — `updateProject()` Pick 类型和实现增加 `defaultExecutionMode`
+- 文件：`packages/server/src/routes/projects.ts` — PUT `/:id` 解构增加 `defaultExecutionMode`
+- 文件：`packages/client/src/types/index.ts` — 前端 `Project` 接口新增 `defaultExecutionMode?: 'llm' | 'det' | 'hyb'`
+- 文件：`packages/client/src/api/index.ts` — `projectApi.update` 类型签名增加 `mergeMode` 和 `defaultExecutionMode`
+
+**3. MergeModeSection 自动检测产生写副作用（P1 — 设计缺陷）**
+
+- 文件：`packages/client/src/components/detail/SettingsPanel.tsx`
+- 问题：useEffect 和"重新检测"按钮调用 `detectAndSetMergeMode`（POST，自动写入后端），导致进入设置面板即产生写副作用
+- 修复：改为调用只读 `detectRepoType`（GET），仅在检测结果为 team 时前端锁定 PR 模式显示，不自动写后端
+
+**4. AgentsPanel N+1 请求问题（P2 — 性能）**
+
+- 文件：`packages/client/src/components/detail/AgentsPanel.tsx`
+- 问题：`fetchTokenStats` 先获取所有 runs 列表，再逐个 await 每个 run 的 token-stats，产生 N+1 请求
+- 修复：改为单一 `projectApi.getStats(projectId)` 调用，后端已有聚合 API，一次返回所有统计数据
+- 移除未使用的 `runApi` 导入
+
+**5. 项目统计 Token 计数始终为 0（P1 — 数据不可用）**
+
+- 文件：`packages/server/src/routes/projects.ts`
+- 问题：`GET /:id/stats` 路由中声明了 `totalTokens/totalInputTokens/totalOutputTokens` 变量但从未赋值
+- 修复：在遍历 runs 的循环中调用 `workflowEngine.getRunTokenStats(run.id)` 聚合实际 token 数据
+
+**6. DiffReviewPanel 串行加载（P2 — 性能）**
+
+- 文件：`packages/client/src/components/detail/DiffReviewPanel.tsx`
+- 问题：`loadReviews` 逐个 await 每个 node 的 diff review 请求
+- 修复：改为 `Promise.all` 并行请求所有节点的 review 数据
+
+**7. ContextDBPanel nodeId 问题（确认已修复）**
+
+- 在 v2.8.0 中通过 `listL2ByRun(runId)` API 已绕过缺失 nodeId 的问题，无需额外修改
+
+**8. 类型安全加固**
+
+- `packages/client/src/api/index.ts`：`projectApi.update` 类型签名补充 `mergeMode` 和 `defaultExecutionMode`
+- `packages/client/src/components/detail/SettingsPanel.tsx`：移除两处 `as any` 类型断言
+- `packages/client/src/components/detail/AgentsPanel.tsx`：`fetchTokenStats` 使用 `useCallback` 包裹避免 useEffect 依赖问题
+- `ExecutionModeSection` 中 `mode` 状态类型从 `string` 收窄为 `'llm' | 'det' | 'hyb'`
+
+### 设计决策
+
+- **只读检测 vs 自动设置**：`detectRepoType` 和 `detectAndSetMergeMode` 的职责分离——进入设置面板应使用只读检测，让用户看到建议后手动保存，而非自动写入。这符合"信息展示可以自动化，数据变更必须人在回路"的原则。
+- **聚合 API vs N+1 循环**：前端不应循环调用细粒度 API 再自行聚合，应使用后端已有的聚合端点（`/projects/:id/stats`）。这既减少网络请求，也避免前端承担复杂的数据聚合逻辑。
+- **Promise.all vs 串行 for-await**：对无依赖关系的并行请求使用 Promise.all，单个请求失败通过 `.catch()` 降级为空结果，不影响整体。
+
+### 编译验证
+
+- Client `tsc --noEmit` — 0 错误 ✅
+- Server `tsc --noEmit` — 0 错误 ✅
+
+---
+
 ## 2026-06-03 — v2.8.3 GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式
 
 ### 功能背景

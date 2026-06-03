@@ -31,7 +31,7 @@ export const projectApi = {
       body: JSON.stringify(data),
     }),
 
-  update: (id: string, data: { name?: string; description?: string; contextConfig?: any; enabledAgentIds?: string[] }) =>
+  update: (id: string, data: { name?: string; description?: string; contextConfig?: any; enabledAgentIds?: string[]; mergeMode?: 'local' | 'pr'; defaultExecutionMode?: 'llm' | 'det' | 'hyb' }) =>
     request<{ project: any }>(`/projects/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -305,10 +305,10 @@ export const diffReviewApi = {
     }),
 
   /** 创建 PR（PR 模式） */
-  createPR: (runId: string, nodeId: string, params?: { title?: string; body?: string; draft?: boolean }) =>
+  createPR: (runId: string, nodeId: string, params: { turnId: string; title?: string; body?: string; draft?: boolean }) =>
     request<{ success: boolean; prUrl: string; prNumber: number; owner: string; repo: string }>(`/artifacts/create-pr/${runId}/${nodeId}`, {
       method: 'POST',
-      body: JSON.stringify(params || {}),
+      body: JSON.stringify(params),
     }),
 
   /** 查询 PR 状态 */

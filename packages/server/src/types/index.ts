@@ -645,6 +645,8 @@ export interface ProjectData {
   gitRemote?: string
   /** 合并模式：local = 本地直接合入主分支，pr = push 分支并创建 GitHub PR */
   mergeMode?: 'local' | 'pr'
+  /** 默认运行模式：llm / det / hyb */
+  defaultExecutionMode?: ExecutionMode
   createdAt: number
   lastActiveAt: number
 }

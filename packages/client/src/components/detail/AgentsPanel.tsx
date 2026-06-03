@@ -15,7 +15,7 @@ import {
   LockOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { agentApi, projectApi, runApi } from '../../api'
+import { agentApi, projectApi } from '../../api'
 import type { AgentConfig, AgentTurn } from '../../types'
 
 interface Props {
@@ -44,44 +44,31 @@ export function AgentsPanel({ project: _project }: Props) {
     }
   }
 
-  // 从后端拉取所有 Run 的 Token 统计（持久化数据，刷新不丢失）
+  // 从后端拉取项目级别 Token 统计（单一 API 调用，无 N+1 问题）
   const [backendTokenStats, setBackendTokenStats] = useState<{
     totalInput: number; totalOutput: number; totalTokens: number;
-    byNode: Array<{ nodeId: string; nodeName: string; input: number; output: number; total: number; turnCount: number }>
+    turnCount: number
   } | null>(null)
 
-  const fetchTokenStats = async () => {
+  const fetchTokenStats = useCallback(async () => {
     try {
-      // 获取当前项目的所有 runs，汇总 token
-      const runsRes = await runApi.list(_project.id)
-      const runs = (runsRes as any)?.runs || (runsRes as any)?.data?.runs || []
-      let totalInput = 0, totalOutput = 0, totalTokens = 0
-      const byNode: any[] = []
-
-      for (const run of runs) {
-        try {
-          const statsRes = await runApi.getTokenStats(run.id)
-          const data = (statsRes as any)?.data || statsRes
-          if (data && data.totalTokens > 0) {
-            totalInput += data.totalInput || 0
-            totalOutput += data.totalOutput || 0
-            totalTokens += data.totalTokens || 0
-            if (data.byNode) byNode.push(...data.byNode)
-          }
-        } catch {
-          // 单个 run 获取失败不影响整体
-        }
+      const stats = await projectApi.getStats(_project.id)
+      if (stats.totalTokens > 0) {
+        setBackendTokenStats({
+          totalInput: stats.totalInputTokens,
+          totalOutput: stats.totalOutputTokens,
+          totalTokens: stats.totalTokens,
+          turnCount: stats.completedNodes,
+        })
       }
-
-      setBackendTokenStats({ totalInput, totalOutput, totalTokens, byNode })
     } catch {
       // 静默失败
     }
-  }
+  }, [_project.id])
 
   useEffect(() => {
     fetchTokenStats()
-  }, [_project.id])
+  }, [fetchTokenStats])
 
   // Token 统计：合并后端持久化数据 + 本次会话 WS 实时数据
   const tokenStats = useMemo(() => {
@@ -121,7 +108,7 @@ export function AgentsPanel({ project: _project }: Props) {
       input += backendTokenStats.totalInput
       output += backendTokenStats.totalOutput
       total += backendTokenStats.totalTokens
-      turnCount += backendTokenStats.byNode.reduce((sum, n) => sum + n.turnCount, 0)
+      turnCount += backendTokenStats.turnCount
     }
 
     return { input, output, total, turnCount }
