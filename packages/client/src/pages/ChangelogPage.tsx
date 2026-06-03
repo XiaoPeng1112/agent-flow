@@ -17,6 +17,88 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.8.6',
+    date: '2026-06-03',
+    title: 'Skill 自动沉淀系统 — 执行产出物智能提取为复用 Skill',
+    type: 'feature',
+    highlights: [
+      '新增 SkillExtractionService（419行）：节点执行完成后自动评估产出物价值，高置信度结果沉淀为 SKILL.md',
+      '百分制评分引擎 5 维指标：节点类型权重（0~30）、内容长度（0~15）、Markdown 结构化（0~20）、代码块密度（0~15）、关键词匹配（0~20）',
+      'Jaccard 词集相似度去重：与项目已有 Skills 对比，相似度 >0.7 自动跳过避免冗余',
+      '项目级 Skill 存储：project.path/.agent-flow/skills/<slug>/SKILL.md，含 YAML frontmatter，随项目版本控制',
+      '事件驱动集成：run:node_updated status=completed 触发异步 extractFromNode()，不阻塞主流程',
+      '手动沉淀 + 自动沉淀双模式：forceExtract() 跳过评分直接持久化（置信度 1.0）',
+      'SkillService 扩展 5 个方法：reload / loadAdditional / writeSkill / getSkillById / unregisterSkill',
+      'ProjectService 扩展：.agent-flow/skills 加入搜索路径首位 + getSkillsDir() 获取项目 Skill 目录',
+      '新增 4 条 REST API：extraction-stats / extraction-log / extract / project-dir',
+      '修复路由优先级：/skills/:name 通配参数路由移至末尾，避免拦截具名路由',
+    ],
+    details: `v2.8.6 实现 Skill 系统的"方向二"：执行产出物自动沉淀。当节点执行完成后，系统自动分析其 Artifacts（产出物）内容的价值并择优沉淀为可复用的 Skill 文件，实现"越用越强"的知识积累闭环。
+
+【核心服务 — SkillExtractionService（419行）】
+新增 packages/server/src/services/skill-extraction.ts，含 SkillCandidate / ExtractionRule 接口定义 + 完整实现类。
+
+extractFromNode(node, run) 核心流程：
+1. 遍历节点所有 artifacts，过滤掉长度 < minContentLength（200字）的产出物
+2. 调用 evaluateCandidate() 对每个产出物进行百分制评分（满分 100，转为 0~1 置信度）
+3. 置信度 < 0.6 记录为 low_confidence 日志并跳过
+4. 调用 isDuplicate() 与已有 Skills 进行去重检测
+5. 通过后调用 persistSkill() 写入磁盘
+
+evaluateCandidate() 百分制 5 维评分：
+- 节点类型权重（0~30分）：design 0.9 / implement 0.8 / specify 0.7 / test 0.7 / review 0.6 / task 0.5 / deliver 0.4，乘以 30
+- 内容长度梯度（0~15分）：≥500字 +5 / ≥1000字 +5 / ≥2000字 +5
+- Markdown 结构化（0~20分）：统计 # 标题行数量，每个 +3，上限 20
+- 代码块密度（0~15分）：统计 \`\`\` 代码块数量，每个 +4，上限 15
+- 关键词匹配（0~20分）：16 个关键词（模板/template/规范/standard/最佳实践/best practice/架构/architecture/通用/reusable/工具/utility/检查清单/checklist/流程/workflow 等），每命中一个 +4，上限 20
+
+isDuplicate() 去重逻辑：
+- 先检查名称完全匹配
+- 再计算内容 Jaccard 词集相似度：过滤掉长度 ≤3 的词，计算交集/并集比率，>0.7 视为重复
+
+【自动命名与触发词提取】
+- generateSkillName()：优先使用 artifact.title，fallback 到 node.name，清理非法字符转 slug
+- extractTriggers()：以 node.type 为基础，提取前 5 个短标题（≤20字）+ 代码块语言标记作为触发词
+- generateDescription()：取内容首段前 200 字作为摘要
+
+【存储策略 — persistSkill()】
+写入路径：project.path/.agent-flow/skills/<skill-name>/SKILL.md
+YAML frontmatter 包含：name / description / triggers[] / source{runId, nodeId, nodeName, nodeType, artifactTitle} / confidence / extractedAt
+目录结构随项目 git 版本控制，其他开发者 pull 后即可使用。
+
+【手动沉淀 — forceExtract()】
+跳过评分引擎，直接将用户指定的 content + name 以置信度 1.0 写入，适用于用户主动选择有价值但评分不达标的产出物。
+
+【SkillService 扩展（5个新方法）】
+- reload()：使用 lastSearchPaths 重新加载所有 Skill（沉淀后自动刷新）
+- loadAdditional(paths)：追加加载额外路径，不清空已有 Skills
+- writeSkill(targetDir, skill)：将 SkillConfig 写为 SKILL.md 文件
+- getSkillById(id)：按 ID 精确查找
+- unregisterSkill(id)：从内存移除（不删文件）
+
+【ProjectService 扩展】
+- scanProjectSkills() 搜索路径首位新增 project.path/.agent-flow/skills/
+- 新增 getSkillsDir(projectId)：返回项目的 Skill 存储目录路径
+
+【事件驱动集成 — index.ts】
+run:node_updated 事件处理器新增 case 'completed'：
+- 异步调用 skillExtractionService.extractFromNode(node, run)
+- 成功后 console.log 输出沉淀结果
+- 异常仅 console.warn，不影响主流程（完全非阻塞）
+
+【API 层 — files.ts 4条新路由】
+GET /api/files/skills/extraction-stats — 沉淀统计（totalExtractions / successCount / skipCount / lowConfidenceCount）
+GET /api/files/skills/extraction-log?runId= — 沉淀日志（可选按 runId 过滤，内存保留最近 200 条）
+POST /api/files/skills/extract — 手动/自动沉淀（body: runId + nodeId + 可选 content/name）
+GET /api/files/skills/project-dir/:projectId — 项目 Skill 目录路径
+
+【路由优先级修复】
+/skills/:name 通配参数路由从第 70 行移至文件末尾（所有具名路由之后），解决 GET /skills/extraction-stats 被 Express 路由器匹配为 :name="extraction-stats" 返回 404 的问题。
+
+编译验证：Client 和 Server tsc --noEmit 均 0 错误。
+运行时验证：curl 确认 extraction-stats / extraction-log / materialization-stats 3 个 API 均正常返回 JSON。`,
+  },
+  {
     version: 'v2.8.5',
     date: '2026-06-03',
     title: 'Skill 物化注入执行链路 + 节点 Skill 绑定 UI',

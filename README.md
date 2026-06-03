@@ -17,7 +17,7 @@ AgentFlow 是一个 **Agent 编排调度中心（Orchestrator）**，核心理�
 - **多角色 Agent 系统**：Planner / Manager / Executor 各司其职
 - **Per-Project Agent 配置**：按项目维度启用/禁用 Agent，DAG 节点仅展示已启用的 Agent
 - **Context Chaining**：节点间自动传递上下文，DAG 拓扑决定信息流向
-- **MAF 基础设施**：仓库隔离、Skill 物化、权限控制、A2A 通信、合同验证、健壮性服务
+- **MAF 基础设施**：仓库隔离、Skill 物化 + 自动沉淀、权限控制、A2A 通信、合同验证、健壮性服务
 - **产出物闭环**：Git worktree Diff Review + Squash/Merge/Rebase 合并策略，类 GitHub PR 代码审查
 - **可观测性**：全链路指标采集（时间/Token/质量）+ 效率评分 + 持久化 + 可视化仪表盘
 - **实时通信**：WebSocket 推送 Agent 输出流，前端即时展示执行进度
@@ -73,7 +73,7 @@ agent-flow/
 │       ├── tests/       # Vitest 单元测试（128 cases）
 │       └── src/
 │           ├── routes/    # 路由模块（12 个子路由文件）
-│           └── services/  # 业务服务层（25 个模块）
+│           └── services/  # 业务服务层（27 个模块）
 ├── docs/                # 使用手册
 └── .agent-flow/context/ # 项目上下文文档
 ```
@@ -111,6 +111,11 @@ yarn deploy
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.8.6 | 2026-06-03 | Skill 自动沉淀系统（5维评分引擎 + Jaccard 去重 + 事件驱动 + 项目级存储） |
+| v2.8.5 | 2026-06-03 | Skill 物化注入执行链路 + 节点 Skill 绑定 UI（Select 多选下拉框） |
+| v2.8.4 | 2026-06-04 | 全项目流程审计 + 前后端连通性修复 + 性能优化 |
+| v2.8.3 | 2026-06-03 | GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式 |
+| v2.8.2 | 2026-06-03 | 同步删除修复 + Metrics/DiffReview API 路径修正 |
 | v2.8.1 | 2026-06-02 | Run 删除持久化修复 + SQLite 显式清理补强 + 文档版本口径对齐 |
 | v2.8.0 | 2026-06-02 | Context DB 四层体系闭环 + 模板声明式重构 + 项目 Settings 增强 + DAG 准入准出引擎 |
 | v2.7.3 | 2026-06-02 | SQLite+WAL 持久化迁移 + WorkflowEngine Facade 拆分 + 路由模块化 + Vitest 122 cases |

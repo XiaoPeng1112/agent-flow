@@ -225,13 +225,24 @@ export class ProjectService {
     if (!project) throw new Error('Project not found')
 
     const searchPaths = [
+      // 项目级沉淀目录（Agent 自动沉淀的 Skills 存放于此）
+      join(project.path, '.agent-flow', 'skills'),
+      // 项目级手动配置的 Skills
       join(project.path, '.catpaw', 'skills'),
       join(project.path, '.claude', 'skills'),
       join(project.path, '.codex', 'skills'),
+      // 全局 Skills
       `${process.env.HOME}/.catpaw/skills`,
       `${process.env.HOME}/.claude/skills`,
       `${process.env.HOME}/.codex/skills`,
     ]
     return this.skillService.loadSkills(searchPaths)
+  }
+
+  /** 获取项目的 Skill 沉淀目录路径 */
+  getSkillsDir(projectId: string): string | null {
+    const project = this.getProject(projectId)
+    if (!project) return null
+    return join(project.path, '.agent-flow', 'skills')
   }
 }

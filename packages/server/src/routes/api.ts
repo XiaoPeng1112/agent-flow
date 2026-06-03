@@ -40,6 +40,7 @@ import type { MetricsCollector } from '../services/metrics-collector.js'
 import type { FeedbackCollector } from '../services/feedback-collector.js'
 import type { WeeklyDigest } from '../services/weekly-digest.js'
 import type { SyncService } from '../services/sync.js'
+import type { SkillExtractionService } from '../services/skill-extraction.js'
 
 import { createAuthRouter } from './auth.js'
 import { createProjectsRouter } from './projects.js'
@@ -75,6 +76,7 @@ export function createApiRouter(deps: {
   feedbackCollector: FeedbackCollector
   weeklyDigest: WeeklyDigest
   syncService: SyncService
+  skillExtractionService: SkillExtractionService
 }): Router {
   const router = Router()
 
@@ -109,6 +111,9 @@ export function createApiRouter(deps: {
     fileService: deps.fileService,
     skillService: deps.skillService,
     skillMaterializationService: deps.skillMaterializationService,
+    skillExtractionService: deps.skillExtractionService,
+    projectService: deps.projectService,
+    workflowEngine: deps.workflowEngine,
   })
   router.use('/files', filesRouter)
 

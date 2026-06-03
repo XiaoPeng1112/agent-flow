@@ -25,6 +25,7 @@ import { MetricsCollector } from './services/metrics-collector.js'
 import { FeedbackCollector } from './services/feedback-collector.js'
 import { WeeklyDigest } from './services/weekly-digest.js'
 import { SyncService } from './services/sync.js'
+import { SkillExtractionService } from './services/skill-extraction.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -59,6 +60,7 @@ const feedbackCollector = new FeedbackCollector()
 const weeklyDigest = new WeeklyDigest(feedbackCollector, metricsCollector)
 const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService, skillMaterializationService)
 const syncService = new SyncService(authService, projectService, workflowEngine, templateService)
+const skillExtractionService = new SkillExtractionService(skillService, projectService)
 
 // 注入 ContextDBService 到需要它的服务（延迟注入避免循环依赖）
 projectService.injectContextDB(contextDBService)
@@ -95,6 +97,7 @@ app.use('/api', createApiRouter({
   feedbackCollector,
   weeklyDigest,
   syncService,
+  skillExtractionService,
 }))
 
 // 健康检查
@@ -151,7 +154,7 @@ workflowEngine.onEvent((message) => {
 
   // 指标采集埋点
   if (message.type === 'run:node_updated') {
-    const { nodeId, status } = message.payload as { nodeId: string; status: string }
+    const { runId, nodeId, status } = message.payload as { runId?: string; nodeId: string; status: string }
     switch (status) {
       case 'running':
         metricsCollector.recordNodeStart(nodeId)
@@ -159,6 +162,25 @@ workflowEngine.onEvent((message) => {
       case 'wait_user_review':
         metricsCollector.recordNodeWaitReview(nodeId)
         break
+      case 'completed': {
+        // Skill 自动沉淀：节点完成时异步分析产出物
+        if (runId) {
+          const run = workflowEngine.getRun(runId)
+          const node = run?.nodes.find(n => n.id === nodeId)
+          if (run && node) {
+            skillExtractionService.extractFromNode(node, run)
+              .then(extracted => {
+                if (extracted.length > 0) {
+                  console.log(`[SkillExtraction] Auto-extracted ${extracted.length} skill(s) from node "${node.name}"`)
+                  // 重新加载 Skills 使新沉淀的 Skill 立即可用
+                  skillService.loadAdditional([projectService.getSkillsDir(run.projectId) || ''])
+                }
+              })
+              .catch(err => console.warn('[SkillExtraction] Error:', (err as Error).message))
+          }
+        }
+        break
+      }
     }
   }
 
