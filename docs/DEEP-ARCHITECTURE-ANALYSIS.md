@@ -1,7 +1,7 @@
 # AgentFlow 系统深度技术分析
 
 > 面向深入学习和后续优化的技术参考文档  
-> 版本：v2.1 | 日期：2026-06-03 | v2.8.3 PR 工作流更新
+> 版本：v2.8.7 | 日期：2026-06-04 | Skill 物化执行链 + Skill 自动沉淀 + 产出物体系优化
 
 ---
 
@@ -289,14 +289,15 @@ agent-flow/
 ├── packages/
 │   ├── server/
 │   │   ├── vitest.config.ts          # 测试配置
-│   │   ├── tests/                    # 单元测试（128 个用例）
+│   │   ├── tests/                    # 单元测试（122 个用例）
 │   │   │   ├── workflow-engine.test.ts     # Facade 集成测试
 │   │   │   ├── dag-scheduler.test.ts       # DAG 调度逻辑测试
 │   │   │   ├── turn-manager.test.ts        # Turn 生命周期测试
 │   │   │   ├── storage-sqlite.test.ts      # SQLite 存储层测试
 │   │   │   ├── sync.test.ts                # GitHub 同步与合并逻辑测试
 │   │   │   ├── a2a-protocol.test.ts        # A2A 协议测试
-│   │   │   └── contract-validator.test.ts  # 输出契约验证测试
+│   │   │   ├── contract-validator.test.ts  # 输出契约验证测试
+│   │   │   └── skill-extraction.test.ts    # Skill 沉淀评分与去重测试
 │   │   └── src/
 │   │       ├── index.ts              # 服务启动入口（Express + WS + 初始化）
 │   │       ├── types/
@@ -312,7 +313,9 @@ agent-flow/
 │   │       │   ├── dynamic-agent-factory.ts  # 动态 Agent 实例化（369 行）
 │   │       │   ├── context-db.ts     # 四层上下文知识库（309 行）
 │   │       │   ├── a2a-protocol.ts   # Agent 间通信协议（435 行）
-│   │       │   └── robustness.ts     # 重试/DLQ/Checkpoint/审计（357 行）
+│   │       │   ├── robustness.ts     # 重试/DLQ/Checkpoint/审计（357 行）
+│   │       │   ├── skill-materialization.ts # Skill 物化 + 白名单 + Prompt 注入
+│   │       │   └── skill-extraction.ts     # [v2.8.6] Skill 自动沉淀（419 行）
 │   │       └── routes/               # 按领域拆分的路由模块
 │   │           ├── api.ts            # 路由协调器（~130 行，挂载子路由）
 │   │           ├── auth.ts           # GitHub OAuth
@@ -531,8 +534,29 @@ if (match) turn.tokensUsed = parseInt(match[1])
 - **前驱输出**：DAG 中所有已完成的前驱节点的产出物
 - **项目上下文**：当前项目的技术栈、目录结构、编码规范等
 - **ContextDB 知识**：从四层知识库中查询出的相关信息
+- **Skill Prompt**（v2.8.5 新增）：节点绑定的 Skill 文件内容，经物化后注入
 
 这保证了每个 Agent 只看到它需要的信息，避免上下文污染。
+
+**v2.8.5 Skill 物化执行链接入：**
+
+v2.4.0 引入的 SkillMaterializationService 在 v2.8.5 正式接入 DynamicAgentFactory 执行链路，Skill 内容真正参与 Agent prompt 组装：
+
+```
+DynamicAgentFactory.assembleScopedContext() 执行流程：
+    Step 1: 确定角色定义
+    Step 2: 组装 ContextDB 四层（SYS → L0 → L1 → L2）
+    Step 3: 获取前驱节点产出物（Context Chaining）
+    Step 4: 读取项目元数据
+    Step 5: 调用 buildFullPrompt() 组装最终 prompt
+    Step 5.5: 注入 skillPrompt（Skill 物化结果）
+    Step 6: 附加 L2 节点指令
+    Step 7: 读取节点 skillIds → 初始化白名单 → 物化 Skill 文件
+```
+
+注入层级设计的考量：Skill prompt 放在"前置产出物之后、节点指令之前"——既能引用前驱信息，又不会被节点指令覆盖。`ScopedContext` 接口新增 `skillPrompt?: string` 字段。
+
+前端通过 NodeSkillBinding 组件（Select 多选下拉框）支持搜索过滤、乐观更新和失败回滚。
 
 ### 3.5 ContextDB — 四层知识库
 
@@ -582,6 +606,97 @@ A2A（Agent-to-Agent）协议实现了 Agent 之间的结构化通信，模拟�
 | 死信队列（DLQ） | 重试耗尽后存入等待人工处理 | 人工可查看/重新投递/删除 |
 | Checkpoint | 定期保存 Run 快照 | 每个 Run 最多 20 个快照 |
 | 审计日志 | 记录所有关键操作 | 上限 5 万条，支持按时间/类型查询 |
+
+### 3.8 SkillExtractionService — Skill 自动沉淀系统（v2.8.6）
+
+当节点执行完成并产出高价值内容时，系统自动评估是否值得沉淀为可复用 Skill，无需人工介入。
+
+**核心架构：**
+
+```
+事件触发：run:node_updated (status=completed)
+    │
+    ▼
+SkillExtractionService.evaluateAndExtract(node, turn)
+    │
+    ├── 百分制 5 维评分引擎
+    │     ├── 节点类型权重（0~30）: implement/review 30, design/test 20, specify 10
+    │     ├── 内容长度（0~15）: >500 chars → 15, >200 → 10, >100 → 5
+    │     ├── Markdown 结构化（0~20）: 标题/列表/代码块计数加权
+    │     ├── 代码块密度（0~15）: blocks/total_lines 比率
+    │     └── 关键词匹配（0~20）: 方案/实现/修复/重构等高价值词频
+    │
+    ├── 满分 100 → 归一化为 0~1 置信度
+    │     └── 阈值 0.6（低于此分数不沉淀）
+    │
+    ├── Jaccard 去重检测
+    │     ├── 将内容分词为词集
+    │     ├── 与已有 Skills 逐一比较 Jaccard 相似度
+    │     └── 相似度 > 0.7 → 视为重复，跳过沉淀
+    │
+    └── 持久化
+          ├── 生成 Skill 名称（基于节点 label 和内容摘要）
+          ├── 写入 YAML frontmatter + Markdown body
+          └── 路径：project.path/.agent-flow/skills/<name>/SKILL.md
+```
+
+**设计亮点：**
+
+1. **事件驱动、零阻塞**：通过 `run:node_updated` 事件异步触发，不影响节点状态机正常流转
+2. **双模式沉淀**：自动沉淀（评分达标）+ 手动沉淀（`forceExtract()` 强制提取，置信度 1.0）
+3. **渐进积累**：随着项目迭代，高价值产出物自动沉淀为 Skill 库，后续节点可通过 v2.8.5 的 Skill 物化链路复用
+
+**API 路由：** `GET /skills/extraction-stats`、`GET /skills/extraction-log`、`POST /skills/extract`、`GET /skills/project-dir/:projectId`
+
+### 3.9 产出物体系全链路闭环（v2.8.7）
+
+v2.8.7 解决了"Agent 不知道如何标记产出物"导致解析噪音的核心问题，建立了"引导产出 → 精准解析 → 分类展示"三段闭环管道。
+
+**三段管道架构：**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 1: 引导产出（Prompt Guidance）                             │
+│                                                                 │
+│  AgentService.getArtifactFormatGuidance()                        │
+│    → 在 buildContextualPrompt() 末尾追加格式规范                   │
+│    → 引导 Agent 使用 ```lang:filename 标记代码                    │
+│    → 引导 Agent 使用 ## 标题 标记文档                             │
+│                                                                 │
+│  模板层：4 个模板 × 5 节点 = 20 个 prompt suffix                  │
+│    → "你必须产出以下交付物：" 列表                                 │
+│    → 与 outputContracts 一一对应                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Stage 2: 精准解析（4 级优先级提取）                              │
+│                                                                 │
+│  解析优先级：                                                     │
+│    1. JSON 代码块（结构化声明 artifacts）                          │
+│    2. 命名代码块（```lang:filename）                              │
+│    3. ## 标题分段（文档类产出物）                                  │
+│    4. 大型匿名代码块（>10 行，兜底策略）                           │
+├─────────────────────────────────────────────────────────────────┤
+│  Stage 3: 分类展示（ArtifactItem 组件）                           │
+│                                                                 │
+│  5 类 category 差异化展示：                                       │
+│    - code（蓝色）: SyntaxHighlighter 语法高亮                     │
+│    - document（绿色）: 文本预览 + 折叠                            │
+│    - test（紫色）: 测试用例高亮                                    │
+│    - report（橙色）: 报告摘要                                     │
+│    - config（灰色）: JSON/YAML 高亮                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**5 大功能联动点——产出物贯穿整个系统：**
+
+| # | 联动点 | 机制 | 涉及模块 |
+|---|--------|------|----------|
+| 1 | 节点间上下文传递 | `buildContextualPrompt()` 将前置节点 artifacts 注入后续节点 prompt | DynamicAgentFactory |
+| 2 | 准入条件门控 | `computeReadyNodes()` 检查前置节点是否产出 required artifacts | DAGScheduler |
+| 3 | 合同验证 | `ContractValidator` 校验实际产出与 `outputContracts` 声明是否匹配 | ContractValidator |
+| 4 | Skill 自动沉淀 | `SkillExtractionService` 从高价值 artifacts 提取可复用 Skill | SkillExtractionService |
+| 5 | Diff Review / Git 合入 | `ArtifactMergeService` 基于代码类 artifacts 生成 PR | ArtifactMergeService |
+
+这套体系让产出物不再是"Agent 输出的一坨文本"，而是系统中有明确格式、可验证、可流转、可沉淀的一等公民。
 
 ---
 
@@ -925,6 +1040,8 @@ Turns（Agent 执行回合）在内存中独立于 Run 存储（`Map<nodeId, Age
 | `server/src/services/context-db.ts` | 309 | 四层知识库管理 |
 | `server/src/services/a2a-protocol.ts` | 434 | Agent 间通信协议 |
 | `server/src/services/robustness.ts` | 356 | 重试 + 死信队列 + Checkpoint + 审计 |
+| `server/src/services/skill-materialization.ts` | ~300 | Skill 物化 + 白名单 + TTL 缓存 + Prompt 注入 |
+| `server/src/services/skill-extraction.ts` | 419 | Skill 自动沉淀（5维评分 + Jaccard去重 + 持久化） |
 | `server/src/routes/api.ts` | 146 | 路由注册入口（已拆分为 12 个子路由文件） |
 | `server/src/routes/runs.ts` | 202 | Run 相关 REST 端点 |
 | `server/src/routes/agents.ts` | 248 | Agent 相关 REST 端点 |
@@ -967,9 +1084,11 @@ AgentFlow（内部称 MAF — Multi-Agent Flow）是一个多智能体 DAG 工�
 | 服务端核心逻辑 | ~6,500 行（含 4 个新模块） |
 | 服务端测试 | ~1,900 行（7 文件，128 用例） |
 | 客户端代码 | ~3,000+ 行 |
-| 核心服务数 | 11 个（含 RunManager、DAGScheduler、TurnManager、StorageSQLite） |
+| 核心服务数 | 13 个（含 RunManager、DAGScheduler、TurnManager、StorageSQLite、SkillExtraction） |
 | REST API 端点 | 70+（分布在 12 个路由文件中） |
 | 类型定义 | 630 行（完整的 TypeScript 类型系统） |
+| Skill 物化 + 提取 | 2 个专属服务（v2.8.5 执行链 + v2.8.6 自动沉淀） |
+| 产出物管道 | 5 大联动点（v2.8.7 全链路闭环） |
 
 ### 12.3 架构决策总评
 
@@ -992,10 +1111,18 @@ AgentFlow 在以下方面做出了务实的架构选择：
 
 **风险三：重构安全性 ✅ 已解决。** 引入 vitest 测试框架，建立 7 个测试文件共 128 个用例，覆盖 DAG 调度、节点状态机、Turn 生命周期、SQLite 持久化、同步服务等核心路径。后续任何重构都有回归测试保障。
 
-### 12.5 一句话总结
+### 12.5 v2.8.4~v2.8.7 新增架构亮点
 
-AgentFlow 是一个设计清晰、功能完备的多智能体编排系统。经过本轮重构，服务端已建立起 Facade + 单职责模块 + SQLite 持久化 + 128 测试用例的工程基础，具备了规模化迭代的条件。下一步的核心任务是完成客户端 RunDetail.tsx 的拆分，并持续扩展测试覆盖到 AgentService 等模块。
+**Skill 物化执行链（v2.8.5）** 完成了从"Skill 注册"到"Skill 实际参与 Agent 推理"的最后一公里。通过在 DynamicAgentFactory 的 Step 5.5 注入 skillPrompt，Skill 文件内容真正影响 Agent 行为——实现了"可声明、可绑定、可生效"的完整 Skill 生命周期。
+
+**Skill 自动沉淀（v2.8.6）** 让系统从"被动使用 Skill"进化为"主动积累 Skill"。百分制 5 维评分引擎 + Jaccard 去重的组合确保了沉淀质量：只有真正有价值的产出物才会被保存，且不会出现重复。这形成了一个正向飞轮：使用越多 → 高价值产出越多 → Skill 库越丰富 → 后续节点能力越强。
+
+**产出物体系优化（v2.8.7）** 通过"引导 → 解析 → 展示"三段管道，将产出物从"Agent 输出的一坨文本"提升为系统中的一等公民。5 大联动点让 artifacts 贯穿整个系统——从节点间传递到合同验证到 Skill 沉淀到 PR 合入，形成完整的价值流转链路。
+
+### 12.6 一句话总结
+
+AgentFlow 是一个设计清晰、功能完备的多智能体编排系统。经过 v2.7.3~v2.8.7 的持续迭代，系统已建立起 Facade + 单职责模块 + SQLite 持久化 + 128 测试用例的工程基础，并在此基础上实现了 Skill 全生命周期管理（物化执行 + 自动沉淀）和产出物体系的全链路闭环，具备了规模化应用的条件。下一步的核心任务是产出物预览面板增强和 Skill 管理 UI 完善。
 
 ---
 
-> 文档版本：v2.1 | 基于代码 commit 截止 2026-06-03（v2.8.3）分析 | 如有更新请同步维护此文档
+> 文档版本：v2.8.7 | 基于代码 commit 截止 2026-06-04（v2.8.7）分析 | 如有更新请同步维护此文档

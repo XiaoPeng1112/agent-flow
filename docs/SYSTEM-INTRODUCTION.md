@@ -1,7 +1,7 @@
 # AgentFlow 系统介绍
 
 > 面向团队讲解的完整系统说明  
-> 版本：v2.8.3 | 作者：@XiaoPeng1112 | 日期：2026-06-03
+> 版本：v2.8.7 | 作者：@XiaoPeng1112 | 日期：2026-06-04
 
 ---
 
@@ -121,7 +121,17 @@ v2.8.3 进一步引入了 **GitHub PR 工作流**：系统通过加权评分算�
 
 **v2.8.3 GitHub PR 工作流 + 仓库类型自动检测**——为团队协作场景引入完整的 PR 工作流：通过 GitHub REST API 自动检测仓库类型（4 维加权评分），团队项目强制走 PR 模式（UI 锁定不可切换）；ArtifactMergeService 新增 `pushAndCreatePR()` 方法实现特性分支推送 + PR 创建；前端 DiffReviewPanel 新增 PR 模式（"创建 PR" 按钮 + PR 链接展示），SettingsPanel 新增合并模式配置区（自动检测结果卡片 + 模式切换）。
 
-### 3.8 前端可视化
+### 3.8 Skill 全生命周期与产出物体系（v2.8.4 → v2.8.7）
+
+**v2.8.4 基础代码清理**——为后续 Skill 和 Artifact 功能做准备的内部结构优化。
+
+**v2.8.5 Skill 物化执行链路正式接入**——v2.4.0 引入的 SkillMaterializationService 在本版本正式接入 Agent 执行链路。DynamicAgentFactory 的 `assembleScopedContext()` 第 7 步读取节点 `skillIds`，初始化白名单并物化 Skill 文件内容；`buildFullPrompt()` 第 5.5 步（前置产出物之后、L2 节点指令之前）注入 `skillPrompt`。前端 NodeSkillBinding 组件升级为 Select 多选下拉框，支持搜索过滤、乐观更新和失败回滚。节点 Skill 绑定支持通过 `PATCH /api/runs/:runId/nodes/:nodeId/skills` 动态更新。
+
+**v2.8.6 Skill 自动沉淀系统**——新增 SkillExtractionService（419 行），当节点执行完成后自动评估产出物价值。百分制 5 维评分引擎（节点类型权重 0~30、内容长度 0~15、Markdown 结构化 0~20、代码块密度 0~15、关键词匹配 0~20）算出置信度，阈值 0.6 以上触发沉淀。Jaccard 词集相似度 > 0.7 自动去重跳过。Skill 文件以 YAML frontmatter + Markdown body 格式存储在 `project.path/.agent-flow/skills/<name>/SKILL.md`。事件驱动（`run:node_updated`），不阻塞主流程。
+
+**v2.8.7 产出物体系全链路优化**——解决"Agent 不知道如何标记产出物"的核心痛点，建立三段闭环管道：(1) 后端 `getArtifactFormatGuidance()` 在 prompt 末尾追加格式规范，引导 Agent 用 ` ```lang:filename` 标记代码；模板层 20 个节点 prompt 追加交付物声明与 `outputContracts` 对应。(2) 4 级优先级解析：JSON 块 → 命名代码块 → ## 标题分段 → 大型匿名块。(3) 前端 `ArtifactItem` 组件按 5 类 category 差异化展示（code 蓝/document 绿/test 紫/report 橙/config 灰），支持展开预览和语法高亮。产出物贯穿 5 大系统联动点：节点间上下文传递、准入条件门控、合同验证、Skill 自动沉淀、Diff Review 合入。
+
+### 3.9 前端可视化
 
 - DAG 图形化视图（基于 @xyflow/react，拓扑分层自动布局，状态着色动画）
 - A2A 消息面板（SVG 拓扑图 + 时间线 + 统计三视图）
@@ -131,7 +141,7 @@ v2.8.3 进一步引入了 **GitHub PR 工作流**：系统通过加权评分算�
 - Checkpoint 面板（Timeline 快照 + 恢复 + 健康监控）
 - Context DB 编辑器（四层上下文 CRUD + 装配预览）
 
-### 3.9 工程质量
+### 3.10 工程质量
 
 - TypeScript 全量类型覆盖（Server + Client 零 TS 错误）
 - Vitest 单元测试 128 cases 覆盖工作流引擎、DAG 调度、Turn 管理、A2A 协议、合同验证、SQLite 存储、同步服务等核心路径
@@ -139,7 +149,7 @@ v2.8.3 进一步引入了 **GitHub PR 工作流**：系统通过加权评分算�
 - ErrorBoundary 全局错误隔离
 - 文件系统路径穿越防护 + OAuth CSRF 防护 + Agent 权限隔离
 
-### 3.10 完整技术栈
+### 3.11 完整技术栈
 
 前端：React 19 + TypeScript 6 + Vite 8 + Tailwind CSS v4 + Ant Design 6 + Zustand 5 + React Router 7
 
@@ -221,7 +231,7 @@ v2.8.3 进一步引入了 **GitHub PR 工作流**：系统通过加权评分算�
 - 事件驱动的松耦合设计（Metrics/Feedback 通过事件总线零侵入采集）
 - 三层状态机 + DAG 编排引擎的实现方式
 - TypeScript 全量类型安全 + Vitest 单元测试最佳实践
-- 产品从 0 到 1 的完整设计思考和技术决策记录（18 个 ADR）
+- 产品从 0 到 1 的完整设计思考和技术决策记录（20 个 ADR）
 
 ---
 
@@ -229,17 +239,17 @@ v2.8.3 进一步引入了 **GitHub PR 工作流**：系统通过加权评分算�
 
 ### 6.1 短期（当前可用）
 
-当前 v2.8.3 已经是一个功能完整的闭环系统：
+当前 v2.8.7 已经是一个功能完整的闭环系统：
 
 ```
 需求输入 → DAG 编排 → Agent 执行 → 人工审查 → Diff Review → 合并/丢弃
-     ↑                                                            ↓
-     ← ← ← ← ← Feedback 反馈 ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+     ↑                                    ↓                       ↓
+     ← ← ← Feedback 反馈 ← ← ← ← ← ← ←    Skill 自动沉淀 ← ← ←
 ```
 
-v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通。v2.7.3 完成了 SQLite 持久化迁移和 WorkflowEngine 架构拆分，v2.8.0 补齐了 Context DB 四层体系、声明式模板和准入准出条件引擎，v2.8.1 修复了删除链路的数据一致性问题，v2.8.3 则引入了 GitHub PR 工作流和仓库类型自动检测，让团队协作项目的代码合入流程更加规范。
+v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通。v2.7.3 完成了 SQLite 持久化迁移和 WorkflowEngine 架构拆分，v2.8.0 补齐了 Context DB 四层体系、声明式模板和准入准出条件引擎，v2.8.3 引入了 GitHub PR 工作流和仓库类型自动检测，v2.8.5 完成了 Skill 物化执行链路的正式接入，v2.8.6 新增 Skill 自动沉淀系统（评分引擎+去重），v2.8.7 实现了产出物体系的全链路优化（格式引导+4级解析+分类展示）。
 
-可以直接在个人开发中使用，验证“AI 多角色协作开发”这套流程是否真的能提升效率。
+可以直接在个人开发中使用，验证"AI 多角色协作开发"这套流程是否真的能提升效率。
 
 ### 6.2 中期演进方向
 
@@ -269,13 +279,13 @@ v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用
 
 | 维度 | 数据 |
 |------|------|
-| 后端服务模块 | 25 个 |
+| 后端服务模块 | 24 个（含 SkillExtraction、SkillMaterialization） |
 | 前端组件/页面 | ~30 个 |
 | 单元测试 | 128 cases |
-| 技术决策记录（ADR） | 18 个 |
+| 技术决策记录（ADR） | 20 个（含 ADR-019 提取阈值、ADR-020 产出物管道） |
 | 内置工作流模板 | 4 个 |
-| REST API 端点 | ~58 个（12 个子路由文件） |
-| 版本迭代 | v1.0.0 → v2.8.3（20 个版本） |
+| REST API 端点 | 70+（12 个子路由文件） |
+| 版本迭代 | v1.0.0 → v2.8.7（24 个版本） |
 | 开发方式 | 人 + AI（CatDesk）对话式协作 |
 
 ---

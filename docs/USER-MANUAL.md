@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.8.3 | 更新日期：2026-06-03  
+> 版本：v2.8.7 | 更新日期：2026-06-04  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -310,7 +310,41 @@ Run 详情页顶部切换到 **A2A 消息** 标签，可视化展示当前 Run �
 
 ![A2A 消息面板](./screenshots/a2a-panel.png)
 
-### 5.11 GitHub 登录
+### 5.11 节点 Skill 绑定（v2.8.5）
+
+在 Run 详情页中，点击任意节点打开详情面板，可以为节点绑定 Skills：
+
+- **Skill 选择器**：Select 多选下拉框，支持搜索过滤可用 Skills
+- **绑定操作**：选择 Skill 后自动保存（乐观更新），失败时自动回滚
+- **生效方式**：Agent 执行时，绑定的 Skill 文件内容会被物化并注入到 prompt 的第 5.5 层（前驱产出物之后、节点指令之前）
+- **动态更新**：通过 `PATCH /api/runs/:runId/nodes/:nodeId/skills` 可随时修改绑定
+
+### 5.12 Skill 自动沉淀（v2.8.6）
+
+当节点执行完成后，系统自动评估产出物价值。高价值内容会被自动沉淀为可复用 Skill 文件：
+
+- **自动沉淀**：无需手动操作，系统通过 5 维评分引擎自动判断（阈值 0.6）
+- **手动沉淀**：进入项目 → Skills 标签 → 选择节点产出 → 点击"提取为 Skill"
+- **去重保护**：Jaccard 相似度检测，相似度 > 0.7 自动跳过，避免重复 Skill
+- **存储位置**：`项目目录/.agent-flow/skills/<skill-name>/SKILL.md`
+
+查看沉淀记录：`GET /api/skills/extraction-log`
+
+### 5.13 产出物预览（v2.8.7）
+
+节点执行完成后，产出物（Artifacts）在节点详情面板中按类别差异化展示：
+
+| 类别 | 颜色 | 展示方式 |
+|------|------|----------|
+| code | 蓝色 | 语法高亮（SyntaxHighlighter） |
+| document | 绿色 | 文本预览 + 折叠 |
+| test | 紫色 | 测试用例高亮 |
+| report | 橙色 | 报告摘要 |
+| config | 灰色 | JSON/YAML 高亮 |
+
+每个产出物卡片支持展开/折叠内容预览，帮助用户快速审查 Agent 产出质量。
+
+### 5.14 GitHub 登录
 
 侧边栏底部用户面板 → 点击 **「登录」** → 跳转 GitHub 授权 → 授权后自动返回并显示用户信息。
 
@@ -621,7 +655,29 @@ Dynamic Agent Factory 根据节点角色和项目 Agent 配置自动实例化 Ag
 
 Context DB 自动管理四层上下文文件，Agent 执行时注入合并后的上下文。
 
-### 6.16 其他 API
+### 6.16 Skill Extraction（Skill 自动沉淀）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/skills/extraction-stats` | 获取沉淀统计数据 |
+| GET | `/skills/extraction-log` | 获取沉淀历史日志 |
+| POST | `/skills/extract` | 手动触发 Skill 提取 |
+| GET | `/skills/project-dir/:projectId` | 获取项目 Skill 目录 |
+| PATCH | `/runs/:runId/nodes/:nodeId/skills` | 更新节点 Skill 绑定 |
+
+请求示例：
+
+```json
+POST /api/skills/extract
+{
+  "nodeId": "node-implement",
+  "runId": "run-001",
+  "force": true
+}
+// → { "success": true, "data": { "skillName": "user-auth-implementation", "confidence": 1.0, "path": "..." } }
+```
+
+### 6.17 其他 API
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -700,12 +756,14 @@ agent-flow/
 │   └── server/              # 后端 Express 5 + WebSocket
 │       └── src/
 │           ├── index.ts             # 服务入口
-│           ├── routes/api.ts        # REST API 路由
-│           ├── services/            # 业务服务层（21 个模块）
+│           ├── routes/api.ts        # REST API 路由（12 个子路由文件）
+│           ├── services/            # 业务服务层（24 个模块）
 │           │   ├── agent.ts         # Agent 执行（含 DET/HYB 模式）
 │           │   ├── dynamic-agent-factory.ts  # 动态 Agent 实例工厂
 │           │   ├── context-db.ts    # 四层上下文管理
 │           │   ├── robustness.ts    # Checkpoint + 健壮性
+│           │   ├── skill-materialization.ts  # [v2.8.5] Skill 物化 + Prompt 注入
+│           │   ├── skill-extraction.ts      # [v2.8.6] Skill 自动沉淀
 │           │   └── ...              # 其他服务
 │           └── types/index.ts       # 核心类型定义
 ├── docs/                    # 文档（本手册 + 截图）
@@ -830,6 +888,10 @@ yarn test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.8.7 | 2026-06-04 | 产出物体系全链路优化（格式引导 + 4 级解析 + 5 类分类展示 + 5 大联动点） |
+| v2.8.6 | 2026-06-04 | Skill 自动沉淀系统（5 维评分引擎 + Jaccard 去重 + 事件驱动持久化） |
+| v2.8.5 | 2026-06-04 | Skill 物化执行链路正式接入（DynamicAgentFactory Step 5.5 注入 + NodeSkillBinding UI） |
+| v2.8.4 | 2026-06-04 | 基础代码清理与结构优化 |
 | v2.8.3 | 2026-06-03 | GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式 |
 | v2.8.2 | 2026-06-03 | 同步删除修复 + Metrics/DiffReview API 路径修正 |
 | v2.8.1 | 2026-06-02 | Run 删除持久化修复 + SQLite 显式清理补强 + 文档版本口径对齐 |
@@ -874,6 +936,9 @@ yarn test:coverage
 - ✅ **代码分割**：React.lazy + Suspense 路由级分割
 - ✅ **单元测试**：Vitest 128 cases 覆盖核心服务
 - ✅ **错误边界**：React ErrorBoundary 全局错误隔离
+- ✅ **Skill 物化执行链**（v2.8.5）：Skill 内容真正注入 Agent prompt 参与推理
+- ✅ **Skill 自动沉淀**（v2.8.6）：5 维评分引擎 + Jaccard 去重 + 事件驱动
+- ✅ **产出物体系优化**（v2.8.7）：格式引导 + 4 级解析 + 分类展示 + 5 大联动点
 
 ### 长期规划
 
