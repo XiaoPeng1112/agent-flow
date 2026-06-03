@@ -7,6 +7,7 @@ import type { AgentService } from './agent.js'
 import type { WorkflowEngine } from './workflow-engine.js'
 import type { ProjectService } from './project.js'
 import type { ContextDBService } from './context-db.js'
+import type { SkillMaterializationService } from './skill-materialization.js'
 
 /**
  * DynamicAgentFactory — 动态 Agent 实例创建工厂
@@ -28,17 +29,20 @@ export class DynamicAgentFactory {
   private agentService: AgentService
   private projectService: ProjectService
   private contextDB?: ContextDBService
+  private skillMaterialization?: SkillMaterializationService
 
   constructor(
     agentService: AgentService,
     workflowEngine: WorkflowEngine,
     projectService: ProjectService,
-    contextDB?: ContextDBService
+    contextDB?: ContextDBService,
+    skillMaterialization?: SkillMaterializationService
   ) {
     this.agentService = agentService
     void workflowEngine // reserved for future orchestration hooks
     this.projectService = projectService
     this.contextDB = contextDB
+    this.skillMaterialization = skillMaterialization
   }
 
   /**
@@ -200,6 +204,11 @@ export class DynamicAgentFactory {
       parts.push(ctx.predecessorSummaries.join('\n\n---\n\n'))
     }
 
+    // ── 5.5 物化 Skills（工具与知识注入） ──
+    if (ctx.skillPrompt) {
+      parts.push(ctx.skillPrompt)
+    }
+
     // ── 6. L2 节点级上下文（精确任务指令） ──
     const l2Layers = layers.filter(l => l.level === 'L2')
     if (l2Layers.length > 0) {
@@ -301,6 +310,20 @@ export class DynamicAgentFactory {
       }
     }
 
+    // 7. Skill 物化：根据节点 skillIds 白名单，读取 Skill 内容并生成注入片段
+    let skillPrompt = ''
+    if (this.skillMaterialization && node.skillIds && node.skillIds.length > 0) {
+      try {
+        // 基于节点 skillIds 设置白名单
+        this.skillMaterialization.initWhitelistFromTemplate(node.id, node.skillIds)
+        // 物化 + 格式化为 prompt 片段
+        skillPrompt = await this.skillMaterialization.getSkillPromptForNode(node.id)
+      } catch (err) {
+        console.warn(`[DynamicAgentFactory] Skill materialization failed for node ${node.id}:`, (err as Error).message)
+        // 降级：skillPrompt 为空，不影响其余上下文
+      }
+    }
+
     return {
       roleStatement,
       systemPrompt,
@@ -309,6 +332,7 @@ export class DynamicAgentFactory {
       predecessorSummaries,
       projectContext,
       skills: node.skillIds || [],
+      skillPrompt,
       variables,
       contextLayers,
     }

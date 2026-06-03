@@ -57,7 +57,7 @@ const artifactMergeService = new ArtifactMergeService(repoIsolationService, gitS
 const metricsCollector = new MetricsCollector()
 const feedbackCollector = new FeedbackCollector()
 const weeklyDigest = new WeeklyDigest(feedbackCollector, metricsCollector)
-const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService)
+const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService, skillMaterializationService)
 const syncService = new SyncService(authService, projectService, workflowEngine, templateService)
 
 // 注入 ContextDBService 到需要它的服务（延迟注入避免循环依赖）

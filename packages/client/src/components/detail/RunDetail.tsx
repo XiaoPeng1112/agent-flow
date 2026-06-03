@@ -21,20 +21,21 @@ import {
   ExpandOutlined,
   CompressOutlined,
   PauseCircleOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAppStore } from '../../store/appStore'
-import { runApi, nodeApi, agentApi } from '../../api'
+import { runApi, nodeApi, agentApi, projectApi } from '../../api'
 import { AgentTreePanel } from './AgentTreePanel'
 import { CheckpointPanel } from './CheckpointPanel'
 import { ContextDBPanel } from './ContextDBPanel'
 import { A2APanel } from './A2APanel'
 import { DiffReviewPanel } from './DiffReviewPanel'
 import { MetricsPanel } from './MetricsPanel'
-import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab } from '../../types'
+import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab, SkillInfo } from '../../types'
 
 interface Props {
   run: Run
@@ -1030,6 +1031,11 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
         </div>
       )}
 
+      {/* Skill 绑定区域 — 节点 ready/pending 时可配置 */}
+      {(node.status === 'ready' || node.status === 'pending') && (
+        <NodeSkillBinding runId={run.id} node={node} projectId={run.projectId} onUpdate={onUpdate} />
+      )}
+
       {/* Prompt 区域：系统指令（只读）+ 用户输入（DET 模式不需要输入） */}
       {node.status === 'ready' && (
         <div className="mb-4 space-y-3">
@@ -1404,6 +1410,89 @@ function AgentResultPreview({ nodeId }: { nodeId: string }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ═══════════════ 节点 Skill 绑定组件 ═══════════════
+
+function NodeSkillBinding({ runId, node, projectId, onUpdate }: {
+  runId: string
+  node: TaskNode
+  projectId: string
+  onUpdate: (node: TaskNode) => void
+}) {
+  const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>(node.skillIds || [])
+  const { message } = App.useApp()
+
+  useEffect(() => {
+    loadSkills()
+  }, [projectId])
+
+  useEffect(() => {
+    setSelectedIds(node.skillIds || [])
+  }, [node.id])
+
+  const loadSkills = async () => {
+    setLoading(true)
+    try {
+      const res = await projectApi.getSkills(projectId)
+      setSkills(res.skills || [])
+    } catch {
+      // 加载失败静默处理
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleChange = async (newIds: string[]) => {
+    setSelectedIds(newIds)
+
+    setSaving(true)
+    try {
+      const res = await nodeApi.updateSkills(runId, node.id, newIds)
+      onUpdate(res.node)
+    } catch (err: any) {
+      message.error(`保存失败: ${err.message}`)
+      setSelectedIds(node.skillIds || [])  // 回滚
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading || skills.length === 0) return null
+
+  return (
+    <div className="mb-3">
+      <label className="text-[12px] text-gray-500 mb-1.5 block font-medium flex items-center gap-1.5">
+        <AppstoreOutlined className="text-indigo-400" />
+        绑定 Skills
+        {saving && <LoadingOutlined className="text-gray-400 text-[10px]" />}
+      </label>
+      <Select
+        mode="multiple"
+        value={selectedIds}
+        onChange={handleChange}
+        size="small"
+        className="w-full"
+        placeholder="选择需要注入的 Skills..."
+        maxTagCount="responsive"
+        options={skills.map(skill => ({
+          value: skill.id,
+          label: skill.name,
+        }))}
+        filterOption={(input, option) =>
+          (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ?? false
+        }
+      />
+      {selectedIds.length > 0 && (
+        <p className="text-[10px] text-gray-400 mt-1.5">
+          绑定的 Skills 将在 Agent 执行时作为知识/工具注入到 prompt 中
+        </p>
+      )}
     </div>
   )
 }

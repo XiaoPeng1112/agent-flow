@@ -182,6 +182,28 @@ export function createRunsRouter(deps: {
     }
   })
 
+  /** 更新节点绑定的 Skills */
+  router.patch('/:runId/nodes/:nodeId/skills', async (req, res) => {
+    const { skillIds } = req.body
+    if (!Array.isArray(skillIds)) {
+      res.status(400).json({ success: false, error: 'skillIds must be an array' })
+      return
+    }
+    const run = workflowEngine.getRun(req.params.runId)
+    if (!run) {
+      res.status(404).json({ success: false, error: 'Run not found' })
+      return
+    }
+    const node = run.nodes.find(n => n.id === req.params.nodeId)
+    if (!node) {
+      res.status(404).json({ success: false, error: 'Node not found' })
+      return
+    }
+    node.skillIds = skillIds
+    await workflowEngine.persist()
+    res.json({ success: true, data: { node } })
+  })
+
   /** 获取节点产出物 */
   router.get('/:runId/nodes/:nodeId/artifacts', (req, res) => {
     const artifacts = workflowEngine.getNodeArtifacts(req.params.runId, req.params.nodeId)

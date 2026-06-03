@@ -174,6 +174,11 @@ export class WorkflowEngine {
     return this.runManager.updateRunConfig(runId, config)
   }
 
+  /** 持久化当前内存中的所有 Run 和 Turn 数据到 SQLite */
+  async persist(): Promise<void> {
+    return this.runManager.persist()
+  }
+
   // ═══════════════ AgentTurn 管理（委托 TurnManager） ═══════════════
 
   startTurn(nodeId: string, runId: string, agentId: string, prompt: string): AgentTurn {

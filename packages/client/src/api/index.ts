@@ -177,6 +177,12 @@ export const nodeApi = {
   forceReset: (runId: string, nodeId: string) =>
     request<{ node: any }>(`/runs/${runId}/nodes/${nodeId}/force-reset`, { method: 'POST' }),
 
+  updateSkills: (runId: string, nodeId: string, skillIds: string[]) =>
+    request<{ node: any }>(`/runs/${runId}/nodes/${nodeId}/skills`, {
+      method: 'PATCH',
+      body: JSON.stringify({ skillIds }),
+    }),
+
   getArtifacts: (runId: string, nodeId: string) =>
     request<{ artifacts: any[] }>(`/runs/${runId}/nodes/${nodeId}/artifacts`),
 

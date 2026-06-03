@@ -17,6 +17,30 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.8.5',
+    date: '2026-06-03',
+    title: 'Skill 物化注入执行链路 + 节点 Skill 绑定 UI',
+    type: 'feature',
+    highlights: [
+      'Skill 物化正式接入执行链路：DynamicAgentFactory 装配 ScopedContext 时自动读取节点 skillIds 并调用 SkillMaterializationService 注入 prompt',
+      '新增 PATCH /runs/:runId/nodes/:nodeId/skills API，支持前端动态更新节点绑定的 Skills',
+      '节点详情面板新增 Skill 绑定组件（Select 多选下拉框），支持搜索过滤和即时持久化',
+      'ScopedContext 类型扩展 skillPrompt 字段，buildFullPrompt 第 5.5 层注入物化 Skill 内容',
+      'WorkflowEngine 新增 public persist() 方法，支持节点级变更的即时持久化',
+    ],
+    details: `v2.8.5 将 Skill 系统从"已建设但未接入"的状态推进到真正参与节点执行的完整链路。
+
+【核心修复】DynamicAgentFactory.assembleScopedContext() 新增第 7 步 Skill 物化：当节点配置了 skillIds 时，调用 SkillMaterializationService.initWhitelistFromTemplate() 设置白名单，再通过 getSkillPromptForNode() 物化 Skill 文件内容生成 prompt 片段。buildFullPrompt() 在前置产出物与 L2 节点指令之间（第 5.5 步）注入该片段。
+
+【API 层】新增 PATCH /api/runs/:runId/nodes/:nodeId/skills 路由，接收 { skillIds: string[] }，更新节点的 Skill 绑定并通过 WorkflowEngine.persist() 即时写入磁盘。
+
+【前端 UI】NodeSkillBinding 组件从标签平铺改为 Ant Design Select mode="multiple" 下拉框，支持关键词搜索过滤、maxTagCount 响应式折叠、乐观更新 + 失败回滚。
+
+【类型扩展】ScopedContext 接口新增 skillPrompt?: string 字段。
+
+编译验证：Client 和 Server tsc --noEmit 均 0 错误。端到端验证：PATCH API → 节点 skillIds 持久化 → createInstance 物化 → buildFullPrompt 注入 → Agent CLI 接收完整 prompt。`,
+  },
+  {
     version: 'v2.8.4',
     date: '2026-06-04',
     title: '全项目流程审计 + 前后端连通性修复 + 性能优化',

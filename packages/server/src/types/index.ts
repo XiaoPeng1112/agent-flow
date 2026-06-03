@@ -608,6 +608,7 @@ export interface ScopedContext {
   predecessorSummaries: string[]    // 前置节点摘要（从 inputs 声明解析）
   projectContext?: string           // 项目上下文（L0 不可用时的兜底）
   skills: string[]                  // 注入的 skill ID 列表
+  skillPrompt?: string              // 物化后的 Skill 内容（注入到 prompt 中）
   variables: Record<string, string> // 模板变量
   contextLayers?: ContextLayer[]    // Context DB 四层上下文
 }
