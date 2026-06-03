@@ -4,6 +4,7 @@ import type { MetricsCollector } from '../services/metrics-collector.js'
 import type { FeedbackCollector } from '../services/feedback-collector.js'
 import type { WeeklyDigest } from '../services/weekly-digest.js'
 import type { WorkflowEngine } from '../services/workflow-engine.js'
+import type { ProjectService } from '../services/project.js'
 
 export function createArtifactsRouter(deps: {
   artifactMergeService: ArtifactMergeService
@@ -11,9 +12,10 @@ export function createArtifactsRouter(deps: {
   feedbackCollector: FeedbackCollector
   weeklyDigest: WeeklyDigest
   workflowEngine: WorkflowEngine
+  projectService: ProjectService
 }): Router {
   const router = Router()
-  const { artifactMergeService, metricsCollector, feedbackCollector, weeklyDigest, workflowEngine } = deps
+  const { artifactMergeService, metricsCollector, feedbackCollector, weeklyDigest, workflowEngine, projectService } = deps
 
   // Artifact Merge API
 
@@ -74,6 +76,111 @@ export function createArtifactsRouter(deps: {
     try {
       const result = artifactMergeService.mergeBranch(turnId, strategy || 'squash')
       res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 创建 GitHub PR（pr 模式） */
+  router.post('/create-pr/:runId/:nodeId', async (req, res) => {
+    const { turnId, title, body, baseBranch } = req.body
+    if (!turnId) {
+      res.status(400).json({ success: false, error: 'turnId is required' })
+      return
+    }
+    try {
+      const result = await artifactMergeService.pushAndCreatePR(turnId, { title, body, baseBranch })
+      res.json({ success: true, data: result })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 查询 PR 状态 */
+  router.get('/pr-status/:owner/:repo/:prNumber', async (req, res) => {
+    const { owner, repo, prNumber } = req.params
+    try {
+      const status = await artifactMergeService.getPRStatus(owner, repo, parseInt(prNumber, 10))
+      if (!status) {
+        res.status(404).json({ success: false, error: 'PR not found or not authenticated' })
+        return
+      }
+      res.json({ success: true, data: status })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 获取项目的合并模式 */
+  router.get('/merge-mode/:projectId', (req, res) => {
+    const project = projectService.getProject(req.params.projectId)
+    if (!project) {
+      res.status(404).json({ success: false, error: 'Project not found' })
+      return
+    }
+    res.json({ success: true, data: { mergeMode: project.mergeMode || 'local' } })
+  })
+
+  /** 检测仓库类型（团队 / 个人） */
+  router.get('/detect-repo-type/:projectId', async (req, res) => {
+    const project = projectService.getProject(req.params.projectId)
+    if (!project) {
+      res.status(404).json({ success: false, error: 'Project not found' })
+      return
+    }
+    try {
+      let detection
+      const repoUrl = project.contextConfig?.repoUrl
+      if (repoUrl) {
+        detection = await artifactMergeService.detectRepoTypeByUrl(repoUrl)
+      } else if (project.path) {
+        detection = await artifactMergeService.detectRepoType(project.path)
+      } else {
+        res.status(400).json({ success: false, error: 'Project has no repoUrl or local path configured' })
+        return
+      }
+      res.json({ success: true, data: detection })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 检测并自动设置 mergeMode（团队项目强制 PR 模式） */
+  router.post('/detect-and-set-merge-mode/:projectId', async (req, res) => {
+    const project = projectService.getProject(req.params.projectId)
+    if (!project) {
+      res.status(404).json({ success: false, error: 'Project not found' })
+      return
+    }
+    try {
+      let detection
+      const repoUrl = project.contextConfig?.repoUrl
+      if (repoUrl) {
+        detection = await artifactMergeService.detectRepoTypeByUrl(repoUrl)
+      } else if (project.path) {
+        detection = await artifactMergeService.detectRepoType(project.path)
+      } else {
+        res.status(400).json({ success: false, error: 'Project has no repoUrl or local path configured' })
+        return
+      }
+
+      // 团队项目强制 PR 模式
+      if (detection.repoType === 'team') {
+        await projectService.updateProject(project.id, { mergeMode: 'pr' })
+      } else if (!project.mergeMode) {
+        // 个人项目且未设置过，设为建议值
+        await projectService.updateProject(project.id, { mergeMode: detection.suggestedMergeMode })
+      }
+
+      res.json({
+        success: true,
+        data: {
+          ...detection,
+          applied: true,
+          mergeMode: detection.repoType === 'team' ? 'pr' : (project.mergeMode || detection.suggestedMergeMode),
+          locked: detection.repoType === 'team', // 团队项目锁定为 PR 模式
+        },
+      })
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message })
     }

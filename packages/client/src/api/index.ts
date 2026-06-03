@@ -303,6 +303,50 @@ export const diffReviewApi = {
       method: 'POST',
       body: JSON.stringify({ turnId }),
     }),
+
+  /** 创建 PR（PR 模式） */
+  createPR: (runId: string, nodeId: string, params?: { title?: string; body?: string; draft?: boolean }) =>
+    request<{ success: boolean; prUrl: string; prNumber: number; owner: string; repo: string }>(`/artifacts/create-pr/${runId}/${nodeId}`, {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }),
+
+  /** 查询 PR 状态 */
+  getPRStatus: (owner: string, repo: string, prNumber: number) =>
+    request<{ state: string; merged: boolean; mergeable: boolean; title: string; html_url: string }>(`/artifacts/pr-status/${owner}/${repo}/${prNumber}`),
+
+  /** 获取项目 merge 模式 */
+  getMergeMode: (projectId: string) =>
+    request<{ mergeMode: 'local' | 'pr' }>(`/artifacts/merge-mode/${projectId}`),
+
+  /** 检测仓库类型（团队 / 个人） */
+  detectRepoType: (projectId: string) =>
+    request<{
+      repoType: 'team' | 'personal'
+      ownerType: 'Organization' | 'User'
+      collaboratorCount: number
+      recentAuthors: string[]
+      hasBranchProtection: boolean
+      confidence: number
+      suggestedMergeMode: 'local' | 'pr'
+      reason: string
+    }>(`/artifacts/detect-repo-type/${projectId}`),
+
+  /** 检测并自动设置 mergeMode（团队项目强制 PR） */
+  detectAndSetMergeMode: (projectId: string) =>
+    request<{
+      repoType: 'team' | 'personal'
+      ownerType: 'Organization' | 'User'
+      collaboratorCount: number
+      recentAuthors: string[]
+      hasBranchProtection: boolean
+      confidence: number
+      suggestedMergeMode: 'local' | 'pr'
+      reason: string
+      applied: boolean
+      mergeMode: 'local' | 'pr'
+      locked: boolean
+    }>(`/artifacts/detect-and-set-merge-mode/${projectId}`, { method: 'POST' }),
 }
 
 // ═══════════════ Metrics API (可观测性) ═══════════════

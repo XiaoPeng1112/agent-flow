@@ -174,6 +174,7 @@ export interface Project {
   description?: string
   contextConfig?: ProjectContext
   enabledAgentIds?: string[]       // 项目启用的 Agent ID 列表（未设置 = 全部启用）
+  mergeMode?: 'local' | 'pr'      // 代码合入方式：本地合入 or PR 模式
   skills: SkillInfo[]
   runs: Run[]
   createdAt: number

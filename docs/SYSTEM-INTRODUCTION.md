@@ -1,7 +1,7 @@
 # AgentFlow 系统介绍
 
 > 面向团队讲解的完整系统说明  
-> 版本：v2.8.1 | 作者：@XiaoPeng1112 | 日期：2026-06-02
+> 版本：v2.8.3 | 作者：@XiaoPeng1112 | 日期：2026-06-03
 
 ---
 
@@ -33,7 +33,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 第二，**没有流程意识**。AI 工具是"点对点"的——你问一个问题，它答一个问题。但真实开发是有流程的：先分析需求，再出方案，再编码，再测试。AgentFlow 通过 DAG 工作流引擎把这个流程固化下来，让 AI 在正确的阶段做正确的事。
 
-第三，**产出物不可控**。AI 写的代码直接 copy-paste 到项目里，没有 diff 对比、没有审批、没有版本记录。AgentFlow 通过 Git worktree 隔离 + Diff Review（类 GitHub PR）+ 三种合并策略解决这个问题。
+第三，**产出物不可控**。AI 写的代码直接 copy-paste 到项目里，没有 diff 对比、没有审批、没有版本记录。AgentFlow 通过 Git worktree 隔离 + Diff Review（类 GitHub PR）+ 三种本地合并策略 + GitHub PR 工作流解决这个问题。
 
 第四，**效率黑盒**。不知道 AI 帮你省了多少时间还是浪费了时间，不知道哪个环节是瓶颈。AgentFlow 通过 Metrics 指标采集（时间、Token、质量评分）提供全链路可观测性。
 
@@ -73,9 +73,11 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 ### 3.3 产出物闭环（v2.6.0）
 
-**ArtifactMergeService**——Agent 产出代码后，系统自动在 Git worktree 环境执行 diff，将 unified diff 解析为结构化数据，前端以 GitHub PR 风格展示行级变更。支持 Squash / Merge / Rebase 三种合并策略和 Discard 丢弃操作。
+**ArtifactMergeService**——Agent 产出代码后，系统自动在 Git worktree 环境执行 diff，将 unified diff 解析为结构化数据，前端以 GitHub PR 风格展示行级变更。支持 Squash / Merge / Rebase 三种本地合并策略和 Discard 丢弃操作。
 
-这意味着 AI 写的每一行代码都要经过人的审查才能合入主分支，"AI 产出 → 人审查 → 选择策略合入" 全链路可控。
+v2.8.3 进一步引入了 **GitHub PR 工作流**：系统通过加权评分算法自动检测仓库类型（个人项目 vs 团队项目），团队项目强制走 PR 模式——Agent 产出代码推送到特性分支并自动创建 GitHub Pull Request，由团队成员在 GitHub 上完成 Code Review 后合入。检测算法综合考虑仓库 Owner 类型（权重 0.5）、协作者数量（0.3）、提交作者多样性（0.2）、分支保护规则（0.1）四个维度，总分 ≥ 0.4 判定为团队项目。
+
+这意味着 AI 写的每一行代码都要经过人的审查才能合入主分支，"AI 产出 → 人审查 → 选择策略合入" 全链路可控。团队项目额外保障了多人协作场景下的代码质量。
 
 ### 3.4 可观测性（v2.6.0）
 
@@ -101,7 +103,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 这解决了"公司电脑和家里电脑数据不互通"的痛点，确保知识资产（架构文档、决策记录、开发日志）在多设备间始终保持一致。
 
-### 3.7 架构重构、上下文闭环与稳定性补丁（v2.7.3 → v2.8.1）
+### 3.7 架构重构、上下文闭环与稳定性补丁（v2.7.3 → v2.8.3）
 
 **SQLite + WAL 持久化迁移**——将原有 JSON 文件存储替换为 SQLite + WAL 模式（better-sqlite3）。新建 `storage-sqlite.ts` 服务（~400 行），提供 ACID 事务保障和高并发读写能力。系统启动时自动检测 JSON 遗留数据并执行平滑迁移（JSON → SQLite 一次性导入），迁移完成后原 JSON 文件保留为备份。采用 `inject()` 模式解决 ESM 循环依赖问题。
 
@@ -113,13 +115,17 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 **v2.8.0 Context DB 四层闭环**——在 v2.7.3 工程基础上，系统继续完成了 Context DB 的全链路闭环：创建项目时自动生成 L0 种子文件，创建 Run 时按节点动态生成 L2 种子；Sidebar 新增 SYS / L1 全局编辑入口；ContextDBPanel 改为按 Run 批量加载 L2；DynamicAgentFactory 内化四层上下文装配；模板升级为 `roleStatement + inputs + entryConditions + exitConditions` 的声明式结构；DAG 新增准入/准出条件评估；项目 Settings 面板新增运行统计、Token 趋势、数据导出、Run 清理、上下文预览能力。
 
-**v2.8.1 稳定性补丁**——在 v2.8.0 之后，系统针对 Run 删除链路补齐了持久化一致性：删除操作不再只改内存，而是同步清理 turns 并在 SQLite 中显式事务删除相关数据；同时补上“删除后重载不复活”的回归测试，并统一更新了更新日志、项目介绍、README 与手册中的版本口径。此时服务端测试扩展到 128 cases。
+**v2.8.1 稳定性补丁**——在 v2.8.0 之后，系统针对 Run 删除链路补齐了持久化一致性：删除操作不再只改内存，而是同步清理 turns 并在 SQLite 中显式事务删除相关数据；同时补上"删除后重载不复活"的回归测试，并统一更新了更新日志、项目介绍、README 与手册中的版本口径。此时服务端测试扩展到 128 cases。
+
+**v2.8.2 同步删除修复 + API 路径修正**——修复了 Metrics/DiffReview 相关 API 的路径前缀问题，同时补齐 Sync 删除链路的一致性。
+
+**v2.8.3 GitHub PR 工作流 + 仓库类型自动检测**——为团队协作场景引入完整的 PR 工作流：通过 GitHub REST API 自动检测仓库类型（4 维加权评分），团队项目强制走 PR 模式（UI 锁定不可切换）；ArtifactMergeService 新增 `pushAndCreatePR()` 方法实现特性分支推送 + PR 创建；前端 DiffReviewPanel 新增 PR 模式（"创建 PR" 按钮 + PR 链接展示），SettingsPanel 新增合并模式配置区（自动检测结果卡片 + 模式切换）。
 
 ### 3.8 前端可视化
 
 - DAG 图形化视图（基于 @xyflow/react，拓扑分层自动布局，状态着色动画）
 - A2A 消息面板（SVG 拓扑图 + 时间线 + 统计三视图）
-- Diff Review 面板（文件树 + 行级 diff + 合并策略选择）
+- Diff Review 面板（文件树 + 行级 diff + 合并策略选择 + PR 模式创建）
 - Metrics 面板（4 个子 Tab：概览/甘特图/Token 分布/效率评分）
 - Agent Tree 面板（树形结构展示 Agent 实例分布）
 - Checkpoint 面板（Timeline 快照 + 恢复 + 健康监控）
@@ -223,7 +229,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
 
 ### 6.1 短期（当前可用）
 
-当前 v2.8.1 已经是一个功能完整的闭环系统：
+当前 v2.8.3 已经是一个功能完整的闭环系统：
 
 ```
 需求输入 → DAG 编排 → Agent 执行 → 人工审查 → Diff Review → 合并/丢弃
@@ -231,7 +237,7 @@ AgentFlow 通过 **MAF（Multi-Agent Flow）** 架构解决这些问题。它将
      ← ← ← ← ← Feedback 反馈 ← ← ← ← ← ← ← ← ← ← ← ← ← ←
 ```
 
-v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通。v2.7.3 完成了 SQLite 持久化迁移和 WorkflowEngine 架构拆分，v2.8.0 补齐了 Context DB 四层体系、声明式模板和准入准出条件引擎，v2.8.1 则进一步修复了删除链路的数据一致性问题。
+v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用户可以在多台设备间无缝切换工作，数据自动互通。v2.7.3 完成了 SQLite 持久化迁移和 WorkflowEngine 架构拆分，v2.8.0 补齐了 Context DB 四层体系、声明式模板和准入准出条件引擎，v2.8.1 修复了删除链路的数据一致性问题，v2.8.3 则引入了 GitHub PR 工作流和仓库类型自动检测，让团队协作项目的代码合入流程更加规范。
 
 可以直接在个人开发中使用，验证“AI 多角色协作开发”这套流程是否真的能提升效率。
 
@@ -269,7 +275,7 @@ v2.7.2 新增的多用户隔离 + gitRemote 跨设备自动匹配能力，让用
 | 技术决策记录（ADR） | 18 个 |
 | 内置工作流模板 | 4 个 |
 | REST API 端点 | ~58 个（12 个子路由文件） |
-| 版本迭代 | v1.0.0 → v2.8.1（18 个版本） |
+| 版本迭代 | v1.0.0 → v2.8.3（20 个版本） |
 | 开发方式 | 人 + AI（CatDesk）对话式协作 |
 
 ---

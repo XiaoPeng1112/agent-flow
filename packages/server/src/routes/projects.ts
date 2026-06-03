@@ -38,8 +38,8 @@ export function createProjectsRouter(deps: {
   })
 
   router.put('/:id', async (req, res) => {
-    const { name, description, contextConfig, enabledAgentIds } = req.body
-    const project = await projectService.updateProject(req.params.id, { name, description, contextConfig, enabledAgentIds })
+    const { name, description, contextConfig, enabledAgentIds, mergeMode } = req.body
+    const project = await projectService.updateProject(req.params.id, { name, description, contextConfig, enabledAgentIds, mergeMode })
     if (!project) {
       res.status(404).json({ success: false, error: 'Project not found' })
       return

@@ -63,6 +63,8 @@ const syncService = new SyncService(authService, projectService, workflowEngine,
 // 注入 ContextDBService 到需要它的服务（延迟注入避免循环依赖）
 projectService.injectContextDB(contextDBService)
 workflowEngine.injectContextDB(contextDBService)
+// 注入 AuthService 到 ArtifactMergeService（PR 模式需要 GitHub token）
+artifactMergeService.injectAuth(authService)
 
 // ═══════════════ Express 应用 ═══════════════
 
@@ -99,7 +101,7 @@ app.use('/api', createApiRouter({
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.8.2',
+    version: '2.8.3',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
@@ -263,7 +265,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`
 ┌───────────────────────────────────────────────┐
-│     AgentFlow Server v2.8.2                   │
+│     AgentFlow Server v2.8.3                   │
 │     MAF-inspired Workflow Engine             │
 │                                               │
 │  HTTP API:  http://localhost:${PORT}/api         │

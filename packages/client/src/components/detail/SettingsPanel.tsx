@@ -11,8 +11,9 @@ import {
   ReloadOutlined, CheckCircleOutlined, ClockCircleOutlined,
   BarChartOutlined, FileTextOutlined, CodeOutlined,
   PlusOutlined, FolderOpenOutlined, EditOutlined,
+  BranchesOutlined, MergeCellsOutlined,
 } from '@ant-design/icons'
-import { projectApi, syncApi, contextDBApi } from '../../api'
+import { projectApi, syncApi, contextDBApi, diffReviewApi } from '../../api'
 import { useAppStore } from '../../store/appStore'
 import type { Project } from '../../types'
 
@@ -376,6 +377,154 @@ function ExecutionModeSection() {
   )
 }
 
+// ═══════════════ 子组件：代码合入方式 ═══════════════
+
+function MergeModeSection({ project }: { project: Project }) {
+  const [mergeMode, setMergeMode] = useState<'local' | 'pr'>(project.mergeMode || 'local')
+  const [saving, setSaving] = useState(false)
+  const [detecting, setDetecting] = useState(false)
+  const [locked, setLocked] = useState(false)
+  const [detection, setDetection] = useState<{
+    repoType: 'team' | 'personal'
+    reason: string
+    confidence: number
+    collaboratorCount: number
+    recentAuthors: string[]
+  } | null>(null)
+  const { message } = App.useApp()
+
+  // 首次加载时自动检测
+  useEffect(() => {
+    const detect = async () => {
+      setDetecting(true)
+      try {
+        const res = await diffReviewApi.detectAndSetMergeMode(project.id)
+        setDetection({
+          repoType: res.repoType,
+          reason: res.reason,
+          confidence: res.confidence,
+          collaboratorCount: res.collaboratorCount,
+          recentAuthors: res.recentAuthors,
+        })
+        setMergeMode(res.mergeMode)
+        setLocked(res.locked)
+      } catch {
+        // 检测失败不影响使用
+      } finally {
+        setDetecting(false)
+      }
+    }
+    detect()
+  }, [project.id])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await projectApi.update(project.id, { mergeMode } as any)
+      message.success('合入方式已更新')
+    } catch (err: any) {
+      message.error(`保存失败: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReDetect = async () => {
+    setDetecting(true)
+    try {
+      const res = await diffReviewApi.detectAndSetMergeMode(project.id)
+      setDetection({
+        repoType: res.repoType,
+        reason: res.reason,
+        confidence: res.confidence,
+        collaboratorCount: res.collaboratorCount,
+        recentAuthors: res.recentAuthors,
+      })
+      setMergeMode(res.mergeMode)
+      setLocked(res.locked)
+      message.success('检测完成')
+    } catch (err: any) {
+      message.error(`检测失败: ${err.message}`)
+    } finally {
+      setDetecting(false)
+    }
+  }
+
+  return (
+    <div>
+      {/* 检测结果 */}
+      {detection && (
+        <div className={`mb-4 p-3 rounded-lg border ${
+          detection.repoType === 'team'
+            ? 'bg-purple-50 border-purple-200'
+            : 'bg-gray-50 border-gray-200'
+        }`}>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Tag color={detection.repoType === 'team' ? 'purple' : 'default'} className="!text-[11px]">
+                {detection.repoType === 'team' ? '团队项目' : '个人项目'}
+              </Tag>
+              <span className="text-[10px] text-gray-400">
+                置信度 {Math.round(detection.confidence * 100)}%
+              </span>
+            </div>
+            <Button size="small" type="text" icon={<ReloadOutlined />} onClick={handleReDetect} loading={detecting} className="!text-[11px]">
+              重新检测
+            </Button>
+          </div>
+          <div className="text-[11px] text-gray-600">{detection.reason}</div>
+          {detection.recentAuthors.length > 1 && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              近期贡献者：{detection.recentAuthors.slice(0, 5).join('、')}{detection.recentAuthors.length > 5 ? ' ...' : ''}
+            </div>
+          )}
+        </div>
+      )}
+
+      {detecting && !detection && <Spin size="small" className="mb-3" />}
+
+      {/* 锁定提示 */}
+      {locked && (
+        <Alert
+          type="info"
+          showIcon
+          message="团队项目必须使用 PR 模式"
+          description="系统检测到此仓库为团队协作项目，代码合入必须通过 Pull Request 流程，以确保代码审查质量。"
+          className="!mb-4 !text-[11px]"
+        />
+      )}
+
+      <Radio.Group value={mergeMode} onChange={(e) => setMergeMode(e.target.value)} disabled={locked}>
+        <Space direction="vertical" size={10}>
+          <Radio value="local" disabled={locked}>
+            <div>
+              <Text strong className="text-xs"><MergeCellsOutlined className="mr-1" />本地合入</Text>
+              <div className="text-[11px] text-gray-500 ml-5">Review 后直接在本地将工作分支合入 master。适合个人项目或无 CI 要求的场景</div>
+            </div>
+          </Radio>
+          <Radio value="pr">
+            <div>
+              <Text strong className="text-xs"><BranchesOutlined className="mr-1 text-purple-500" />PR 模式（推荐团队项目）</Text>
+              <div className="text-[11px] text-gray-500 ml-5">Review 后推送工作分支并创建 GitHub PR，由团队成员 Code Review 后合入。适合正式团队协作</div>
+            </div>
+          </Radio>
+        </Space>
+      </Radio.Group>
+      {!locked && (
+        <div className="mt-3">
+          <Button type="primary" size="small" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>保存</Button>
+        </div>
+      )}
+      <div className="text-[10px] text-gray-400 mt-2">
+        {locked
+          ? '此设置已被锁定。如需更改，请联系仓库管理员调整项目配置。'
+          : 'PR 模式需要项目已配置 GitHub OAuth 且对仓库有写入权限。'
+        }
+      </div>
+    </div>
+  )
+}
+
 // ═══════════════ 子组件：Data Management ═══════════════
 
 function DataManagementSection({ project }: { project: Project }) {
@@ -664,6 +813,17 @@ export function SettingsPanel({ project }: Props) {
         </Space>
       ),
       children: <ExecutionModeSection />,
+    },
+    {
+      key: 'merge-mode',
+      label: (
+        <Space>
+          <BranchesOutlined />
+          <span className="font-medium">代码合入方式</span>
+          <Tag color="purple" className="!ml-1 !text-[10px] !leading-tight !py-0">PR / Local</Tag>
+        </Space>
+      ),
+      children: <MergeModeSection project={project} />,
     },
     {
       key: 'data',

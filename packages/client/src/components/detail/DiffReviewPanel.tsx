@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Button, Tag, Select, Empty, Spin, App } from 'antd'
+import { Button, Tag, Select, Empty, Spin, App, Tooltip } from 'antd'
 import {
   CloseCircleOutlined,
   FileOutlined,
@@ -8,6 +8,8 @@ import {
   EditOutlined,
   BranchesOutlined,
   MergeCellsOutlined,
+  PullRequestOutlined,
+  LinkOutlined,
   PlusOutlined,
   MinusOutlined,
 } from '@ant-design/icons'
@@ -79,7 +81,19 @@ export function DiffReviewPanel({ run }: Props) {
   const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('squash')
   const [loading, setLoading] = useState(false)
   const [merging, setMerging] = useState(false)
+  const [mergeMode, setMergeMode] = useState<'local' | 'pr'>('local')
+  const [creatingPR, setCreatingPR] = useState(false)
+  const [prResult, setPrResult] = useState<{ prUrl: string; prNumber: number } | null>(null)
   const { message } = App.useApp()
+
+  // 加载项目 merge 模式
+  useEffect(() => {
+    if (run.projectId) {
+      diffReviewApi.getMergeMode(run.projectId)
+        .then(res => setMergeMode(res.mergeMode))
+        .catch(() => { /* 默认 local */ })
+    }
+  }, [run.projectId])
 
   // 找到所有处于 wait_user_review 状态的节点
   const reviewableNodes = useMemo(() =>
@@ -136,6 +150,25 @@ export function DiffReviewPanel({ run }: Props) {
       message.error(`合入失败: ${err.message}`)
     } finally {
       setMerging(false)
+    }
+  }
+
+  const handleCreatePR = async () => {
+    if (!selectedReview) return
+    setCreatingPR(true)
+    try {
+      const res = await diffReviewApi.createPR(
+        selectedReview.runId,
+        selectedReview.nodeId,
+      )
+      if (res.success) {
+        setPrResult({ prUrl: res.prUrl, prNumber: res.prNumber })
+        message.success(`PR #${res.prNumber} 创建成功！`)
+      }
+    } catch (err: any) {
+      message.error(`创建 PR 失败: ${err.message}`)
+    } finally {
+      setCreatingPR(false)
     }
   }
 
@@ -217,27 +250,58 @@ export function DiffReviewPanel({ run }: Props) {
           </div>
 
           <div className="flex items-center gap-2">
-            <Select
-              size="small"
-              value={mergeStrategy}
-              onChange={setMergeStrategy}
-              options={[
-                { value: 'squash', label: 'Squash Merge' },
-                { value: 'merge', label: 'Merge Commit' },
-                { value: 'rebase', label: 'Rebase' },
-              ]}
-              className="w-[140px]"
-            />
-            <Button
-              type="primary"
-              size="small"
-              icon={<MergeCellsOutlined />}
-              onClick={handleMerge}
-              loading={merging}
-              disabled={!selectedReview}
-            >
-              Approve & Merge
-            </Button>
+            {mergeMode === 'local' ? (
+              <>
+                <Select
+                  size="small"
+                  value={mergeStrategy}
+                  onChange={setMergeStrategy}
+                  options={[
+                    { value: 'squash', label: 'Squash Merge' },
+                    { value: 'merge', label: 'Merge Commit' },
+                    { value: 'rebase', label: 'Rebase' },
+                  ]}
+                  className="w-[140px]"
+                />
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<MergeCellsOutlined />}
+                  onClick={handleMerge}
+                  loading={merging}
+                  disabled={!selectedReview}
+                >
+                  Approve & Merge
+                </Button>
+              </>
+            ) : (
+              <>
+                {prResult ? (
+                  <Tooltip title="在 GitHub 上查看 PR">
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<LinkOutlined />}
+                      href={prResult.prUrl}
+                      target="_blank"
+                    >
+                      PR #{prResult.prNumber}
+                    </Button>
+                  </Tooltip>
+                ) : (
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<PullRequestOutlined />}
+                    onClick={handleCreatePR}
+                    loading={creatingPR}
+                    disabled={!selectedReview}
+                  >
+                    创建 PR
+                  </Button>
+                )}
+              </>
+            )}
             <Button
               danger
               size="small"

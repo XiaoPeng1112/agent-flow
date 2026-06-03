@@ -1,5 +1,89 @@
 # 开发日志
 
+## 2026-06-03 — v2.8.3 GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式
+
+### 功能背景
+
+v2.8.2 之前，Agent 产出代码经过 DiffReview 后只能通过本地 merge 合入 master 分支，这对团队协作项目不合理——多人项目的代码合入必须经过 PR 审查。本版本引入完整的 PR 工作流并自动识别项目类型，团队项目强制走 PR 模式。
+
+### 新增功能
+
+**1. PR 模式（pushAndCreatePR）**
+
+- 文件：`packages/server/src/services/artifact-merge.ts`
+- 新增 `pushAndCreatePR(turnId, params?)` 方法：推送 Agent 工作分支到远端 → 通过 GitHub REST API 创建 PR → 自动生成 PR 描述含文件变更清单
+- 新增 `findExistingPR()` 避免重复创建
+- 新增 `generatePRBody(review)` 自动生成结构化 PR 描述
+- 新增 `getPRStatus(owner, repo, prNumber)` 查询 PR 状态
+
+**2. 仓库类型自动检测**
+
+- 文件：`packages/server/src/services/artifact-merge.ts`
+- 新增 `RepoTypeDetection` 接口：包含 repoType/ownerType/collaboratorCount/recentAuthors/hasBranchProtection/confidence/suggestedMergeMode/reason
+- 新增 `detectRepoType(cwd)` / `detectRepoTypeByUrl(repoUrl)` 两种检测入口
+- 四维度加权评分策略：
+  - Owner 类型（权重 0.5）：`GET /repos/{owner}/{repo}` → `owner.type === 'Organization'`
+  - Collaborators（权重 0.3）：`GET /repos/{owner}/{repo}/collaborators` → count > 1
+  - Commit 作者多样性（权重 0.2）：`GET /repos/{owner}/{repo}/commits?per_page=30` → 去重 authors > 1
+  - Branch Protection（权重 0.1）：`GET /repos/{owner}/{repo}/branches/{default}/protection` → 200 OK
+- 评分 ≥ 0.4 判定为团队项目
+
+**3. 团队项目强制 PR 模式（权限控制）**
+
+- 文件：`packages/server/src/routes/artifacts.ts`
+- 路由 `POST /detect-and-set-merge-mode/:projectId`：检测仓库类型，团队项目自动写入 `mergeMode: 'pr'` 并标记 `locked: true`
+- 路由 `GET /detect-repo-type/:projectId`：纯查询检测结果不修改
+- 路由 `GET /merge-mode/:projectId`：返回项目当前 mergeMode
+- 路由 `POST /create-pr/:runId/:nodeId`：创建 PR
+- 路由 `GET /pr-status/:owner/:repo/:prNumber`：查询 PR 状态
+
+**4. 后端类型与服务层变更**
+
+- `packages/server/src/types/index.ts`：`ProjectData` 新增 `mergeMode?: 'local' | 'pr'`
+- `packages/server/src/services/project.ts`：`updateProject()` 签名和实现增加 `mergeMode`
+- `packages/server/src/routes/projects.ts`：PUT `/:id` 解构并透传 `mergeMode`
+- `packages/server/src/routes/api.ts`：`createArtifactsRouter` 依赖注入增加 `projectService`
+
+**5. 前端 API 层**
+
+- 文件：`packages/client/src/api/index.ts`
+- `diffReviewApi` 新增方法：
+  - `createPR(runId, nodeId, params?)` — 创建 PR
+  - `getPRStatus(owner, repo, prNumber)` — 查询 PR 状态
+  - `getMergeMode(projectId)` — 获取合入模式
+  - `detectRepoType(projectId)` — 检测仓库类型
+  - `detectAndSetMergeMode(projectId)` — 检测并设置
+
+**6. 前端 DiffReviewPanel 改造**
+
+- 文件：`packages/client/src/components/detail/DiffReviewPanel.tsx`
+- 加载时通过 `getMergeMode(projectId)` 获取项目模式
+- `mergeMode === 'local'`：显示合并策略 Select + "Approve & Merge" 按钮（原有逻辑）
+- `mergeMode === 'pr'`：显示"创建 PR"按钮，创建成功后变为可点击 PR 链接（`PR #N`）
+- 新增 state：`mergeMode`、`creatingPR`、`prResult`
+- 新增 handler：`handleCreatePR()`
+
+**7. 前端 SettingsPanel — MergeModeSection**
+
+- 文件：`packages/client/src/components/detail/SettingsPanel.tsx`
+- 新增"代码合入方式"折叠面板（key: `merge-mode`），位于"默认运行模式"和"Data Management"之间
+- 进入面板时自动调用 `detectAndSetMergeMode`，展示检测结果卡片（Tag + 置信度 + 原因 + 贡献者列表）
+- 团队项目（`locked === true`）：Radio.Group disabled，保存按钮隐藏，Alert 提示"团队项目必须使用 PR 模式"
+- 个人项目：可自由切换 local / PR，提供保存按钮
+- "重新检测"按钮支持手动刷新判定
+
+**8. 前端类型变更**
+
+- `packages/client/src/types/index.ts`：`Project` 接口新增 `mergeMode?: 'local' | 'pr'`
+
+### 设计决策
+
+- 检测阈值 0.4 的选择：Organization 仓库单项即 0.5 直接达标；个人仓库有 2+ collaborator 也达标（0.3），加上多 author 就更确定。这个阈值平衡了误判和漏判。
+- `locked` 标记通过 API 返回而非持久化：每次进入设置面板重新检测，仓库情况变化（如移出组织）能实时反映。
+- `detectAndSetMergeMode` 兼具检测和写入功能：团队项目首次检测后自动写入 `mergeMode: 'pr'`，后续即使 API 不可用也能正确工作。
+
+---
+
 ## 2026-06-03 — v2.8.2 同步删除修复 + Metrics/DiffReview API 路径修正
 
 ### 问题背景

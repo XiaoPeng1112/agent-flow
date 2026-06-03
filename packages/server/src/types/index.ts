@@ -643,6 +643,8 @@ export interface ProjectData {
   enabledAgentIds?: string[]       // 项目启用的 Agent ID 列表（未设置 = 全部启用）
   /** Git remote URL（跨设备同步时用于自动匹配同一项目） */
   gitRemote?: string
+  /** 合并模式：local = 本地直接合入主分支，pr = push 分支并创建 GitHub PR */
+  mergeMode?: 'local' | 'pr'
   createdAt: number
   lastActiveAt: number
 }

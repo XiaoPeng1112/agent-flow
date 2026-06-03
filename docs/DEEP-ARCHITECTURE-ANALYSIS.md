@@ -1,7 +1,7 @@
 # AgentFlow 系统深度技术分析
 
 > 面向深入学习和后续优化的技术参考文档  
-> 版本：v2.0 | 日期：2026-06-02 | 重构后更新
+> 版本：v2.1 | 日期：2026-06-03 | v2.8.3 PR 工作流更新
 
 ---
 
@@ -324,7 +324,7 @@ agent-flow/
 │   │           ├── a2a.ts            # A2A 协议路由
 │   │           ├── robustness.ts     # 健康检查/Checkpoint
 │   │           ├── context.ts        # ContextDB 四层
-│   │           ├── artifacts.ts      # Diff Review/Merge/Metrics
+│   │           ├── artifacts.ts      # Diff Review/Merge/Metrics/PR工作流/仓库类型检测
 │   │           └── sync.ts           # GitHub 数据同步
 │   │
 │   └── client/
@@ -998,4 +998,4 @@ AgentFlow 是一个设计清晰、功能完备的多智能体编排系统。经�
 
 ---
 
-> 文档版本：v2.0 | 基于代码 commit 截止 2026-06 分析 | 如有更新请同步维护此文档
+> 文档版本：v2.1 | 基于代码 commit 截止 2026-06-03（v2.8.3）分析 | 如有更新请同步维护此文档

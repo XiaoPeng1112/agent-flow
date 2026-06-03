@@ -1,6 +1,6 @@
 # AgentFlow 使用手册
 
-> 版本：v2.8.1 | 更新日期：2026-06-02  
+> 版本：v2.8.3 | 更新日期：2026-06-03  
 > 仓库：https://github.com/XiaoPeng1112/agent-flow  
 > 在线演示：https://xiaopeng1112.github.io/agent-flow/
 
@@ -256,7 +256,12 @@ Run 详情页顶部切换到 **Diff Review** 标签，可以像 GitHub PR 那样
 
 **行级 Diff 视图（右侧）**：以 Hunk 为单位展示代码变更，添加的行为绿色背景，删除的行为红色背景，上下文行为灰色。每个 Hunk 可独立折叠/展开。
 
-**合并策略选择**：审查完成后，可选择合并方式：
+**合并模式（v2.8.3+）**：系统根据项目的合并模式（mergeMode）展示不同的操作界面：
+
+- **本地模式（local）**：适用于个人项目，审查完成后选择合并策略直接合入本地 master 分支。
+- **PR 模式（pr）**：适用于团队项目，点击“创建 PR”按钮将代码推送到特性分支并自动创建 GitHub Pull Request，成功后展示 PR 链接。
+
+**本地模式合并策略**：
 
 | 策略 | 说明 |
 |------|------|
@@ -265,7 +270,8 @@ Run 详情页顶部切换到 **Diff Review** 标签，可以像 GitHub PR 那样
 | Rebase | 变基到目标分支（线性历史） |
 
 **操作按钮**：
-- **Approve**：按选定策略合并代码变更到主分支
+- **Approve**（本地模式）：按选定策略合并代码变更到主分支
+- **创建 PR**（PR 模式）：推送特性分支并创建 GitHub Pull Request
 - **Discard**：丢弃全部变更，清理 worktree 并删除分支
 
 ![Diff Review 面板](./screenshots/diff-review.png)
@@ -551,6 +557,11 @@ POST /api/robustness/checkpoints/run-001
 | POST | `/diff-review/:runId/merge` | 执行合并（body: { strategy: 'squash' \| 'merge' \| 'rebase' }） |
 | POST | `/diff-review/:runId/discard` | 丢弃分支（清理 worktree + 删除分支） |
 | GET | `/diff-review/:runId/file-diff` | 获取单文件 diff（query: filePath） |
+| POST | `/artifacts/create-pr/:runId/:nodeId` | 创建 GitHub PR（PR 模式） |
+| GET | `/artifacts/pr-status/:owner/:repo/:prNumber` | 查询 PR 状态 |
+| GET | `/artifacts/merge-mode/:projectId` | 获取项目合并模式 |
+| GET | `/artifacts/detect-repo-type/:projectId` | 检测仓库类型（团队/个人） |
+| POST | `/artifacts/detect-and-set-merge-mode/:projectId` | 检测并自动设置合并模式 |
 
 请求示例：
 
@@ -819,6 +830,8 @@ yarn test:coverage
 
 | 版本 | 日期 | 重点 |
 |------|------|------|
+| v2.8.3 | 2026-06-03 | GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式 |
+| v2.8.2 | 2026-06-03 | 同步删除修复 + Metrics/DiffReview API 路径修正 |
 | v2.8.1 | 2026-06-02 | Run 删除持久化修复 + SQLite 显式清理补强 + 文档版本口径对齐 |
 | v2.8.0 | 2026-06-02 | Context DB 四层体系闭环 + 模板声明式重构 + 项目 Settings 增强 + DAG 准入准出引擎 |
 | v2.7.3 | 2026-06-02 | SQLite+WAL 持久化迁移 + WorkflowEngine Facade 拆分 + 路由模块化 |

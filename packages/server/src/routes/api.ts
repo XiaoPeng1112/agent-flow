@@ -140,6 +140,7 @@ export function createApiRouter(deps: {
     feedbackCollector: deps.feedbackCollector,
     weeklyDigest: deps.weeklyDigest,
     workflowEngine: deps.workflowEngine,
+    projectService: deps.projectService,
   })
   router.use('/artifacts', artifactsRouter)
 
