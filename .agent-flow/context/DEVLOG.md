@@ -1,48 +1,43 @@
 # 开发日志
 
-## 2026-06-02 — v2.8.1 Run 删除持久化修复
+## 2026-06-03 — v2.8.2 同步删除修复 + Metrics/DiffReview API 路径修正
 
-### 版本定位
+### 问题背景
 
-v2.8.1 是在 v2.8.0 完成 Context DB 四层体系闭环之后，针对 Run 删除链路做的一次稳定性补丁发布。目标不是新增功能，而是确保“前端删掉的 Run，在 SQLite 和服务重启后也真正消失”。
+升级到 v2.7.3（路由模块化拆分）后，metrics 和 diff-review 相关路由从 runs router 迁移到了 artifacts router，但前端 API 客户端路径未同步更新，导致 Metrics 看板和 DiffReview 面板请求 404 空白。同时发现 Sync pull 仅合并 Run 不删除远端已删 Run，跨设备删除操作无法同步。
 
-### 关键变化
+### 修复内容
 
-- `RunManager.deleteRun()` 改为先清理对应节点的内存 turns，再直接调用 `storage.deleteRun(runId)`
-- `TurnManager` 新增 `deleteTurns(nodeId)`，避免内存索引残留
-- `StorageSQLite.deleteRun()` 改为显式事务删除 `artifacts`、`turns`、`edges`、`nodes`、`runs`
-- 清理本地 SQLite 中已残留的历史测试 Run，避免升级后重启再次回流
-- 补上“删除后重载不复活”的回归测试，并统一文档版本口径到 `v2.8.1`
+**1. Metrics 看板空白（前端 API 路径修正）**
 
-### 结果
+- 文件：`packages/client/src/api/index.ts`
+- 原路径：`/runs/${runId}/metrics`、`/runs/${runId}/metrics/token-distribution`、`/runs/${runId}/metrics/efficiency`、`/runs/${runId}/metrics/trend`
+- 修正为：`/artifacts/metrics/${runId}`、`/artifacts/metrics/${runId}/token-distribution`、`/artifacts/metrics/${runId}/efficiency`、`/artifacts/metrics/${runId}/trend`
+- 对应后端路由：`packages/server/src/routes/artifacts.ts`
 
-- Run 删除在内存态与持久化层都保持一致
-- SQLite 不再残留已删除 Run 的关联孤儿数据
-- 文档、更新日志、项目介绍与当前版本线重新对齐
+**2. DiffReview 面板 404（前端 API 路径修正）**
 
----
+- 文件：`packages/client/src/api/index.ts`
+- 原路径：`/runs/${runId}/nodes/${nodeId}/diff-review`、`.../merge`、`.../discard`
+- 修正为：`/artifacts/diff-review/${runId}/${nodeId}`、`/artifacts/merge/${runId}/${nodeId}`、`/artifacts/discard/${runId}/${nodeId}`
+- 对应后端路由：`packages/server/src/routes/artifacts.ts`
 
-## 2026-06-02 — v2.8.0 Context DB 四层体系闭环
+**3. Sync Pull 不删除远端已删 Run**
 
-### 版本定位
+- 文件：`packages/server/src/services/sync.ts`（pull 方法，约第 427 行）
+- 新增逻辑：pull 结束后收集 `remoteRunIds` Set，遍历本地 runs，将不在远端集合中的 run 调用 `workflowEngine.deleteRun()` 删除
+- 修复后行为：另一台设备删除 Run → push → 本设备 pull 时自动清理已删 Run
 
-v2.8.0 是在 v2.7.3 完成 SQLite 持久化迁移和 WorkflowEngine 架构拆分之后，对“上下文如何产生、如何装配、如何注入 Agent Prompt”这条主链路做的一次闭环升级。
+### 诊断过程
 
-### 关键变化
+1. 通过 curl 逐个验证后端 API 路由，发现 `/api/runs/:id/metrics` 返回 404 而 `/api/artifacts/metrics/:runId` 返回 200
+2. 检查 SQLite 数据库确认 17 个 Run 存在，Sync config 正常（autoSync=true）
+3. 确认 `metrics.json` 文件不存在是正常的（MetricsCollector 使用内存 Map），真正问题是前端 404
+4. 修复后重启服务器触发 auto-pull，自动删除了 11 个远端已不存在的 Run（17→6）
 
-- Context DB 四层闭环补齐：创建项目自动生成 L0 种子文件，创建 Run 按节点动态生成 L2 种子文件
-- Sidebar 新增 `Context DB · SYS` 和 `Context DB · L1` 入口，四层上下文全部具备独立编辑入口
-- L2 面板重构为按 Run 批量加载，并支持按节点筛选文件
-- 模板升级为声明式结构：`roleStatement`、`inputs`、`entryConditions`、`exitConditions`
-- DynamicAgentFactory 改为异步装配四层上下文，Prompt 组装顺序收敛为 `SYS → L0 → L1 → inputs → L2 → userInput`
-- DAG 新增准入/准出条件评估，节点执行可以基于结构化条件自动门控
-- 项目 Settings 面板增强，新增运行统计、Token 趋势、数据导出、Run 清理、上下文预览等能力
+### 版本号更新
 
-### 结果
-
-- Context DB 不再只是“有文件可存”，而是形成了从种子生成、编辑维护、运行时装配到调试预览的完整闭环
-- 模板职责边界更清晰，流程骨架与具体项目内容解耦
-- Agent 实际收到的上下文来源更可解释，后续排查 Prompt 质量问题也更容易
+- `packages/server/src/index.ts` health endpoint：`'2.8.1'` → `'2.8.2'`
 
 ---
 

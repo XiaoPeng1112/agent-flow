@@ -424,15 +424,28 @@ export class SyncService {
         filesRead++
       }
 
-      // 5. 拉取 runs/（用户级）
+      // 5. 拉取 runs/（用户级）— 包含删除远端已移除的 Run
       const runFiles = await this.listDir(token, repo, this.userPath('runs'))
+      const remoteRunIds = new Set<string>()
       for (const file of runFiles) {
         if (file.name.endsWith('.json')) {
           const runRaw = await this.getFile(token, repo, this.userPath(`runs/${file.name}`))
           if (runRaw) {
             const remoteRun = JSON.parse(runRaw)
+            remoteRunIds.add(remoteRun.id)
             await this.mergeRun(remoteRun)
             filesRead++
+          }
+        }
+      }
+
+      // 5b. 删除远端已不存在的本地 Run（同步删除）
+      if (remoteRunIds.size > 0) {
+        const localRuns = this.workflowEngine.getRuns()
+        for (const localRun of localRuns) {
+          if (!remoteRunIds.has(localRun.id)) {
+            console.log(`[Sync] Deleting local run ${localRun.id} (removed on remote)`)
+            await this.workflowEngine.deleteRun(localRun.id)
           }
         }
       }

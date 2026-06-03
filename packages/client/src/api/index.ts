@@ -277,29 +277,29 @@ export const agentApi = {
 export const diffReviewApi = {
   /** 生成 Diff Review */
   create: (runId: string, nodeId: string, turnId: string) =>
-    request<{ review: any }>(`/runs/${runId}/nodes/${nodeId}/diff-review`, {
+    request<{ review: any }>(`/artifacts/diff-review/${runId}/${nodeId}`, {
       method: 'POST',
       body: JSON.stringify({ turnId }),
     }),
 
   /** 获取节点的 Diff Reviews */
   getForNode: (runId: string, nodeId: string) =>
-    request<{ reviews: any[] }>(`/runs/${runId}/nodes/${nodeId}/diff-review`),
+    request<{ reviews: any[] }>(`/artifacts/diff-review/${runId}/${nodeId}`),
 
   /** 获取指定文件的详细 Diff */
   getFileDiff: (runId: string, nodeId: string, turnId: string, filePath: string) =>
-    request<{ fileDiff: any }>(`/runs/${runId}/nodes/${nodeId}/diff-review/${turnId}/file?path=${encodeURIComponent(filePath)}`),
+    request<{ fileDiff: any }>(`/artifacts/diff-review/${runId}/${nodeId}/${turnId}/file?path=${encodeURIComponent(filePath)}`),
 
   /** 合入工作分支 */
   merge: (runId: string, nodeId: string, turnId: string, strategy?: string) =>
-    request<{ success: boolean; mergeCommit?: string; filesAffected: number }>(`/runs/${runId}/nodes/${nodeId}/merge`, {
+    request<{ success: boolean; mergeCommit?: string; filesAffected: number }>(`/artifacts/merge/${runId}/${nodeId}`, {
       method: 'POST',
       body: JSON.stringify({ turnId, strategy }),
     }),
 
   /** 丢弃工作分支 */
   discard: (runId: string, nodeId: string, turnId: string) =>
-    request<{ success: boolean }>(`/runs/${runId}/nodes/${nodeId}/discard`, {
+    request<{ success: boolean }>(`/artifacts/discard/${runId}/${nodeId}`, {
       method: 'POST',
       body: JSON.stringify({ turnId }),
     }),
@@ -310,15 +310,15 @@ export const diffReviewApi = {
 export const metricsApi = {
   /** 获取 Run 的完整指标 */
   getRunMetrics: (runId: string) =>
-    request<{ metrics: any }>(`/runs/${runId}/metrics`),
+    request<{ metrics: any }>(`/artifacts/metrics/${runId}`),
 
   /** 获取 Token 分布 */
   getTokenDistribution: (runId: string) =>
-    request<{ distribution: any[] }>(`/runs/${runId}/metrics/token-distribution`),
+    request<{ distribution: any[] }>(`/artifacts/metrics/${runId}/token-distribution`),
 
   /** 获取效率表格 */
   getEfficiency: (runId: string) =>
-    request<{ table: any[] }>(`/runs/${runId}/metrics/efficiency`),
+    request<{ table: any[] }>(`/artifacts/metrics/${runId}/efficiency`),
 
   /** 获取趋势对比 */
   getTrend: (templateId: string) =>

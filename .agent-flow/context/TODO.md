@@ -1,7 +1,7 @@
 # 待办与后续计划
 
 > 按优先级排列，P0 = 必须做，P1 = 应该做，P2 = 可以做  
-> 最后更新：2026-06-02（v2.8.1）
+> 最后更新：2026-06-01（v2.7.1）
 
 ## 当前阶段已完成 ✅
 
@@ -38,7 +38,7 @@
 - [x] 路由级代码分割（React.lazy + Suspense，页面 chunk 独立拆分）
 - [x] React ErrorBoundary 全局错误隔离
 - [x] useRequest Hook（Loading / Toast / 指数退避重试）
-- [x] Vitest 单元测试（128 cases 覆盖核心服务）
+- [x] Vitest 单元测试（68 cases 覆盖三大核心服务）
 - [x] 产出物闭环（ArtifactMergeService：Git worktree Diff Review + Squash/Merge/Rebase）
 - [x] 可观测性增强（MetricsCollector：时间/Token/质量指标采集 + 效率评分 + 持久化）
 - [x] Diff Review 前端面板（GitHub PR 风格文件树 + 行级 Diff + 合并/丢弃操作）
@@ -67,8 +67,9 @@
 - [ ] **权限系统**：基于 GitHub OAuth 的 RBAC 权限守卫
 - [ ] **插件体系**：自定义 Agent 类型、自定义节点类型
 - [ ] **执行历史回放**：Turn 级别的执行录像回放
+- [ ] **数据库迁移**：从 JSON 文件迁移到 SQLite（当数据量增大时）
 - [ ] **Docker 容器化**：CI/CD 流程
-- [x] ~~**单元测试**~~：已实现并持续扩展（当前 128 cases 覆盖核心服务）
+- [x] ~~**单元测试**~~：已在 v2.4.1 实现（Vitest 68 cases 覆盖三大核心服务）
 - [ ] **E2E 测试**：Playwright 覆盖核心用户路径
 - [x] ~~**OutputContract 自动校验**~~：已在 v2.4.0 实现（ContractValidatorService）
 - [ ] **Context Chaining 可视化**：在 DAG 视图中显示节点间的上下文传递关系

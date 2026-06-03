@@ -99,7 +99,7 @@ app.use('/api', createApiRouter({
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.7.3',
+    version: '2.8.2',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
@@ -263,7 +263,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`
 ┌───────────────────────────────────────────────┐
-│     AgentFlow Server v2.5.0                   │
+│     AgentFlow Server v2.8.2                   │
 │     MAF-inspired Workflow Engine             │
 │                                               │
 │  HTTP API:  http://localhost:${PORT}/api         │

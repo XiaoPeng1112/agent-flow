@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-06-02（v2.8.1 — Run 删除持久化修复 + 版本口径对齐）  
+> 最后更新：2026-06-01（v2.7.1 — GitHub Private Repo 数据同步 + Context DB 同步）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -37,7 +37,7 @@ agent-flow/
 │   │   ├── vite.config.ts
 │   │   └── index.html
 │   └── server/          # 后端 Express 服务
-│       ├── tests/         # Vitest 单元测试（128 cases）
+│       ├── tests/         # Vitest 单元测试（68 cases）
 │       │   ├── workflow-engine.test.ts
 │       │   ├── a2a-protocol.test.ts
 │       │   └── contract-validator.test.ts
@@ -108,11 +108,11 @@ agent-flow/
 
 ### 数据持久化
 
-- 核心数据：`~/.agent-flow/data/agent-flow.db`（SQLite + WAL，存储项目、模板、Run、节点、Turn、Artifact 等）
+- 项目数据：`~/.agent-flow/projects.json`
+- 工作流模板：`~/.agent-flow/templates.json`
+- Run 历史：`~/.agent-flow/runs/index.json`
 - 认证信息：`~/.agent-flow/auth.json`
 - 同步配置：`~/.agent-flow/sync-config.json`
-- Context DB：`~/.agent-flow/context/`（SYS/L0/L1/L2 四层上下文文件）
-- 指标数据：`~/.agent-flow/metrics/metrics.json`
 - 日志：localStorage（前端，最近 200 条）
 
 ### 数据同步（GitHub Private Repo）[v2.7.1]

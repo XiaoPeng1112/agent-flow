@@ -17,6 +17,25 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.8.2',
+    date: '2026-06-03',
+    title: '同步删除修复 + Metrics/DiffReview 面板 API 路径修正',
+    type: 'fix',
+    highlights: [
+      '修复 Metrics 看板空白：前端 API 路径与后端 artifacts 路由不匹配（404）',
+      '修复 DiffReview 面板 404：同上，路由迁移后前端路径未同步更新',
+      '修复跨设备删除 Run 不同步：Sync pull 仅合并不删除，远端已删 Run 本地残留',
+      'SyncService.pull() 新增远端已删 Run 本地清理逻辑',
+    ],
+    details: `v2.8.2 修复了三个因 v2.7.3 路由拆分/迁移后遗症导致的功能异常。
+
+【Metrics 看板空白】v2.7.3 将 metrics 相关路由从 runs router 迁移到 artifacts router，后端实际路径变为 /api/artifacts/metrics/:runId，但前端 metricsApi 仍指向旧路径 /api/runs/:runId/metrics，导致请求 404。修复：更新前端 api/index.ts 中 metricsApi 的所有路径为 /artifacts/metrics/:runId 格式。
+
+【DiffReview 面板 404】同样原因，diff-review 相关路由已迁移到 artifacts router（/api/artifacts/diff-review/:runId/:nodeId），但前端 diffReviewApi 仍指向 /api/runs/:runId/nodes/:nodeId/diff-review。修复：更新前端路径为 /artifacts/diff-review|merge|discard/:runId/:nodeId 格式。
+
+【Sync Pull 不删除远端已删 Run】SyncService.pull() 的 mergeRun 逻辑只处理"远端有→本地无或更新"的情况，不处理"远端无→本地有"的删除同步。当用户在另一台设备删除 Run 后 push，本设备 pull 时不会清理这些已删除的 Run。修复：pull 完成后收集远端 runIds 集合，遍历本地 runs，将不在远端集合中的 run 通过 workflowEngine.deleteRun() 删除，确保跨设备删除操作正确同步。`,
+  },
+  {
     version: 'v2.8.1',
     date: '2026-06-02',
     title: 'Run 删除持久化修复 + SQLite 清理补强 + 文档版本口径对齐',
