@@ -1,4 +1,17 @@
-import{t as e}from"./tag-oILwEqKM.js";import{t}from"./BranchesOutlined-CfnaoB7a.js";import{t as n}from"./ThunderboltOutlined-CKL1P_La.js";import{Cr as r,br as i,gt as a,t as o}from"./index-DhqkkTCF.js";var s=r(i(),1),c=o(),l=[{version:`v2.8.2`,date:`2026-06-03`,title:`同步删除修复 + Metrics/DiffReview 面板 API 路径修正`,type:`fix`,highlights:[`修复 Metrics 看板空白：前端 API 路径与后端 artifacts 路由不匹配（404）`,`修复 DiffReview 面板 404：同上，路由迁移后前端路径未同步更新`,`修复跨设备删除 Run 不同步：Sync pull 仅合并不删除，远端已删 Run 本地残留`,`SyncService.pull() 新增远端已删 Run 本地清理逻辑`],details:`v2.8.2 修复了三个因 v2.7.3 路由拆分/迁移后遗症导致的功能异常。
+import{t as e}from"./tag-eOTAUZMC.js";import{t}from"./BranchesOutlined-Dr5PJbm3.js";import{t as n}from"./ThunderboltOutlined-CpYQAzuX.js";import{Cr as r,br as i,gt as a,t as o}from"./index-DngGaqyh.js";var s=r(i(),1),c=o(),l=[{version:`v2.8.3`,date:`2026-06-03`,title:`GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式`,type:`feature`,highlights:[`新增 PR 模式：Agent 产出代码 Review 后可直接推送分支并创建 GitHub Pull Request`,`项目设置新增"代码合入方式"配置：支持 Local Merge 和 PR 模式切换`,`仓库类型自动检测：通过 Owner 类型、Collaborators、Commit 作者多样性、Branch Protection 四维度加权评分`,`团队项目强制 PR 模式：检测为 Organization 或多人协作仓库时自动锁定为 PR 模式，禁止切换回 local`,`DiffReviewPanel 根据 mergeMode 动态展示"Approve & Merge"或"创建 PR"按钮`,`PR 创建成功后显示可点击链接，直达 GitHub PR 页面`],details:`v2.8.3 为团队协作场景引入了完整的 GitHub PR 工作流，确保多人项目的代码合入必须经过 Pull Request 审查。
+
+【PR 模式】新增 ArtifactMergeService.pushAndCreatePR() 方法，将 Agent 工作分支推送到远端并通过 GitHub REST API 创建 PR，自动生成包含文件变更清单的 PR 描述。支持检测已存在 PR 避免重复创建。
+
+【仓库类型检测】新增 detectRepoType / detectRepoTypeByUrl 方法，基于四维度加权评分判断仓库归属：
+- Owner 类型（权重 0.5）：Organization 几乎必定是团队项目
+- Collaborators 数量（权重 0.3）：>1 人说明多人协作
+- Commit 作者多样性（权重 0.2）：近 30 条 commit 去重统计
+- Branch Protection（权重 0.1）：有保护规则为辅助信号
+评分 ≥ 0.4 即判定为团队项目。
+
+【权限控制】团队项目自动设置并锁定为 PR 模式，前端设置面板中 Radio 禁用、隐藏保存按钮、展示锁定提示。个人项目可自由切换。
+
+【前端改造】DiffReviewPanel 根据项目 mergeMode 动态展示：local 模式显示合入策略选择 + "Approve & Merge"；PR 模式显示"创建 PR"按钮，成功后变为可点击的 PR 链接。SettingsPanel 新增"代码合入方式"折叠面板，进入时自动检测仓库类型并展示检测结果卡片。`},{version:`v2.8.2`,date:`2026-06-03`,title:`同步删除修复 + Metrics/DiffReview 面板 API 路径修正`,type:`fix`,highlights:[`修复 Metrics 看板空白：前端 API 路径与后端 artifacts 路由不匹配（404）`,`修复 DiffReview 面板 404：同上，路由迁移后前端路径未同步更新`,`修复跨设备删除 Run 不同步：Sync pull 仅合并不删除，远端已删 Run 本地残留`,`SyncService.pull() 新增远端已删 Run 本地清理逻辑`],details:`v2.8.2 修复了三个因 v2.7.3 路由拆分/迁移后遗症导致的功能异常。
 
 【Metrics 看板空白】v2.7.3 将 metrics 相关路由从 runs router 迁移到 artifacts router，后端实际路径变为 /api/artifacts/metrics/:runId，但前端 metricsApi 仍指向旧路径 /api/runs/:runId/metrics，导致请求 404。修复：更新前端 api/index.ts 中 metricsApi 的所有路径为 /artifacts/metrics/:runId 格式。
 
