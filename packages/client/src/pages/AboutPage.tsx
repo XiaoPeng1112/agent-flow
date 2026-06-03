@@ -41,7 +41,7 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.8.1</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.8.6</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
@@ -51,6 +51,7 @@ export function AboutPage() {
             <Tag color="volcano">Diff Review</Tag>
             <Tag color="geekblue">Metrics 可观测</Tag>
             <Tag color="magenta">反馈闭环</Tag>
+            <Tag color="lime">Skill 自动沉淀</Tag>
           </div>
         </div>
 
@@ -679,40 +680,41 @@ export function AboutPage() {
           </div>
         </section>
 
-        {/* ═══ v2.8.1 稳定性补丁 ═══ */}
+        {/* ═══ v2.7.3 架构重构 ═══ */}
         <section className="mb-12">
-          <SectionTitle icon={<SafetyCertificateOutlined />} title="稳定性补丁（v2.8.1）" color="rose" />
-          <div className="bg-gradient-to-r from-rose-50 to-orange-50 border border-rose-100 rounded-xl p-6 mb-5">
+          <SectionTitle icon={<ThunderboltOutlined />} title="架构重构（v2.7.3）" color="purple" />
+          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 rounded-xl p-6 mb-5">
             <p className="text-[14px] text-gray-700 leading-[1.8]">
-              v2.8.1 是一次面向<strong>数据一致性</strong>的补丁版本，重点修复了 Run 删除后 SQLite 旧数据残留、服务重启后已删除 Run 重新出现的问题，
-              同时把版本说明和文档口径统一到了最新状态。
+              v2.7.3 是一次以<strong>可维护性</strong>和<strong>数据可靠性</strong>为目标的架构重构版本。将持久化从 JSON 文件迁移到 SQLite + WAL 模式，
+              将 1068 行的 WorkflowEngine God Object 拆分为四个职责单一的模块，并将 1575 行的 api.ts 拆分为 12 个子路由文件。
+              Vitest 测试从 68 增长到 122 cases，建立起了架构重构后的首轮系统级回归保障。
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ArchCard
               icon={<DatabaseOutlined />}
-              title="Run 删除真正落盘"
-              desc="删除 Run 时不再只改内存，而是同步清理对应 turns，并直接触发 SQLite 持久化删除。"
-              color="#e11d48"
+              title="SQLite + WAL 持久化"
+              desc="使用 better-sqlite3 + WAL 模式替代 JSON 文件存储，提供 ACID 事务保障。启动时自动检测 JSON 遗留数据并平滑迁移，采用 inject() 模式解决 ESM 循环依赖。"
+              color="#7c3aed"
             />
             <ArchCard
-              icon={<SafetyCertificateOutlined />}
-              title="显式事务清理"
-              desc="StorageSQLite.deleteRun 改为事务内显式删除 artifacts、turns、edges、nodes、runs，避免依赖关闭状态下无效的外键级联。"
-              color="#f97316"
+              icon={<AppstoreOutlined />}
+              title="WorkflowEngine Facade 拆分"
+              desc="God Object 按职责拆分为 Facade(248行) + RunManager(564行) + DAGScheduler(214行) + TurnManager(271行)，外部调用者无需感知内部拆分。"
+              color="#4f46e5"
             />
             <ArchCard
               icon={<BranchesOutlined />}
-              title="删除后不再复活"
-              desc="补上删除后重载场景的回归测试，确保服务重启后已删除 Run 不会重新出现在列表中。"
-              color="#fb7185"
+              title="api.ts 路由模块化"
+              desc="1575 行单文件拆分为 12 个子路由文件 + ~146 行路由注册协调器，每个文件职责单一、可独立维护和 Code Review。"
+              color="#0891b2"
             />
             <ArchCard
-              icon={<ToolOutlined />}
-              title="版本说明统一"
-              desc="更新日志、项目介绍、README、手册和系统介绍全部对齐到 v2.8.1，版本时间线更清晰。"
-              color="#ea580c"
+              icon={<SafetyCertificateOutlined />}
+              title="测试增强 68 → 122 cases"
+              desc="新增 dag-scheduler、turn-manager、storage-sqlite 三个测试套件，覆盖拓扑排序、Turn 生命周期、CRUD 迁移等核心逻辑。"
+              color="#059669"
             />
           </div>
         </section>
@@ -755,41 +757,129 @@ export function AboutPage() {
           </div>
         </section>
 
-        {/* ═══ v2.7.3 架构重构 ═══ */}
+        {/* ═══ v2.8.1 稳定性补丁 ═══ */}
         <section className="mb-12">
-          <SectionTitle icon={<ThunderboltOutlined />} title="架构重构（v2.7.3）" color="purple" />
-          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 rounded-xl p-6 mb-5">
+          <SectionTitle icon={<SafetyCertificateOutlined />} title="稳定性补丁（v2.8.1）" color="rose" />
+          <div className="bg-gradient-to-r from-rose-50 to-orange-50 border border-rose-100 rounded-xl p-6 mb-5">
             <p className="text-[14px] text-gray-700 leading-[1.8]">
-              v2.7.3 是一次以<strong>可维护性</strong>和<strong>数据可靠性</strong>为目标的架构重构版本。将持久化从 JSON 文件迁移到 SQLite + WAL 模式，
-              将 1068 行的 WorkflowEngine God Object 拆分为四个职责单一的模块，并将 1575 行的 api.ts 拆分为 12 个子路由文件。
-              Vitest 测试从 68 增长到 122 cases，建立起了架构重构后的首轮系统级回归保障。
+              v2.8.1 是一次面向<strong>数据一致性</strong>的补丁版本，重点修复了 Run 删除后 SQLite 旧数据残留、服务重启后已删除 Run 重新出现的问题，
+              同时把版本说明和文档口径统一到了最新状态。
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ArchCard
               icon={<DatabaseOutlined />}
-              title="SQLite + WAL 持久化"
-              desc="使用 better-sqlite3 + WAL 模式替代 JSON 文件存储，提供 ACID 事务保障。启动时自动检测 JSON 遗留数据并平滑迁移，采用 inject() 模式解决 ESM 循环依赖。"
-              color="#7c3aed"
+              title="Run 删除真正落盘"
+              desc="删除 Run 时不再只改内存，而是同步清理对应 turns，并直接触发 SQLite 持久化删除。"
+              color="#e11d48"
             />
             <ArchCard
-              icon={<AppstoreOutlined />}
-              title="WorkflowEngine Facade 拆分"
-              desc="God Object 按职责拆分为 Facade(248行) + RunManager(564行) + DAGScheduler(214行) + TurnManager(271行)，外部调用者无需感知内部拆分。"
-              color="#4f46e5"
+              icon={<SafetyCertificateOutlined />}
+              title="显式事务清理"
+              desc="StorageSQLite.deleteRun 改为事务内显式删除 artifacts、turns、edges、nodes、runs，避免依赖关闭状态下无效的外键级联。"
+              color="#f97316"
             />
             <ArchCard
               icon={<BranchesOutlined />}
-              title="api.ts 路由模块化"
-              desc="1575 行单文件拆分为 12 个子路由文件 + ~146 行路由注册协调器，每个文件职责单一、可独立维护和 Code Review。"
+              title="删除后不再复活"
+              desc="补上删除后重载场景的回归测试，确保服务重启后已删除 Run 不会重新出现在列表中。"
+              color="#fb7185"
+            />
+            <ArchCard
+              icon={<ToolOutlined />}
+              title="版本说明统一"
+              desc="更新日志、项目介绍、README、手册和系统介绍全部对齐到 v2.8.1，版本时间线更清晰。"
+              color="#ea580c"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.8.3 GitHub PR 工作流 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<BranchesOutlined />} title="GitHub PR 工作流（v2.8.3）" color="green" />
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.8.3 引入完整的 PR 工作流并自动识别项目类型，<strong>团队项目强制走 PR 模式</strong>。
+              Agent 产出代码经过 Diff Review 后，团队项目自动推送分支并创建 GitHub PR，而个人项目仍可选择本地 merge。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<GithubOutlined />}
+              title="pushAndCreatePR"
+              desc="推送 Agent 工作分支到远端，通过 GitHub REST API 创建 PR，自动生成包含文件变更清单的结构化 PR 描述。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="仓库类型自动检测"
+              desc="四维度加权评分：Owner 类型(0.5) + Collaborators(0.3) + Commit 作者多样性(0.2) + Branch Protection(0.1)，≥ 0.4 判定为团队项目。"
               color="#0891b2"
             />
             <ArchCard
               icon={<SafetyCertificateOutlined />}
-              title="测试增强 68 → 122 cases"
-              desc="新增 dag-scheduler、turn-manager、storage-sqlite 三个测试套件，覆盖拓扑排序、Turn 生命周期、CRUD 迁移等核心逻辑。"
+              title="团队项目强制 PR"
+              desc="检测为团队项目后自动写入 mergeMode: pr 并锁定，Settings 面板 Radio 组置灰，禁止切换到本地 merge。"
+              color="#dc2626"
+            />
+            <ArchCard
+              icon={<DesktopOutlined />}
+              title="DiffReviewPanel PR 模式"
+              desc="mergeMode=pr 时显示「创建 PR」按钮，创建成功后变为可点击 PR 链接（PR #N），支持查询 PR 状态。"
+              color="#7c3aed"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.8.5~v2.8.6 Skill 系统闭环 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<ExperimentOutlined />} title="Skill 系统完整闭环（v2.8.5 ~ v2.8.6）" color="purple" />
+          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.8.5 ~ v2.8.6 完成了 Skill 系统从"已建设未接入"到<strong>完整闭环</strong>的跨越：
+              v2.8.5 打通物化注入执行链路 + UI 绑定，v2.8.6 实现执行产出物自动沉淀回 Skill。
+              形成"<strong>Skill 注入节点执行 → 产出物评估 → 高价值内容自动沉淀为新 Skill → 下次执行可用</strong>"的知识积累飞轮。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<ApiOutlined />}
+              title="Skill 物化注入执行链路"
+              desc="DynamicAgentFactory 装配 ScopedContext 时读取节点 skillIds，调用 SkillMaterializationService 物化内容，buildFullPrompt 第 5.5 层注入 Skill prompt。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<DesktopOutlined />}
+              title="节点 Skill 绑定 UI"
+              desc="Select mode=multiple 下拉框，支持关键词搜索过滤、maxTagCount 响应式折叠、乐观更新 + 失败回滚。PATCH API 即时持久化。"
+              color="#2563eb"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="自动沉淀引擎"
+              desc="节点 completed 后自动分析 Artifacts，百分制 5 维评分（节点类型/内容长度/Markdown结构/代码块密度/关键词），置信度 >0.6 自动沉淀为 SKILL.md。"
               color="#059669"
+            />
+            <ArchCard
+              icon={<SafetyCertificateOutlined />}
+              title="Jaccard 去重 + 项目级存储"
+              desc="词集相似度 >0.7 自动跳过避免冗余。Skill 存储于 project.path/.agent-flow/skills/，随项目 git 版本控制，团队成员 pull 后即可复用。"
+              color="#d97706"
+            />
+            <ArchCard
+              icon={<ToolOutlined />}
+              title="手动沉淀 forceExtract()"
+              desc="跳过评分引擎，用户主动选择有价值产出物以置信度 1.0 强制写入，兆底评分模型覆盖不到的场景。"
+              color="#dc2626"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="事件驱动 + 非阻塞"
+              desc="run:node_updated completed 触发异步提取，失败仅 warn 不阻塞主流程。新增 4 条 REST API 支持统计/日志/手动触发/目录查询。"
+              color="#0891b2"
             />
           </div>
         </section>
