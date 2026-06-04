@@ -233,7 +233,7 @@ export interface ScopedContext {
 
 export type ProjectTab = 'runs' | 'workflow' | 'skills' | 'agents' | 'settings'
 
-export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree' | 'context-db' | 'checkpoint' | 'a2a' | 'diff-review' | 'metrics' | 'autoflow' | 'digest' | 'l1-rules' | 'validation' | 'merge-conflict' | 'feedback'
+export type RunDetailTab = 'dag' | 'agents' | 'artifacts' | 'log' | 'agent-tree' | 'context-db' | 'checkpoint' | 'a2a' | 'diff-review' | 'metrics' | 'autoflow' | 'digest' | 'l1-rules' | 'validation' | 'merge-conflict' | 'feedback' | 'sub-turn'
 
 // ─── A2A Protocol (Agent-to-Agent 通信) ───
 
@@ -283,4 +283,111 @@ export interface A2AStats {
   resolved: number
   failed: number
   expired: number
+}
+
+// ─── AgentCard (标准化 Agent 描述符) ───
+
+export interface AgentCard {
+  id: string
+  name: string
+  version: string
+  description: string
+  provider: AgentProvider
+  capabilities: AgentCapability[]
+  roles: AgentRole[]
+  endpoint: AgentEndpoint
+  contextScope: AgentContextScope
+  constraints: AgentConstraints
+  metadata?: Record<string, unknown>
+  registeredAt: number
+  lastActiveAt?: number
+}
+
+export interface AgentProvider {
+  id: string
+  name: string
+  command: string
+  model?: string
+  category: AgentCategory
+}
+
+export interface AgentCapability {
+  id: string
+  description: string
+  languages?: string[]
+  domains?: string[]
+  strength: number
+}
+
+export interface AgentEndpoint {
+  type: 'local-cli' | 'http' | 'grpc' | 'a2a-internal'
+  address: string
+  protocolVersion: string
+  supportedMessageTypes: A2AMessageType[]
+  maxConcurrency: number
+}
+
+export interface AgentContextScope {
+  requiredLayers: ('SYS' | 'L0' | 'L1' | 'L2')[]
+  nodeTypes: NodeType[]
+  preferredPaths?: string[]
+  excludedPaths?: string[]
+  maxContextTokens: number
+}
+
+export interface AgentConstraints {
+  maxTurnsPerNode: number
+  maxExecutionTimeSec: number
+  supportsStreaming: boolean
+  supportsCancellation: boolean
+  requiresInteraction: boolean
+}
+
+// ─── Adversarial / Sub-Turn (节点内多 Agent 对抗) ───
+
+export type SubTurnRole = 'coder' | 'reviewer' | 'tester'
+export type SubTurnStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type ReviewVerdict = 'approved' | 'rejected' | 'conditional'
+export type AdversarialStrategy = 'coder_reviewer' | 'coder_reviewer_tester' | 'review_only'
+export type AdversarialSessionStatus = 'active' | 'completed' | 'failed' | 'max_rounds_exceeded'
+
+export interface SubTurn {
+  id: string
+  parentTurnId: string
+  nodeId: string
+  runId: string
+  roundIndex: number
+  role: SubTurnRole
+  agentInstanceId: string
+  status: SubTurnStatus
+  prompt: string
+  output: string
+  verdict?: ReviewVerdict
+  reviewFeedback?: string[]
+  startedAt: number
+  completedAt?: number
+  tokenUsage?: { input: number; output: number; total: number }
+}
+
+export interface AdversarialSession {
+  id: string
+  nodeId: string
+  runId: string
+  parentTurnId: string
+  strategy: AdversarialStrategy
+  subTurns: SubTurn[]
+  currentRound: number
+  maxRounds: number
+  result?: AdversarialResult
+  status: AdversarialSessionStatus
+  startedAt: number
+  completedAt?: number
+}
+
+export interface AdversarialResult {
+  passed: boolean
+  totalRounds: number
+  finalVerdict: ReviewVerdict
+  qualityScore: number
+  summary: string
 }

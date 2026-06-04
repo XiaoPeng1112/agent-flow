@@ -29,6 +29,7 @@ import { SkillExtractionService } from './services/skill-extraction.js'
 import { AutoFlowEngine } from './services/auto-flow-engine.js'
 import { ValidationTurnService } from './services/validation-turn.js'
 import { L1RuleLifecycleService } from './services/l1-rule-lifecycle.js'
+import { AdversarialTurnService } from './services/adversarial-turn.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -67,6 +68,7 @@ const skillExtractionService = new SkillExtractionService(skillService, projectS
 const autoFlowEngine = new AutoFlowEngine()
 const validationTurnService = new ValidationTurnService()
 const l1RuleLifecycleService = new L1RuleLifecycleService()
+const adversarialTurnService = new AdversarialTurnService()
 
 // 注入 ContextDBService 到需要它的服务（延迟注入避免循环依赖）
 projectService.injectContextDB(contextDBService)
@@ -88,7 +90,15 @@ l1RuleLifecycleService.inject({
   contextDB: contextDBService,
   feedbackCollector,
 })
-// 注入 AutoFlowEngine 依赖（含 ValidationTurnService + L1RuleLifecycle）
+// 注入 AdversarialTurnService 依赖
+adversarialTurnService.inject({
+  workflowEngine,
+  dynamicAgentFactory,
+  agentService,
+  a2aProtocol: a2aProtocolService,
+  robustnessService,
+})
+// 注入 AutoFlowEngine 依赖（含 ValidationTurnService + L1RuleLifecycle + Adversarial）
 autoFlowEngine.inject({
   workflowEngine,
   contractValidator: contractValidatorService,
@@ -98,9 +108,14 @@ autoFlowEngine.inject({
   repoIsolation: repoIsolationService,
   validationTurnService,
   l1RuleLifecycle: l1RuleLifecycleService,
+  adversarialTurnService,
   emitter: (type, payload) => workflowEngine.emit(type, payload),
 })
 agentService.injectAutoFlow(autoFlowEngine)
+// 注入 AdversarialTurnService 到 AgentService（close handler 自动触发对抗）
+agentService.injectAdversarial(adversarialTurnService)
+// 注入 A2AProtocolService 到 AgentService（进度汇报 + 任务交付消息）
+agentService.injectA2A(a2aProtocolService)
 // 注入 FeedbackCollector 到 DynamicAgentFactory（Phase 4: 反馈→上下文注入）
 dynamicAgentFactory.injectFeedbackCollector(feedbackCollector)
 // 注入 AutoFlowEngine 到 WeeklyDigest（Phase 4: 周报指标）
@@ -139,13 +154,14 @@ app.use('/api', createApiRouter({
   autoFlowEngine,
   l1RuleLifecycleService,
   validationTurnService,
+  adversarialTurnService,
 }))
 
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.9.0',
+    version: '2.9.1',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
@@ -231,14 +247,29 @@ async function autoStartReadyNode(runId: string, nodeId: string): Promise<void> 
     // Step 3: 激活实例
     dynamicAgentFactory.activateInstance(instance.id)
 
-    // Step 4: 将节点状态从 ready → running
+    // ★ Step 4 (A2A): 通过 A2A delegateTask 发送任务委派消息
+    // 使主节点启动也流经 A2A 协议层，实现全链路消息可观测
+    const delegateMsg = a2aProtocolService.delegateTask({
+      fromAgentId: 'autoflow-orchestrator',
+      toAgentId: instance.baseAgentId,
+      runId,
+      nodeId,
+      task: {
+        title: node.name,
+        intent: node.description || node.prompt || 'Execute node task',
+        context: `Node type: ${node.type}, Role: ${node.agentRole}`,
+      },
+      priority: 'normal',
+    })
+
+    // Step 5: 将节点状态从 ready → running
     await workflowEngine.startNode(runId, nodeId)
 
-    // Step 5: 获取项目工作目录作为 cwd
+    // Step 6: 获取项目工作目录作为 cwd
     const project = projectService.getProject(run.projectId)
     const cwd = project?.path
 
-    // Step 6: 启动 Agent Turn（非阻塞）
+    // Step 7: 启动 Agent Turn（非阻塞）
     agentService.startTurnAsync({
       agentId: instance.baseAgentId,
       nodeId,
@@ -247,7 +278,10 @@ async function autoStartReadyNode(runId: string, nodeId: string): Promise<void> 
       cwd,
     })
 
-    console.log(`[AutoStart] Node "${node.name}" started with agent ${instance.baseAgentId}`)
+    // Step 8: 确认委派消息已送达
+    a2aProtocolService.acknowledge(delegateMsg.id)
+
+    console.log(`[AutoStart] Node "${node.name}" started with agent ${instance.baseAgentId} (a2a: ${delegateMsg.id})`)
   } catch (err) {
     console.error(`[AutoStart] Failed to auto-start node ${nodeId}:`, (err as Error).message)
   } finally {
@@ -410,7 +444,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`
 ┌───────────────────────────────────────────────┐
-│     AgentFlow Server v2.8.3                   │
+│     AgentFlow Server v2.9.1                   │
 │     MAF-inspired Workflow Engine             │
 │                                               │
 │  HTTP API:  http://localhost:${PORT}/api         │

@@ -1,5 +1,135 @@
 # 开发日志
 
+## 2026-06-04 — v2.9.1 P0-2 完成：A2A 全链路贯通 + Sub-Turn 可视化 + AgentCard 前端集成
+
+### 版本概述
+
+v2.9.1 完成 P0 三大方向的收尾工作：AutoFlow autoStart 接入 A2A 协议层、Agent 执行进度汇报（reportProgress）、以及前端 Sub-Turn Flow 统一时间线视图的完整可视化。后端核心逻辑在 v2.9.0 中已实现，本版本重点是前端展示层的对齐和全流程贯通验证。
+
+---
+
+### 一、AutoFlow autoStart 接入 A2A（后端已有，前端补全展示）
+
+**后端（已实现 @ index.ts:212-290）：**
+- 节点变为 ready 时，`autoStartReadyNode()` 通过 `a2aProtocolService.delegateTask()` 发送委派消息
+- payload 格式：`DelegatedTask { title: node.name, intent: node.description, context: "Node type + Role" }`
+- 消息发出后启动 Agent Turn，最后 `acknowledge()` 确认消息送达
+- 整个主节点启动流程现在流经 A2A 协议层，实现全链路消息可观测
+
+**前端新增 `A2AFlowItem` 组件：**
+- 文件：`packages/client/src/components/detail/A2APanel.tsx`
+- 渲染 `delegated_task`（紫色"委派任务"标签）和 `task_delivery`（绿色"任务交付"标签）两种消息
+- 展示 fromAgent → toAgent 方向、时间戳、payload 中的 title 和 intent
+
+---
+
+### 二、进度汇报 reportProgress（后端已有，前端字段对齐修复）
+
+**后端（已实现 @ agent.ts:728-760）：**
+- AgentService stdout handler 内置节流函数，每 15 秒发送一次 `progress_report` A2A 消息
+- payload 格式：`{ percentage: -1, message: "执行中: Ns, M 行输出", details: { elapsedSec, outputLines, turnId } }`
+- percentage=-1 表示不确定进度（非百分比制），前端据此隐藏进度条仅显示文字
+
+**前端修复 `ProgressReportItem` 组件（字段对齐）：**
+- 修复前：读取 `payload.progress`（数字）和 `payload.stage`（字符串）— 与后端不匹配
+- 修复后：读取 `payload.percentage`（数字）、`payload.message`（字符串）、`payload.details`（对象）
+- percentage >= 0 时显示进度条，否则仅显示 message 文字
+- details.elapsedSec 和 details.outputLines 作为辅助信息展示
+
+---
+
+### 三、A2A 面板 Sub-Turn Flow 视图升级
+
+**SubTurnFlowView 统一时间线（A2APanel.tsx）：**
+- 过滤条件从仅 `progress_report` 扩展为 `progress_report` + `delegated_task` + `task_delivery` 三种类型
+- 按节点分组，每个节点展示一个时间线卡片
+- 三种组件按 message.type 分发渲染：
+  - `SubTurnFlowItem`：对抗 Sub-Turn（coder/reviewer/tester round）
+  - `ProgressReportItem`：进度汇报（青色卡片）
+  - `A2AFlowItem`：委派/交付消息（紫/绿色卡片）
+- 所有条目按 createdAt 时间排序，形成完整执行时间线
+
+**时间线节点颜色编码：**
+- coder Sub-Turn → 蓝色 (#3b82f6)
+- reviewer Sub-Turn → 琥珀色 (#f59e0b)
+- tester Sub-Turn → 紫色 (#8b5cf6)
+- delegated_task → 紫色 (#8b5cf6)
+- task_delivery → 绿色 (#10b981)
+- progress_report → 青色 (#06b6d4)
+
+---
+
+### 四、Adversarial REST API（4 端点）
+
+**新增文件：`packages/server/src/routes/adversarial.ts`（72 行）**
+
+| 端点 | 功能 |
+|------|------|
+| GET /adversarial/sessions/:runId/:nodeId | 获取节点所有对抗会话列表 |
+| GET /adversarial/session/:sessionId | 获取单个会话详情（含 Sub-Turn） |
+| GET /adversarial/result/:runId/:nodeId | 获取节点对抗结果摘要 |
+| GET /adversarial/active/:runId/:nodeId | 获取节点当前活跃会话 |
+
+路由注册：`api.ts` 条件挂载（`if (deps.adversarialTurnService)`）
+
+---
+
+### 五、前端 SubTurnPanel 独立面板
+
+**新增文件：`packages/client/src/components/detail/SubTurnPanel.tsx`（359 行）**
+
+- 节点选择器：Select 下拉框选择要查看的节点
+- 会话概览卡片：策略标签（coder_reviewer / coder_reviewer_tester）、轮次、状态、最终结果
+- Round 分组 Collapse 时间线：按 roundIndex 分组，展开显示各 Sub-Turn 详情
+- Sub-Turn 详情：role 标签、verdict 标签、duration、output 预览（line-clamp-2）、reviewFeedback
+- 质量分展示：result.qualityScore 百分制显示
+
+---
+
+### 六、前端类型定义扩展
+
+**文件：`packages/client/src/types/index.ts`**
+
+新增类型：
+- `SubTurnRole = 'coder' | 'reviewer' | 'tester'`
+- `SubTurnStatus = 'pending' | 'running' | 'completed' | 'failed'`
+- `ReviewVerdict = 'approved' | 'rejected' | 'conditional'`
+- `AdversarialStrategy` / `AdversarialSessionStatus`
+- `SubTurn` interface（14 字段）
+- `AdversarialSession` interface（12 字段）
+- `AdversarialResult` interface（5 字段）
+- `RunDetailTab` 新增 `'sub-turn'` 值
+
+---
+
+### 七、前端 API 层扩展
+
+**文件：`packages/client/src/api/index.ts`**
+
+新增 `adversarialApi` 对象：
+- `getSessions(runId, nodeId)` → GET /adversarial/sessions/:runId/:nodeId
+- `getSession(sessionId)` → GET /adversarial/session/:sessionId
+- `getResult(runId, nodeId)` → GET /adversarial/result/:runId/:nodeId
+- `getActive(runId, nodeId)` → GET /adversarial/active/:runId/:nodeId
+
+---
+
+### 八、Bug 修复
+
+- **TS6133 `maxRounds` unused**：`RoundTimeline` 组件 props 解构中移除未使用的 `maxRounds`
+- **ProgressReportItem payload mismatch**：前端从 `progress/stage` 改为 `percentage/message/details`，与后端 A2A 消息格式一致
+- **SubTurnFlowView filter 过窄**：从仅显示 `progress_report` 扩展为同时显示 `delegated_task`/`task_delivery`
+
+---
+
+### 编译验证
+
+- Server `tsc --noEmit` — 0 错误 ✅
+- Client `tsc --noEmit` — 0 错误 ✅
+- 运行时验证：所有 API 端点 curl 测试通过
+
+---
+
 ## 2026-06-04 — v2.9.0 L2 深化：AutoFlow 自动审批引擎 + 验证 Turn + L1 规则生命周期 + 全面板 UI + Metrics 同步补全
 
 ### 版本概述

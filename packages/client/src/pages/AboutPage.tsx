@@ -42,7 +42,7 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.9.0</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.9.1</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
@@ -54,6 +54,7 @@ export function AboutPage() {
             <Tag color="magenta">反馈闭环</Tag>
             <Tag color="lime">Skill 自动沉淀</Tag>
             <Tag color="red">AutoFlow 自动审批</Tag>
+            <Tag color="gold">A2A 全链路</Tag>
           </div>
         </div>
 
@@ -985,6 +986,57 @@ export function AboutPage() {
               title="Metrics 同步补全"
               desc="4 项运行时指标（rejectCount/reviewEnteredAt/toolCalls/filesModified）嵌入 TaskNode/AgentTurn 结构体，随 Run 自然同步，SSOT 方案零同步逻辑改动。"
               color="#0d9488"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.9.1 A2A 全链路 + Sub-Turn 可视化 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<SendOutlined />} title="A2A 全链路贯通 + Sub-Turn 可视化（v2.9.1）" color="cyan" />
+          <div className="bg-gradient-to-r from-cyan-50 to-indigo-50 border border-cyan-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.9.1 完成 P0-2 A2A 协议全链路贯通的收尾工作：<strong>主节点启动通过 A2A delegateTask 消息路由</strong>，
+              <strong>Agent 执行中每 15 秒通过 reportProgress 汇报进度</strong>，前端新增统一时间线展示委派/交付/进度全流程消息。
+              所有 Agent 间通信从此全部可观测。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ArchCard
+              icon={<SendOutlined />}
+              title="AutoStart 接入 A2A"
+              desc="节点 ready 时通过 a2aProtocol.delegateTask() 发送委派消息（title+intent+context），启动 Agent Turn 后 acknowledge 确认。主节点启动全程流经 A2A 协议层。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<DashboardOutlined />}
+              title="进度汇报 reportProgress"
+              desc="AgentService stdout handler 每 15s 节流发送 progress_report 消息，payload 含 percentage/message/details。前端显示执行时长和输出行数。"
+              color="#06b6d4"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="Sub-Turn Flow 统一时间线"
+              desc="A2APanel 新增 Sub-Turn Flow 视图：按节点分组，展示 SubTurn + delegated_task + task_delivery + progress_report 四类事件，时间排序的完整执行时间线。"
+              color="#4f46e5"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="SubTurnPanel 独立面板"
+              desc="对抗审查 Tab：节点选择器 + 会话概览卡片 + Round 分组 Collapse 时间线 + Sub-Turn 详情（role/verdict/duration/output/feedback）。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<ApiOutlined />}
+              title="Adversarial REST API"
+              desc="4 端点供前端可视化：sessions(节点会话列表) / session(会话详情) / result(对抗结果) / active(活跃会话)。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<CodeOutlined />}
+              title="A2AFlowItem 组件"
+              desc="渲染 delegated_task（紫色委派标签）和 task_delivery（绿色交付标签），展示 Agent 间消息方向、时间戳、任务标题和意图。"
+              color="#8b5cf6"
             />
           </div>
         </section>

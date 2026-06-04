@@ -11,6 +11,7 @@ import type { RobustnessService } from './robustness.js'
 import type { RepoIsolationService } from './repo-isolation.js'
 import type { ValidationTurnService } from './validation-turn.js'
 import type { L1RuleLifecycleService } from './l1-rule-lifecycle.js'
+import type { AdversarialTurnService } from './adversarial-turn.js'
 
 export type AutoFlowEmitter = (type: WsMessage['type'], payload: unknown) => void
 
@@ -48,6 +49,8 @@ export interface ConfidenceSignals {
   mergeConflictFree: number
   /** 验证 Turn 结果 (0.0 - 1.0, undefined = 未执行验证) */
   validationScore?: number
+  /** 对抗审查质量分 (0.0 - 1.0, undefined = 未执行对抗) */
+  adversarialScore?: number
 }
 
 /**
@@ -67,8 +70,8 @@ export interface EvaluationResult {
 }
 
 /** 
- * 信号权重配置（7 信号加权，基础 6 信号总和 = 1.0）
- * 当 validationScore 可用时，动态重分配权重（validation 占 15%，其余按比例缩减）
+ * 信号权重配置（8 信号加权，基础 6 信号总和 = 1.0）
+ * 当 validationScore/adversarialScore 可用时，动态重分配权重（从其余按比例缩减）
  */
 const SIGNAL_WEIGHTS = {
   contractSatisfaction: 0.30,
@@ -79,6 +82,8 @@ const SIGNAL_WEIGHTS = {
   mergeConflictFree: 0.12,
   // 验证信号权重（当可用时从其他信号按比例借用）
   validation: 0.15,
+  // 对抗审查信号权重（当可用时从其他信号按比例借用）
+  adversarial: 0.15,
 } as const
 
 /** 默认 AutoFlow 配置 */
@@ -102,6 +107,7 @@ export class AutoFlowEngine {
   private repoIsolation?: RepoIsolationService
   private validationTurnService?: ValidationTurnService
   private l1RuleLifecycle?: L1RuleLifecycleService
+  private adversarialTurnService?: AdversarialTurnService
   private emitter?: AutoFlowEmitter
   private storagePath: string
   private persistDebounceTimer?: ReturnType<typeof setTimeout>
@@ -126,6 +132,7 @@ export class AutoFlowEngine {
     repoIsolation?: RepoIsolationService
     validationTurnService?: ValidationTurnService
     l1RuleLifecycle?: L1RuleLifecycleService
+    adversarialTurnService?: AdversarialTurnService
     emitter?: AutoFlowEmitter
   }): void {
     this.workflowEngine = deps.workflowEngine
@@ -136,6 +143,7 @@ export class AutoFlowEngine {
     this.repoIsolation = deps.repoIsolation
     this.validationTurnService = deps.validationTurnService
     this.l1RuleLifecycle = deps.l1RuleLifecycle
+    this.adversarialTurnService = deps.adversarialTurnService
     this.emitter = deps.emitter
     // 启动时恢复持久化状态
     this.restoreState().catch(err => {
@@ -463,6 +471,14 @@ export class AutoFlowEngine {
       }
     }
 
+    // 对抗审查信号：从 AdversarialTurnService 缓存中获取（非阻塞）
+    if (this.adversarialTurnService) {
+      const adversarialScore = this.adversarialTurnService.getAdversarialScore(runId, nodeId)
+      if (adversarialScore !== undefined) {
+        signals.adversarialScore = adversarialScore
+      }
+    }
+
     return signals
   }
 
@@ -705,32 +721,48 @@ export class AutoFlowEngine {
    */
   private computeConfidence(signals: ConfidenceSignals): number {
     const hasValidation = signals.validationScore !== undefined
+    const hasAdversarial = signals.adversarialScore !== undefined
 
     // 获取学习后的权重（已归一化到总和=1.0）
     const learnedWeights = this.getLearnedSignalWeights()
 
-    if (hasValidation) {
-      // 动态重分配：validation 占 15%，学习后权重按比例缩减至 85%
-      const shrinkFactor = 1 - SIGNAL_WEIGHTS.validation  // 0.85
-      
-      // validation 信号的权重乘数也做学习调整
-      const validationPerf = this.signalPerformance.get('validationScore')
-      const validationMultiplier = validationPerf?.weightMultiplier || 1.0
-      const adjustedValidationWeight = SIGNAL_WEIGHTS.validation * Math.min(1.3, validationMultiplier)
+    // 计算动态信号总借用权重
+    let extraSignalWeight = 0
+    if (hasValidation) extraSignalWeight += SIGNAL_WEIGHTS.validation
+    if (hasAdversarial) extraSignalWeight += SIGNAL_WEIGHTS.adversarial
 
-      const confidence =
+    if (extraSignalWeight > 0) {
+      // 动态重分配：额外信号从基础信号按比例借用权重
+      const shrinkFactor = 1 - extraSignalWeight
+
+      let confidence =
         signals.contractSatisfaction * learnedWeights.contractSatisfaction * shrinkFactor +
         signals.exitConditionsPassed * learnedWeights.exitConditionsPassed * shrinkFactor +
         signals.historicalPassRate * learnedWeights.historicalPassRate * shrinkFactor +
         signals.outputQuality * learnedWeights.outputQuality * shrinkFactor +
         signals.executionStability * learnedWeights.executionStability * shrinkFactor +
-        signals.mergeConflictFree * learnedWeights.mergeConflictFree * shrinkFactor +
-        signals.validationScore! * adjustedValidationWeight
+        signals.mergeConflictFree * learnedWeights.mergeConflictFree * shrinkFactor
+
+      // 加入 validation 信号
+      if (hasValidation) {
+        const validationPerf = this.signalPerformance.get('validationScore')
+        const validationMultiplier = validationPerf?.weightMultiplier || 1.0
+        const adjustedValidationWeight = SIGNAL_WEIGHTS.validation * Math.min(1.3, validationMultiplier)
+        confidence += signals.validationScore! * adjustedValidationWeight
+      }
+
+      // 加入 adversarial 信号
+      if (hasAdversarial) {
+        const adversarialPerf = this.signalPerformance.get('adversarialScore')
+        const adversarialMultiplier = adversarialPerf?.weightMultiplier || 1.0
+        const adjustedAdversarialWeight = SIGNAL_WEIGHTS.adversarial * Math.min(1.3, adversarialMultiplier)
+        confidence += signals.adversarialScore! * adjustedAdversarialWeight
+      }
 
       return Math.round(confidence * 100)
     }
 
-    // 无验证信号时，使用学习后的 6 信号权重（总和 = 1.0）
+    // 无额外信号时，使用学习后的 6 信号权重（总和 = 1.0）
     const confidence =
       signals.contractSatisfaction * learnedWeights.contractSatisfaction +
       signals.exitConditionsPassed * learnedWeights.exitConditionsPassed +
@@ -782,6 +814,9 @@ export class AutoFlowEngine {
     }
     if (signals.validationScore !== undefined && signals.validationScore < 0.6) {
       parts.push(`验证 Turn 分数偏低: ${Math.round(signals.validationScore * 100)}%`)
+    }
+    if (signals.adversarialScore !== undefined && signals.adversarialScore < 0.7) {
+      parts.push(`对抗审查质量分偏低: ${Math.round(signals.adversarialScore * 100)}%`)
     }
 
     return parts.join(' ')
@@ -1160,6 +1195,9 @@ export class AutoFlowEngine {
 
     if (signals.validationScore !== undefined) {
       signalEntries.push(['validationScore', signals.validationScore])
+    }
+    if (signals.adversarialScore !== undefined) {
+      signalEntries.push(['adversarialScore', signals.adversarialScore])
     }
 
     for (const [name, value] of signalEntries) {

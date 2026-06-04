@@ -44,6 +44,7 @@ import type { SkillExtractionService } from '../services/skill-extraction.js'
 import type { AutoFlowEngine } from '../services/auto-flow-engine.js'
 import type { L1RuleLifecycleService } from '../services/l1-rule-lifecycle.js'
 import type { ValidationTurnService } from '../services/validation-turn.js'
+import type { AdversarialTurnService } from '../services/adversarial-turn.js'
 
 import { createAuthRouter } from './auth.js'
 import { createProjectsRouter } from './projects.js'
@@ -58,6 +59,7 @@ import { createArtifactsRouter } from './artifacts.js'
 import { createSyncRouter } from './sync.js'
 import { createL1RulesRouter } from './l1-rules.js'
 import { createValidationRouter } from './validation.js'
+import { createAdversarialRouter } from './adversarial.js'
 
 export function createApiRouter(deps: {
   agentService: AgentService
@@ -85,6 +87,7 @@ export function createApiRouter(deps: {
   autoFlowEngine?: AutoFlowEngine
   l1RuleLifecycleService?: L1RuleLifecycleService
   validationTurnService?: ValidationTurnService
+  adversarialTurnService?: AdversarialTurnService
 }): Router {
   const router = Router()
 
@@ -173,6 +176,12 @@ export function createApiRouter(deps: {
     router.use('/validation', createValidationRouter({
       validationTurnService: deps.validationTurnService,
       workflowEngine: deps.workflowEngine,
+    }))
+  }
+
+  if (deps.adversarialTurnService) {
+    router.use('/adversarial', createAdversarialRouter({
+      adversarialTurnService: deps.adversarialTurnService,
     }))
   }
 

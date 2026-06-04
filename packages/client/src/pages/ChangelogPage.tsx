@@ -17,6 +17,33 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.9.1',
+    date: '2026-06-04',
+    title: 'P0-2 完成：A2A 全链路贯通 + Sub-Turn 可视化 + AgentCard 前端集成',
+    type: 'feature',
+    highlights: [
+      'AutoFlow autoStart 接入 A2A：节点 ready 时通过 delegateTask() 发送委派消息，主节点启动全程流经 A2A 协议层',
+      'Agent 进度汇报：stdout handler 每 15s 节流发送 progress_report 消息，payload 含 percentage/message/details',
+      '前端新增 A2AFlowItem 组件：渲染 delegated_task（紫色）和 task_delivery（绿色）两种 A2A 消息',
+      '修复 ProgressReportItem 字段对齐：从 progress/stage 改为 percentage/message/details 匹配后端格式',
+      'SubTurnFlowView 统一时间线升级：过滤扩展为 progress_report + delegated_task + task_delivery 三类',
+      '新增 SubTurnPanel 独立面板（359行）：节点选择器 + 会话概览 + Round 分组 Collapse + Sub-Turn 详情',
+      '新增 Adversarial REST API 4 端点：sessions/session/result/active 供前端可视化',
+      '新增前端类型 SubTurn/AdversarialSession/AdversarialResult + adversarialApi 客户端',
+    ],
+    details: `v2.9.1 完成 P0 三大方向的收尾：AutoFlow autoStart 接入 A2A 协议层、Agent 执行进度汇报（reportProgress）、前端 Sub-Turn Flow 统一时间线视图完整可视化。
+
+【AutoFlow autoStart 接入 A2A】后端 autoStartReadyNode()（index.ts:212-290）在节点变 ready 时通过 a2aProtocolService.delegateTask() 发送委派消息（DelegatedTask: title+intent+context），然后启动 Agent Turn 并 acknowledge 确认。前端新增 A2AFlowItem 组件在 Sub-Turn Flow 时间线中展示委派/交付消息。
+
+【进度汇报 reportProgress】后端 AgentService（agent.ts:728-760）stdout handler 每 15s 节流发送 progress_report A2A 消息（payload: { percentage: -1, message: "执行中: Ns, M行输出", details: { elapsedSec, outputLines, turnId } }）。前端 ProgressReportItem 修复字段从 progress/stage 改为 percentage/message/details，percentage>=0 时显示进度条，否则仅显示文字。
+
+【Sub-Turn Flow 视图升级】A2APanel SubTurnFlowView 过滤条件从仅 progress_report 扩展为三种类型。按节点分组，每个节点展示统一时间线卡片，三种组件按 type 分发渲染（SubTurnFlowItem/ProgressReportItem/A2AFlowItem）。时间线节点颜色编码：coder 蓝、reviewer 琥珀、tester/delegated 紫、delivery 绿、progress 青。
+
+【SubTurnPanel 独立面板】新增 359 行面板组件：节点 Select 选择器 + 会话概览（策略/轮次/状态/结果）+ Round 分组 Collapse + Sub-Turn 详情（role/verdict/duration/output/feedback）。
+
+编译验证：Server + Client tsc --noEmit 均 0 错误。运行时 curl 测试全部 API 端点通过。`,
+  },
+  {
     version: 'v2.9.0',
     date: '2026-06-04',
     title: 'L2 深化：AutoFlow 自动审批引擎 + 验证 Turn + L1 规则生命周期 + 全面板 UI',

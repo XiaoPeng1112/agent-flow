@@ -47,6 +47,7 @@ import { L1RulePanel } from './L1RulePanel'
 import { ValidationTurnPanel } from './ValidationTurnPanel'
 import { MergeConflictPanel } from './MergeConflictPanel'
 import { FeedbackAggregatePanel } from './FeedbackAggregatePanel'
+import { SubTurnPanel } from './SubTurnPanel'
 import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab, SkillInfo, Artifact } from '../../types'
 
 interface Props {
@@ -371,6 +372,7 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
             { key: 'checkpoint', label: 'Checkpoint' },
             { key: 'context-db', label: 'Context DB' },
             { key: 'a2a', label: 'A2A 消息' },
+            { key: 'sub-turn', label: '对抗审查' },
           ] as { key: RunDetailTab; label: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -435,6 +437,10 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
       ) : runDetailTab === 'feedback' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <FeedbackAggregatePanel run={run} />
+        </div>
+      ) : runDetailTab === 'sub-turn' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <SubTurnPanel run={run} />
         </div>
       ) : (
         <div className="flex-1 flex overflow-hidden">

@@ -1,7 +1,13 @@
 import { spawn, execSync, type ChildProcess } from 'child_process'
-import type { AgentConfig, AgentRole } from '../types/index.js'
+import type {
+  AgentConfig, AgentRole, AgentCard, AgentCapability,
+  AgentProvider, AgentEndpoint, AgentContextScope, AgentConstraints,
+  NodeType, A2AMessageType,
+} from '../types/index.js'
 import type { WorkflowEngine } from './workflow-engine.js'
 import type { AutoFlowEngine } from './auto-flow-engine.js'
+import type { AdversarialTurnService } from './adversarial-turn.js'
+import type { A2AProtocolService } from './a2a-protocol.js'
 
 /**
  * AgentService — 多角色 Agent 调度服务
@@ -19,14 +25,18 @@ import type { AutoFlowEngine } from './auto-flow-engine.js'
  */
 export class AgentService {
   private agents: Map<string, AgentConfig> = new Map()
+  private agentCards: Map<string, AgentCard> = new Map()  // AgentCard Registry
   private activeProcesses: Map<string, ChildProcess> = new Map()  // turnId → process
   private cancelledTurns: Set<string> = new Set()  // 已取消的 turn，防止 close handler 重复提交
   private workflowEngine: WorkflowEngine
   private autoFlowEngine?: AutoFlowEngine
+  private adversarialTurnService?: AdversarialTurnService
+  private a2aProtocol?: A2AProtocolService
 
   constructor(workflowEngine: WorkflowEngine) {
     this.workflowEngine = workflowEngine
     this.registerDefaults()
+    // AgentCards 已在 registerAgent() 中同步生成，无需额外调用 buildCardsFromConfigs
   }
 
   /**
@@ -34,6 +44,20 @@ export class AgentService {
    */
   injectAutoFlow(autoFlowEngine: AutoFlowEngine): void {
     this.autoFlowEngine = autoFlowEngine
+  }
+
+  /**
+   * 注入 AdversarialTurnService（延迟注入，避免循环依赖）
+   */
+  injectAdversarial(adversarialTurnService: AdversarialTurnService): void {
+    this.adversarialTurnService = adversarialTurnService
+  }
+
+  /**
+   * 注入 A2AProtocolService（进度汇报 + 任务交付消息）
+   */
+  injectA2A(a2aProtocol: A2AProtocolService): void {
+    this.a2aProtocol = a2aProtocol
   }
 
   private registerDefaults(): void {
@@ -176,6 +200,9 @@ export class AgentService {
 
   registerAgent(config: AgentConfig): void {
     this.agents.set(config.id, config)
+    // 同步生成 AgentCard（确保新注册的 Agent 也能被能力路由发现）
+    const card = this.buildCardFromConfig(config)
+    this.agentCards.set(card.id, card)
   }
 
   getAgents(): AgentConfig[] {
@@ -191,6 +218,367 @@ export class AgentService {
 
   getAgent(id: string): AgentConfig | undefined {
     return this.agents.get(id)
+  }
+
+  // ═══════════════ AgentCard Registry ═══════════════
+
+  /**
+   * 注册 AgentCard（手动注册完整 AgentCard，适用于外部 Agent）
+   */
+  registerCard(card: AgentCard): void {
+    this.agentCards.set(card.id, card)
+  }
+
+  /**
+   * 从已注册的 AgentConfig 自动生成 AgentCard 并注册
+   * 在 registerDefaults 之后调用一次即可
+   */
+  buildCardsFromConfigs(): void {
+    for (const config of this.agents.values()) {
+      const card = this.buildCardFromConfig(config)
+      this.agentCards.set(card.id, card)
+    }
+    console.log(`[AgentCard] Built ${this.agentCards.size} cards from registered agents`)
+  }
+
+  /**
+   * 获取所有已注册的 AgentCard
+   */
+  getCards(): AgentCard[] {
+    return Array.from(this.agentCards.values())
+  }
+
+  /**
+   * 获取指定 AgentCard
+   */
+  getCard(id: string): AgentCard | undefined {
+    return this.agentCards.get(id)
+  }
+
+  /**
+   * 基于能力标签查询：返回所有具备指定能力的 Agent
+   * 
+   * @param capabilityId - 能力标签 ID（如 'code-generation', 'code-review'）
+   * @param minStrength - 最低能力强度 (0.0-1.0)，默认 0.3
+   */
+  queryByCapability(capabilityId: string, minStrength = 0.3): AgentCard[] {
+    return this.getCards().filter(card =>
+      card.capabilities.some(
+        cap => cap.id === capabilityId && cap.strength >= minStrength
+      )
+    )
+  }
+
+  /**
+   * 基于语言/技术栈查询：返回擅长指定语言的 Agent
+   */
+  queryByLanguage(language: string): AgentCard[] {
+    const lower = language.toLowerCase()
+    return this.getCards().filter(card =>
+      card.capabilities.some(
+        cap => cap.languages?.some(l => l.toLowerCase() === lower)
+      )
+    )
+  }
+
+  /**
+   * 基于领域查询：返回擅长指定领域的 Agent
+   */
+  queryByDomain(domain: string): AgentCard[] {
+    const lower = domain.toLowerCase()
+    return this.getCards().filter(card =>
+      card.capabilities.some(
+        cap => cap.domains?.some(d => d.toLowerCase() === lower)
+      )
+    )
+  }
+
+  /**
+   * 智能路由：根据任务描述找到最合适的 Agent
+   * 
+   * 匹配策略（加权打分）：
+   * 1. 角色匹配（精确匹配角色 +10 分）
+   * 2. 能力匹配（每个匹配的 capability × strength 权重）
+   * 3. 节点类型匹配（AgentCard.contextScope.nodeTypes 包含目标类型 +5 分）
+   * 4. 可用性（CLI 可用 +20 分，不可用 -100 分）
+   * 
+   * @returns 按得分降序排列的 AgentCard 列表（已过滤不可用的）
+   */
+  findBestForTask(params: {
+    role?: AgentRole
+    capabilities?: string[]
+    language?: string
+    domain?: string
+    nodeType?: NodeType
+  }): AgentCard[] {
+    const { role, capabilities, language, domain, nodeType } = params
+
+    const scored = this.getCards().map(card => {
+      let score = 0
+
+      // 1. 角色匹配
+      if (role && card.roles.includes(role)) {
+        score += 10
+      }
+
+      // 2. 能力匹配
+      if (capabilities) {
+        for (const capId of capabilities) {
+          const match = card.capabilities.find(c => c.id === capId)
+          if (match) {
+            score += match.strength * 8  // 最高 8 分
+          }
+        }
+      }
+
+      // 3. 语言匹配
+      if (language) {
+        const lower = language.toLowerCase()
+        const langMatch = card.capabilities.some(
+          c => c.languages?.some(l => l.toLowerCase() === lower)
+        )
+        if (langMatch) score += 5
+      }
+
+      // 4. 领域匹配
+      if (domain) {
+        const lower = domain.toLowerCase()
+        const domainMatch = card.capabilities.some(
+          c => c.domains?.some(d => d.toLowerCase() === lower)
+        )
+        if (domainMatch) score += 5
+      }
+
+      // 5. 节点类型匹配
+      if (nodeType && card.contextScope.nodeTypes.includes(nodeType)) {
+        score += 5
+      }
+
+      // 6. 可用性检查（CLI 是否存在）
+      const cliCheck = this.checkCliAvailable(card.provider.command)
+      if (cliCheck.available) {
+        score += 20
+      } else {
+        score -= 100  // 不可用的 Agent 几乎不应被选中
+      }
+
+      return { card, score }
+    })
+
+    return scored
+      .filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(s => s.card)
+  }
+
+  /**
+   * 更新 AgentCard 的 lastActiveAt 时间戳（Agent 被使用时调用）
+   */
+  touchCard(agentId: string): void {
+    const card = this.agentCards.get(agentId)
+    if (card) {
+      card.lastActiveAt = Date.now()
+    }
+  }
+
+  /**
+   * 从 AgentConfig 构建 AgentCard
+   * 
+   * 映射策略：
+   * - provider: 从 type + command + model + category 映射
+   * - capabilities: 从 role + description 推导默认能力集
+   * - endpoint: 所有内置 Agent 均为 local-cli 类型
+   * - contextScope: 根据 role 推导默认可处理的节点类型
+   * - constraints: 从 maxTurns 和 Agent 特性推导
+   */
+  private buildCardFromConfig(config: AgentConfig): AgentCard {
+    const now = Date.now()
+
+    const provider: AgentProvider = {
+      id: config.type === 'codex' ? 'openai' : config.type === 'claude' ? 'anthropic' : 'custom',
+      name: config.type === 'codex' ? 'OpenAI' : config.type === 'claude' ? 'Anthropic' : 'Custom',
+      command: config.command,
+      model: config.model,
+      category: config.category,
+    }
+
+    const capabilities = this.inferCapabilities(config)
+    const roles: AgentRole[] = config.id.includes('universal')
+      ? ['planner', 'manager', 'executor']
+      : [config.role]
+
+    const endpoint: AgentEndpoint = {
+      type: 'local-cli',
+      address: config.command,
+      protocolVersion: '1.0',
+      supportedMessageTypes: ['delegated_task', 'task_delivery', 'progress_report'] as A2AMessageType[],
+      maxConcurrency: config.role === 'planner' ? 1 : 3,
+    }
+
+    const contextScope: AgentContextScope = {
+      requiredLayers: this.inferRequiredLayers(config.role),
+      nodeTypes: this.inferNodeTypes(config.role),
+      maxContextTokens: this.inferMaxTokens(config),
+    }
+
+    const constraints: AgentConstraints = {
+      maxTurnsPerNode: config.maxTurns || 10,
+      maxExecutionTimeSec: 600,  // 10 min (与 timeout 一致)
+      supportsStreaming: true,
+      supportsCancellation: true,
+      requiresInteraction: false,
+    }
+
+    return {
+      id: config.id,
+      name: config.name,
+      version: '1.0.0',
+      description: config.description,
+      provider,
+      capabilities,
+      roles,
+      endpoint,
+      contextScope,
+      constraints,
+      registeredAt: now,
+    }
+  }
+
+  /**
+   * 从 AgentConfig 推导能力声明
+   * 
+   * 推导规则：
+   * - planner → architecture-design (0.9), task-decomposition (0.8)
+   * - manager → code-review (0.8), quality-assurance (0.7), task-decomposition (0.7)
+   * - executor → code-generation (0.9), debugging (0.7), testing (0.6)
+   * - 包含 'coder' → code-generation strength 提升到 0.95
+   * - 包含 'tester' → testing strength 提升到 0.9
+   */
+  private inferCapabilities(config: AgentConfig): AgentCapability[] {
+    const caps: AgentCapability[] = []
+    const allLanguages = ['typescript', 'javascript', 'python', 'go', 'rust', 'java']
+    const isCoder = config.id.includes('coder')
+    const isTester = config.id.includes('tester')
+
+    switch (config.role) {
+      case 'planner':
+        caps.push({
+          id: 'architecture-design',
+          description: '架构设计与技术方案',
+          languages: allLanguages,
+          domains: ['frontend', 'backend', 'fullstack'],
+          strength: 0.9,
+        })
+        caps.push({
+          id: 'task-decomposition',
+          description: '需求分析与任务拆分',
+          domains: ['project-management'],
+          strength: 0.8,
+        })
+        caps.push({
+          id: 'code-generation',
+          description: '代码生成',
+          languages: allLanguages,
+          strength: 0.5,  // planner 也能写代码但不是主业
+        })
+        break
+
+      case 'manager':
+        caps.push({
+          id: 'code-review',
+          description: '代码审查与质量验收',
+          languages: allLanguages,
+          domains: ['quality-assurance'],
+          strength: 0.85,
+        })
+        caps.push({
+          id: 'task-decomposition',
+          description: '任务分派与验收',
+          domains: ['project-management'],
+          strength: 0.7,
+        })
+        caps.push({
+          id: 'quality-assurance',
+          description: '质量保证与规范检查',
+          domains: ['quality-assurance'],
+          strength: 0.8,
+        })
+        break
+
+      case 'executor':
+        caps.push({
+          id: 'code-generation',
+          description: '代码生成与实现',
+          languages: allLanguages,
+          domains: ['frontend', 'backend', 'fullstack'],
+          strength: isCoder ? 0.95 : 0.8,
+        })
+        caps.push({
+          id: 'debugging',
+          description: '调试与问题排查',
+          languages: allLanguages,
+          strength: 0.7,
+        })
+        caps.push({
+          id: 'testing',
+          description: '测试编写与验证',
+          languages: allLanguages,
+          domains: ['testing'],
+          strength: isTester ? 0.9 : 0.6,
+        })
+        break
+    }
+
+    return caps
+  }
+
+  /**
+   * 根据角色推导需要的 Context DB 层级
+   */
+  private inferRequiredLayers(role: AgentRole): ('SYS' | 'L0' | 'L1' | 'L2')[] {
+    switch (role) {
+      case 'planner':
+        return ['SYS', 'L0']  // Planner 需要全局视角
+      case 'manager':
+        return ['SYS', 'L0', 'L1']  // Manager 需要流程协作信息
+      case 'executor':
+        return ['SYS', 'L0', 'L1', 'L2']  // Executor 需要最精确的上下文
+      default:
+        return ['SYS', 'L0']
+    }
+  }
+
+  /**
+   * 根据角色推导可处理的节点类型
+   */
+  private inferNodeTypes(role: AgentRole): NodeType[] {
+    switch (role) {
+      case 'planner':
+        return ['specify', 'design', 'task', 'deliver']
+      case 'manager':
+        return ['task', 'review', 'deliver']
+      case 'executor':
+        return ['implement', 'test', 'review', 'custom']
+      default:
+        return ['custom']
+    }
+  }
+
+  /**
+   * 推导最大上下文 Token 窗口
+   */
+  private inferMaxTokens(config: AgentConfig): number {
+    // 高端模型（5.5/opus-4-8）有更大上下文窗口
+    if (config.model?.includes('5.5') || config.model?.includes('opus-4-8')) {
+      return 200_000
+    }
+    if (config.model?.includes('5.4') || config.model?.includes('opus-4-7') || config.model?.includes('sonnet')) {
+      return 128_000
+    }
+    if (config.model?.includes('haiku')) {
+      return 64_000
+    }
+    return 100_000  // 默认
   }
 
   // ═══════════════ CLI 可用性检测 ═══════════════
@@ -337,12 +725,39 @@ export class AgentService {
       }, 5000)
     }, 10 * 60 * 1000)
 
+    // ★ A2A 进度汇报：每 15 秒向 manager 发送 reportProgress
+    const startTime = Date.now()
+    let lastProgressAt = 0
+    const PROGRESS_INTERVAL_MS = 15_000
+    const reportProgressThrottled = () => {
+      const now = Date.now()
+      if (!this.a2aProtocol || now - lastProgressAt < PROGRESS_INTERVAL_MS) return
+      lastProgressAt = now
+
+      const elapsedSec = Math.round((now - startTime) / 1000)
+      const outputLines = fullOutput.split('\n').length
+      // 使用输出行数 + 经过时间作为进度信号（无法预估总量，用相对指标）
+      this.a2aProtocol.reportProgress({
+        fromAgentId: agent.id,
+        toAgentId: 'autoflow-orchestrator',
+        runId,
+        nodeId,
+        progress: {
+          percentage: -1,  // -1 表示不确定进度（非百分比制）
+          message: `执行中: ${elapsedSec}s, ${outputLines} 行输出`,
+          details: { elapsedSec, outputLines, turnId },
+        },
+      })
+    }
+
     proc.stdout?.on('data', (data: Buffer) => {
       hasOutput = true
       const chunk = data.toString()
       fullOutput += chunk
       // ★ 流式推送到前端
       this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
+      // ★ 节流进度汇报
+      reportProgressThrottled()
     })
 
     proc.stderr?.on('data', (data: Buffer) => {
@@ -376,6 +791,23 @@ export class AgentService {
         this.parseAndCreateArtifacts(fullOutput, runId, nodeId)
       }
 
+      // ★ A2A 任务交付消息：通知 orchestrator 任务完成/失败
+      if (this.a2aProtocol) {
+        this.a2aProtocol.deliverTask({
+          fromAgentId: agent.id,
+          toAgentId: 'autoflow-orchestrator',
+          runId,
+          nodeId,
+          delivery: {
+            taskId: turnId,
+            summary: code === 0 && !wasCancelled
+              ? `Agent 成功完成 (${fullOutput.split('\n').length} 行输出)`
+              : `Agent 执行${wasCancelled ? '被取消' : '失败'} (exit=${code})`,
+            artifacts: this.workflowEngine.getNodeArtifacts(runId, nodeId),
+          },
+        })
+      }
+
       // Phase 2: RecordAgentTurnResult
       const result = wasCancelled ? 'failed' : (code === 0 ? 'succeeded' : 'failed')
       this.workflowEngine.recordTurnResult(turnId, nodeId, result as any, undefined, tokenUsage, toolCalls, filesModified)
@@ -401,7 +833,11 @@ export class AgentService {
         } else if (code !== 0) {
           decision = 'failed'
         } else {
-          // ★ AutoFlow 决策点：执行验证 Turn + 评估是否可自动通过
+          // ★ Phase 1: Adversarial 对抗审查（如果节点配置启用）
+          // 在 AutoFlow 评估之前执行，对抗结果将作为 AutoFlow 第 8 信号
+          await this.runAdversarialIfEnabled(runId, nodeId, turnId, fullOutput)
+
+          // ★ Phase 2: AutoFlow 决策点：执行验证 Turn + 评估是否可自动通过
           // 使用异步版本以支持验证脚本执行（lint/test/LLM review）
           decision = this.autoFlowEngine
             ? await this.autoFlowEngine.evaluateAndDecideAsync(runId, nodeId)
@@ -433,6 +869,35 @@ export class AgentService {
       this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
       this.workflowEngine.finalizeTurn(turnId, nodeId)
     })
+  }
+
+  /**
+   * 如果节点配置了 adversarial 对抗审查，则触发 AdversarialTurnService
+   * 
+   * 执行时机：Agent 主 Turn 成功完成后、AutoFlow 评估之前
+   * 对抗结果会缓存到 AdversarialTurnService 中，AutoFlow 收集信号时自动查询
+   */
+  private async runAdversarialIfEnabled(
+    runId: string,
+    nodeId: string,
+    turnId: string,
+    coderOutput: string
+  ): Promise<void> {
+    if (!this.adversarialTurnService) return
+
+    // 获取节点的 adversarial 配置
+    const run = this.workflowEngine.getRun(runId)
+    const node = run?.nodes.find(n => n.id === nodeId)
+    if (!node?.adversarial?.enabled) return
+
+    console.log(`[Agent] Triggering adversarial review for node "${node.name}" (${nodeId})`)
+    try {
+      const result = await this.adversarialTurnService.runAdversarial(runId, nodeId, turnId, coderOutput)
+      console.log(`[Agent] Adversarial result for node "${node.name}": passed=${result.passed}, quality=${result.qualityScore}`)
+    } catch (err) {
+      // 对抗失败不应阻塞整体流程，记录错误后继续 AutoFlow 评估
+      console.error(`[Agent] Adversarial failed for node ${nodeId}:`, (err as Error).message)
+    }
   }
 
   /**

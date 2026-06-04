@@ -28,6 +28,37 @@ export function createAgentsRouter(deps: {
     res.json({ success: true, data: { agents } })
   })
 
+  // ═══════════════ AgentCard API ═══════════════
+
+  /** 获取所有 AgentCard */
+  router.get('/cards', (_req, res) => {
+    res.json({ success: true, data: { cards: agentService.getCards() } })
+  })
+
+  /** 基于能力查询 Agent（必须在 :id 路由之前，避免 Express 路由匹配冲突） */
+  router.get('/cards/query/capability/:capabilityId', (req, res) => {
+    const minStrength = parseFloat(req.query.minStrength as string) || 0.3
+    const cards = agentService.queryByCapability(req.params.capabilityId, minStrength)
+    res.json({ success: true, data: { cards } })
+  })
+
+  /** 智能路由：找到最适合任务的 Agent */
+  router.post('/cards/find-best', (req, res) => {
+    const { role, capabilities, language, domain, nodeType } = req.body
+    const cards = agentService.findBestForTask({ role, capabilities, language, domain, nodeType })
+    res.json({ success: true, data: { cards } })
+  })
+
+  /** 获取指定 AgentCard（:id 路由必须在所有具名路径之后） */
+  router.get('/cards/:id', (req, res) => {
+    const card = agentService.getCard(req.params.id)
+    if (!card) {
+      res.status(404).json({ success: false, error: `AgentCard not found: ${req.params.id}` })
+      return
+    }
+    res.json({ success: true, data: { card } })
+  })
+
   /** 获取当前活跃的 Turn 列表 */
   router.get('/active-turns', (_req, res) => {
     res.json({ success: true, data: { activeTurnIds: agentService.getActiveTurnIds() } })

@@ -69,8 +69,8 @@ export class DynamicAgentFactory {
     run: Run,
     preferredAgentId?: string
   ): Promise<DynamicAgentInstance> {
-    // Step 1: 确定基础 Agent（用户选择或自动匹配）
-    const baseAgent = this.resolveBaseAgent(node.agentRole, preferredAgentId)
+    // Step 1: 确定基础 Agent（用户选择 → AgentCard 能力路由 → 角色兜底）
+    const baseAgent = this.resolveBaseAgent(node.agentRole, preferredAgentId, node.type)
 
     // Step 2: 装配作用域上下文（await 确保 Context DB 四层装配完成后才继续）
     const scopedContext = await this.assembleScopedContext(node, run)
@@ -460,20 +460,42 @@ export class DynamicAgentFactory {
   // ═══════════════ 内部方法 ═══════════════
 
   /**
-   * 解析基础 Agent：优先使用用户选择，否则按角色自动匹配
+   * 解析基础 Agent：优先使用用户选择，否则通过 AgentCard 能力路由智能匹配
+   * 
+   * 匹配策略（按优先级）：
+   * 1. 用户显式指定 → 直接使用
+   * 2. AgentCard findBestForTask（基于角色 + 节点类型 + 能力打分）→ 最优匹配
+   * 3. 传统角色匹配（兜底）→ 可用性优先
    */
-  private resolveBaseAgent(role: AgentRole, preferredAgentId?: string): AgentConfig {
+  private resolveBaseAgent(role: AgentRole, preferredAgentId?: string, nodeType?: string): AgentConfig {
     if (preferredAgentId) {
       const agent = this.agentService.getAgent(preferredAgentId)
       if (agent) return agent
     }
 
-    // 自动匹配：获取该角色可用的 Agent，优先选择 available 的
+    // ★ 优先使用 AgentCard 能力路由（P0-3 核心逻辑）
+    const cardMatches = this.agentService.findBestForTask({
+      role,
+      nodeType: nodeType as any,
+      capabilities: this.inferCapabilitiesForNodeType(nodeType),
+    })
+
+    if (cardMatches.length > 0) {
+      // 从最佳 AgentCard 反查 AgentConfig
+      const bestCard = cardMatches[0]
+      const agent = this.agentService.getAgent(bestCard.id)
+      if (agent) {
+        // 标记活跃（更新 lastActiveAt）
+        this.agentService.touchCard(bestCard.id)
+        return agent
+      }
+    }
+
+    // ★ 兜底：传统角色匹配（AgentCard 路由未命中时）
     const candidates = this.agentService.getAgentsWithStatus()
       .filter(a => a.available && (a.role === role || a.id.includes('universal')))
 
     if (candidates.length > 0) {
-      // 优先精确匹配角色
       const exactMatch = candidates.find(a => a.role === role)
       return exactMatch || candidates[0]
     }
@@ -487,6 +509,31 @@ export class DynamicAgentFactory {
     if (roleAgents.length > 0) return roleAgents[0]
 
     throw new Error(`No agent available for role: ${role}`)
+  }
+
+  /**
+   * 根据节点类型推导需要的能力标签
+   * 用于 findBestForTask 的 capabilities 参数
+   */
+  private inferCapabilitiesForNodeType(nodeType?: string): string[] | undefined {
+    if (!nodeType) return undefined
+    switch (nodeType) {
+      case 'specify':
+      case 'design':
+        return ['architecture-design', 'task-decomposition']
+      case 'task':
+        return ['task-decomposition']
+      case 'implement':
+        return ['code-generation']
+      case 'review':
+        return ['code-review', 'quality-assurance']
+      case 'test':
+        return ['testing']
+      case 'deliver':
+        return ['task-decomposition']
+      default:
+        return undefined
+    }
   }
 
   /**

@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Button, Tag, Empty, Badge, Segmented, Descriptions } from 'antd'
+import { Button, Tag, Empty, Badge, Segmented, Descriptions, Progress, Tooltip } from 'antd'
 import {
   ReloadOutlined, SendOutlined, MessageOutlined, NodeIndexOutlined,
   CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined,
   ThunderboltOutlined, WarningOutlined, LoadingOutlined,
   SwapOutlined, TeamOutlined, BarChartOutlined,
+  ExperimentOutlined, CodeOutlined, EyeOutlined,
 } from '@ant-design/icons'
-import { a2aApi } from '../../api'
-import type { Run, A2AMessage, A2AStats } from '../../types'
+import { a2aApi, adversarialApi } from '../../api'
+import type { Run, A2AMessage, A2AStats, AdversarialSession, SubTurn } from '../../types'
 
 /**
  * A2APanel — Agent-to-Agent 通信可视化面板
@@ -23,7 +24,7 @@ interface Props {
   run: Run
 }
 
-type ViewMode = 'topology' | 'timeline' | 'stats'
+type ViewMode = 'topology' | 'timeline' | 'stats' | 'sub-turn-flow'
 
 // 消息类型配置
 const messageTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -100,6 +101,7 @@ export function A2APanel({ run }: Props) {
             options={[
               { value: 'topology', label: '拓扑图', icon: <NodeIndexOutlined /> },
               { value: 'timeline', label: '时间线', icon: <MessageOutlined /> },
+              { value: 'sub-turn-flow', label: 'Sub-Turn', icon: <ExperimentOutlined /> },
               { value: 'stats', label: '统计', icon: <BarChartOutlined /> },
             ]}
           />
@@ -133,6 +135,8 @@ export function A2APanel({ run }: Props) {
           <TopologyView messages={messages} run={run} />
         ) : viewMode === 'timeline' ? (
           <TimelineView messages={messages} run={run} />
+        ) : viewMode === 'sub-turn-flow' ? (
+          <SubTurnFlowView run={run} messages={messages} />
         ) : (
           <StatsView messages={messages} stats={stats} />
         )}
@@ -698,6 +702,315 @@ function StatCard({ label, value, icon, color }: { label: string; value: number;
           <div className="text-[18px] font-bold text-gray-800">{value}</div>
           <div className="text-[10px] text-gray-400">{label}</div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════ Sub-Turn Flow 视图 ═══════════════
+// 展示每个节点的对抗会话 + 关联的 A2A progress_report 消息时间线
+
+function SubTurnFlowView({ run, messages }: { run: Run; messages: A2AMessage[] }) {
+  const [sessions, setSessions] = useState<Record<string, AdversarialSession[]>>({})
+  const [loading, setLoading] = useState(false)
+
+  // 加载所有节点的对抗会话
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      const result: Record<string, AdversarialSession[]> = {}
+      for (const node of run.nodes) {
+        try {
+          const res = await adversarialApi.getSessions(run.id, node.id)
+          if (res.sessions && res.sessions.length > 0) {
+            result[node.id] = res.sessions
+          }
+        } catch {
+          // skip nodes without sessions
+        }
+      }
+      if (!cancelled) {
+        setSessions(result)
+        setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [run.id, run.nodes])
+
+  // 按节点分组的 A2A 消息（delegated_task / task_delivery / progress_report）
+  const a2aByNode = useMemo(() => {
+    const relevantTypes = new Set(['progress_report', 'delegated_task', 'task_delivery'])
+    const map: Record<string, A2AMessage[]> = {}
+    for (const msg of messages) {
+      if (relevantTypes.has(msg.type)) {
+        if (!map[msg.nodeId]) map[msg.nodeId] = []
+        map[msg.nodeId].push(msg)
+      }
+    }
+    // 按时间排序
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => a.createdAt - b.createdAt)
+    }
+    return map
+  }, [messages])
+
+  // 有对抗会话或有 A2A 消息的节点
+  const relevantNodes = useMemo(() => {
+    return run.nodes.filter(n =>
+      sessions[n.id]?.length > 0 || a2aByNode[n.id]?.length > 0
+    )
+  }, [run.nodes, sessions, a2aByNode])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <LoadingOutlined className="text-2xl text-indigo-400" spin />
+        <span className="ml-2 text-gray-400 text-sm">加载 Sub-Turn 数据...</span>
+      </div>
+    )
+  }
+
+  if (relevantNodes.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <div className="text-center">
+              <p className="text-gray-400 text-[13px]">暂无 Sub-Turn 或进度汇报数据</p>
+              <p className="text-gray-300 text-[11px] mt-1">
+                当节点启用对抗审查后，coder→reviewer→fix 循环及进度汇报消息将显示在这里
+              </p>
+            </div>
+          }
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-4 space-y-5">
+      {relevantNodes.map((node) => (
+        <NodeSubTurnFlow
+          key={node.id}
+          nodeName={node.name}
+          nodeType={node.type}
+          sessions={sessions[node.id] || []}
+          a2aMessages={a2aByNode[node.id] || []}
+        />
+      ))}
+    </div>
+  )
+}
+
+// 单个节点的 Sub-Turn Flow 视图
+function NodeSubTurnFlow({ nodeName, nodeType, sessions, a2aMessages }: {
+  nodeName: string
+  nodeType: string
+  sessions: AdversarialSession[]
+  a2aMessages: A2AMessage[]
+}) {
+  // 合并 sub-turn 和 A2A messages 到统一时间线
+  type TimelineItem =
+    | { kind: 'sub-turn'; data: SubTurn; time: number }
+    | { kind: 'a2a'; data: A2AMessage; time: number }
+
+  const timeline = useMemo(() => {
+    const items: TimelineItem[] = []
+
+    // 添加所有 sub-turns
+    for (const session of sessions) {
+      for (const st of session.subTurns) {
+        items.push({ kind: 'sub-turn', data: st, time: st.startedAt })
+      }
+    }
+
+    // 添加 A2A messages (delegated_task / task_delivery / progress_report)
+    for (const msg of a2aMessages) {
+      items.push({ kind: 'a2a', data: msg, time: msg.createdAt })
+    }
+
+    return items.sort((a, b) => a.time - b.time)
+  }, [sessions, a2aMessages])
+
+  const latestSession = sessions[sessions.length - 1]
+  const result = latestSession?.result
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+      {/* 节点头部 */}
+      <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+        <ExperimentOutlined className="text-indigo-500" />
+        <span className="text-xs font-medium text-gray-700">{nodeName}</span>
+        <Tag className="!text-[9px] !m-0">{nodeType}</Tag>
+        {sessions.length > 0 && (
+          <Tag color="blue" className="!text-[9px] !m-0">{sessions.length} 会话</Tag>
+        )}
+        {result && (
+          <Tooltip title={result.summary}>
+            <Tag
+              color={result.passed ? 'success' : 'error'}
+              className="!text-[9px] !m-0 ml-auto"
+            >
+              {result.passed ? '✓ 对抗通过' : '✗ 未通过'}
+              {' '}({Math.round(result.qualityScore * 100)}分)
+            </Tag>
+          </Tooltip>
+        )}
+      </div>
+
+      {/* 统一时间线 */}
+      <div className="px-4 py-3">
+        {timeline.length === 0 ? (
+          <p className="text-[11px] text-gray-400">暂无时间线数据</p>
+        ) : (
+          <div className="relative pl-4 border-l-2 border-gray-100 space-y-2">
+            {timeline.map((item, idx) => (
+              <div key={idx} className="relative">
+                {/* 时间线节点 */}
+                <div className="absolute -left-[21px] top-1.5 w-3 h-3 rounded-full border-2 border-white shadow-sm"
+                  style={{
+                    backgroundColor: item.kind === 'sub-turn'
+                      ? (item.data as SubTurn).role === 'coder' ? '#3b82f6'
+                        : (item.data as SubTurn).role === 'reviewer' ? '#f59e0b' : '#8b5cf6'
+                      : (item.data as A2AMessage).type === 'delegated_task' ? '#8b5cf6'
+                        : (item.data as A2AMessage).type === 'task_delivery' ? '#10b981'
+                        : '#06b6d4'
+                  }}
+                />
+
+                {item.kind === 'sub-turn' ? (
+                  <SubTurnFlowItem subTurn={item.data as SubTurn} />
+                ) : (item.data as A2AMessage).type === 'progress_report' ? (
+                  <ProgressReportItem message={item.data as A2AMessage} />
+                ) : (
+                  <A2AFlowItem message={item.data as A2AMessage} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Sub-Turn 时间线项
+function SubTurnFlowItem({ subTurn }: { subTurn: SubTurn }) {
+  const roleIcon = subTurn.role === 'coder' ? <CodeOutlined /> : subTurn.role === 'reviewer' ? <EyeOutlined /> : <ExperimentOutlined />
+  const roleColor = subTurn.role === 'coder' ? 'blue' : subTurn.role === 'reviewer' ? 'orange' : 'purple'
+  const duration = subTurn.completedAt ? ((subTurn.completedAt - subTurn.startedAt) / 1000).toFixed(1) : null
+
+  return (
+    <div className="ml-2 px-3 py-2 bg-gray-50/70 rounded-lg border border-gray-100">
+      <div className="flex items-center gap-2">
+        <Tag color={roleColor} className="!text-[9px] !m-0">
+          {roleIcon} {subTurn.role}
+        </Tag>
+        <span className="text-[10px] text-gray-400">Round {subTurn.roundIndex + 1}</span>
+        {subTurn.verdict && (
+          <Tag
+            color={subTurn.verdict === 'approved' ? 'success' : subTurn.verdict === 'rejected' ? 'error' : 'warning'}
+            className="!text-[9px] !m-0"
+          >
+            {subTurn.verdict}
+          </Tag>
+        )}
+        {duration && <span className="text-[9px] text-gray-400 ml-auto">{duration}s</span>}
+      </div>
+      {subTurn.output && (
+        <p className="text-[10px] text-gray-500 mt-1 mb-0 line-clamp-2">
+          {subTurn.output.slice(0, 150)}{subTurn.output.length > 150 ? '...' : ''}
+        </p>
+      )}
+      {subTurn.reviewFeedback && subTurn.reviewFeedback.length > 0 && (
+        <div className="mt-1 text-[10px] text-orange-600">
+          反馈: {subTurn.reviewFeedback[0]}{subTurn.reviewFeedback.length > 1 ? ` (+${subTurn.reviewFeedback.length - 1})` : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A2A 主流程消息项（delegated_task / task_delivery）
+function A2AFlowItem({ message }: { message: A2AMessage }) {
+  const isDelegation = message.type === 'delegated_task'
+  const payload = message.payload as Record<string, unknown> | null
+  const title = typeof payload?.title === 'string' ? payload.title : null
+  const intent = typeof payload?.intent === 'string' ? payload.intent : null
+
+  const formatTime = (ts: number) => {
+    const d = new Date(ts)
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
+  }
+
+  return (
+    <div className={`ml-2 px-3 py-2 rounded-lg border ${
+      isDelegation ? 'bg-purple-50/50 border-purple-100' : 'bg-green-50/50 border-green-100'
+    }`}>
+      <div className="flex items-center gap-2">
+        <Tag color={isDelegation ? 'purple' : 'green'} className="!text-[9px] !m-0">
+          {isDelegation ? <><SendOutlined /> 委派任务</> : <><CheckCircleOutlined /> 任务交付</>}
+        </Tag>
+        <span className="text-[10px] text-gray-500">
+          {message.fromAgentId.split('-').pop()} → {message.toAgentId.split('-').pop()}
+        </span>
+        <span className="text-[9px] text-gray-400 ml-auto">{formatTime(message.createdAt)}</span>
+      </div>
+      {(title || intent) && (
+        <p className="text-[10px] text-gray-600 mt-1 mb-0">
+          {title && <span className="font-medium">{title}</span>}
+          {title && intent && ' — '}
+          {intent && <span className="text-gray-500">{intent}</span>}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// Progress Report 时间线项
+// 后端 payload 格式: { percentage: number, message: string, details?: { elapsedSec, outputLines, turnId } }
+function ProgressReportItem({ message }: { message: A2AMessage }) {
+  const payload = message.payload as Record<string, unknown> | null
+  const percentage = typeof payload?.percentage === 'number' ? payload.percentage : null
+  const progressMessage = typeof payload?.message === 'string' ? payload.message : null
+  const details = payload?.details as Record<string, unknown> | undefined
+
+  const formatTime = (ts: number) => {
+    const d = new Date(ts)
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
+  }
+
+  return (
+    <div className="ml-2 px-3 py-2 bg-cyan-50/50 rounded-lg border border-cyan-100">
+      <div className="flex items-center gap-2">
+        <Tag color="cyan" className="!text-[9px] !m-0">
+          <BarChartOutlined /> 进度汇报
+        </Tag>
+        <span className="text-[10px] text-gray-500">
+          {message.fromAgentId.split('-').pop()} → {message.toAgentId.split('-').pop()}
+        </span>
+        <span className="text-[9px] text-gray-400 ml-auto">{formatTime(message.createdAt)}</span>
+      </div>
+      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+        {progressMessage && (
+          <span className="text-[10px] text-cyan-700">{progressMessage}</span>
+        )}
+        {percentage !== null && percentage >= 0 && (
+          <Progress
+            percent={percentage}
+            size="small"
+            className="w-20 inline-block !mb-0"
+            strokeColor="#06b6d4"
+          />
+        )}
+        {details && typeof details.elapsedSec === 'number' && (
+          <span className="text-[9px] text-gray-400">
+            {details.elapsedSec}s / {String(details.outputLines || 0)} 行
+          </span>
+        )}
       </div>
     </div>
   )

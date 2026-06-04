@@ -952,6 +952,26 @@ export const a2aApi = {
     }),
 }
 
+// ═══════════════ Adversarial / Sub-Turn API ═══════════════
+
+export const adversarialApi = {
+  /** 获取节点的所有对抗会话列表 */
+  getSessions: (runId: string, nodeId: string) =>
+    request<{ sessions: any[]; total: number }>(`/adversarial/sessions/${runId}/${nodeId}`),
+
+  /** 获取单个会话详情（含所有 Sub-Turn） */
+  getSession: (sessionId: string) =>
+    request<{ session: any }>(`/adversarial/session/${sessionId}`),
+
+  /** 获取节点的对抗结果摘要 */
+  getResult: (runId: string, nodeId: string) =>
+    request<{ result: any | null; hasResult: boolean }>(`/adversarial/result/${runId}/${nodeId}`),
+
+  /** 获取节点当前活跃的对抗会话 */
+  getActive: (runId: string, nodeId: string) =>
+    request<{ session: any | null; isActive: boolean }>(`/adversarial/active/${runId}/${nodeId}`),
+}
+
 // ═══════════════ Sync API (GitHub 数据同步) ═══════════════
 
 export const syncApi = {

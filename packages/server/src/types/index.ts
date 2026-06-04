@@ -125,6 +125,9 @@ export interface TaskNode {
   reviewEnteredAt?: number       // 进入 wait_user_review 的时刻（用于计算等待耗时）
   rejectCount?: number           // 被 reject 打回的累计次数
   error?: string
+
+  /** 对抗配置（从模板继承） */
+  adversarial?: AdversarialConfig
 }
 
 /**
@@ -179,6 +182,132 @@ export interface AgentConfig {
   category: AgentCategory        // Agent 分类（用于前端分组展示）
   env?: Record<string, string>
   maxTurns?: number              // 单节点最大 turn 数
+}
+
+// ─── AgentCard (标准化 Agent 描述符) ───
+
+/**
+ * AgentCard — 标准化 Agent 声明描述符
+ *
+ * 聚合 Agent 的身份、能力范围、Provider 绑定、通信端点和上下文 Scope，
+ * 使 A2A 路由层可以根据任务需求自动匹配最合适的 Agent。
+ *
+ * 设计目标：
+ * - 统一散落在 AgentConfig / DynamicAgentInstance / ProjectData 中的 Agent 信息
+ * - 提供基于 capability 的动态路由（"我需要一个能处理 TypeScript 重构的 Agent"）
+ * - 为未来接入外部编排平台（Multica/飞象）提供标准化接口
+ */
+export interface AgentCard {
+  /** Agent 唯一标识 */
+  id: string
+  /** 人可读名称 */
+  name: string
+  /** 版本号（SemVer，用于能力迭代追踪） */
+  version: string
+  /** Agent 描述（一句话概括能力定位） */
+  description: string
+  /** Agent 所属提供商 */
+  provider: AgentProvider
+  /** 能力声明列表（用于能力路由匹配） */
+  capabilities: AgentCapability[]
+  /** 角色声明（可承担的角色列表） */
+  roles: AgentRole[]
+  /** 通信端点配置（A2A 消息路由使用） */
+  endpoint: AgentEndpoint
+  /** 上下文 Scope 配置（声明 Agent 能处理/需要的上下文范围） */
+  contextScope: AgentContextScope
+  /** 执行约束 */
+  constraints: AgentConstraints
+  /** 元数据（扩展字段） */
+  metadata?: Record<string, unknown>
+  /** 注册时间 */
+  registeredAt: number
+  /** 最后活跃时间 */
+  lastActiveAt?: number
+}
+
+/**
+ * Agent 提供商信息
+ */
+export interface AgentProvider {
+  /** 提供商标识 (e.g. 'openai', 'anthropic', 'custom') */
+  id: string
+  /** 提供商名称 */
+  name: string
+  /** CLI 命令 */
+  command: string
+  /** 具体模型 */
+  model?: string
+  /** Agent 分类 */
+  category: AgentCategory
+}
+
+/**
+ * Agent 能力声明
+ *
+ * 能力标签用于基于任务需求的动态路由：
+ * A2A 层收到 delegateTask 时，根据 task 描述匹配 Agent 能力标签
+ */
+export interface AgentCapability {
+  /** 能力标识 (e.g. 'code-generation', 'code-review', 'architecture-design') */
+  id: string
+  /** 能力描述 */
+  description: string
+  /** 擅长的编程语言/技术栈 (e.g. ['typescript', 'react', 'node']) */
+  languages?: string[]
+  /** 擅长的领域 (e.g. ['frontend', 'backend', 'devops']) */
+  domains?: string[]
+  /** 能力强度评分 (0.0 - 1.0, 用于多 Agent 择优) */
+  strength: number
+}
+
+/**
+ * Agent 通信端点配置
+ */
+export interface AgentEndpoint {
+  /** 端点类型 */
+  type: 'local-cli' | 'http' | 'grpc' | 'a2a-internal'
+  /** 对于 local-cli: CLI 命令; 对于 http: URL */
+  address: string
+  /** 通信协议版本 */
+  protocolVersion: string
+  /** 支持的消息类型 */
+  supportedMessageTypes: A2AMessageType[]
+  /** 最大并发请求数 */
+  maxConcurrency: number
+}
+
+/**
+ * Agent 上下文 Scope 配置
+ * 声明 Agent 需要/能处理的上下文范围，用于精确注入
+ */
+export interface AgentContextScope {
+  /** 需要的 Context DB 层级 */
+  requiredLayers: ('SYS' | 'L0' | 'L1' | 'L2')[]
+  /** 能处理的节点类型 */
+  nodeTypes: NodeType[]
+  /** 偏好的仓库/模块路径（glob 模式, e.g. ['src/services/**', 'tests/**']） */
+  preferredPaths?: string[]
+  /** 排除的路径 */
+  excludedPaths?: string[]
+  /** 最大上下文 Token 窗口 */
+  maxContextTokens: number
+}
+
+/**
+ * Agent 执行约束
+ */
+export interface AgentConstraints {
+  /** 单节点最大 Turn 数 */
+  maxTurnsPerNode: number
+  /** 单次执行最大超时（秒） */
+  maxExecutionTimeSec: number
+  /** 是否支持流式输出 */
+  supportsStreaming: boolean
+  /** 是否支持中断/取消 */
+  supportsCancellation: boolean
+  /** 是否需要交互式输入 */
+  requiresInteraction: boolean
 }
 
 // ─── AgentTurn (Agent Turn 状态机) ───
@@ -351,6 +480,9 @@ export interface TemplateNode {
   executionMode?: ExecutionMode  // 执行模式，默认 'llm'
   script?: string                // DET/HYB 模式下的脚本命令
   scriptCwd?: string             // 脚本执行的工作目录（相对于项目根目录）
+
+  /** 对抗配置：启用后节点内会进行 coder→reviewer→(fix) 多 Agent 对抗 */
+  adversarial?: AdversarialConfig
 }
 
 /**
@@ -471,6 +603,130 @@ export interface FileAccessRule {
 export interface NetworkRule {
   host: string
   allowed: boolean
+}
+
+// ─── Adversarial Turn (节点内多 Agent 对抗) ───
+
+/**
+ * Sub-Turn 角色：对抗 loop 中的参与者
+ * - coder: 主执行者，产出代码/文档
+ * - reviewer: 审查者，只审不改，输出 review 意见
+ * - tester: 可选，基于产出物编写/运行测试
+ */
+export type SubTurnRole = 'coder' | 'reviewer' | 'tester'
+
+/**
+ * Sub-Turn 状态
+ */
+export type SubTurnStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+/**
+ * 对抗轮次的审查结论
+ * - approved: reviewer 认为产出物合格，对抗结束
+ * - rejected: reviewer 指出问题，需要 coder 修复
+ * - conditional: 有条件通过（小问题，可选修复）
+ */
+export type ReviewVerdict = 'approved' | 'rejected' | 'conditional'
+
+/**
+ * Sub-Turn：对抗 loop 中的一次执行记录
+ * 
+ * 一个 Turn 内部可以包含多轮 Sub-Turn：
+ * Round 1: coder-sub-turn → reviewer-sub-turn (rejected)
+ * Round 2: coder-sub-turn (fix) → reviewer-sub-turn (approved)
+ */
+export interface SubTurn {
+  id: string
+  /** 所属节点 Turn 的 ID */
+  parentTurnId: string
+  nodeId: string
+  runId: string
+  /** 对抗轮次索引（从 0 开始） */
+  roundIndex: number
+  /** 在本轮中的角色 */
+  role: SubTurnRole
+  /** 使用的 Agent 实例 ID */
+  agentInstanceId: string
+  status: SubTurnStatus
+  /** 输入 prompt */
+  prompt: string
+  /** Agent 输出 */
+  output: string
+  /** reviewer 的审查结论（仅 reviewer 角色有） */
+  verdict?: ReviewVerdict
+  /** reviewer 给出的具体反馈（指出的问题列表） */
+  reviewFeedback?: string[]
+  startedAt: number
+  completedAt?: number
+  /** Token 消耗 */
+  tokenUsage?: TokenUsage
+}
+
+/**
+ * 对抗会话：一个节点 Turn 内完整的对抗过程
+ */
+export interface AdversarialSession {
+  id: string
+  nodeId: string
+  runId: string
+  /** 关联的主 Turn ID */
+  parentTurnId: string
+  /** 对抗策略 */
+  strategy: AdversarialStrategy
+  /** 所有 Sub-Turn 记录 */
+  subTurns: SubTurn[]
+  /** 当前轮次索引 */
+  currentRound: number
+  /** 最大允许轮次 */
+  maxRounds: number
+  /** 最终结果 */
+  result?: AdversarialResult
+  /** 会话状态 */
+  status: 'active' | 'completed' | 'failed' | 'max_rounds_exceeded'
+  startedAt: number
+  completedAt?: number
+}
+
+/**
+ * 对抗策略配置
+ * - coder_reviewer: 编码→审查 双角色对抗（默认）
+ * - coder_reviewer_tester: 编码→审查→测试 三角色对抗
+ * - review_only: 仅审查（不重新编码，审查不通过则人工介入）
+ */
+export type AdversarialStrategy = 'coder_reviewer' | 'coder_reviewer_tester' | 'review_only'
+
+/**
+ * 对抗最终结果
+ */
+export interface AdversarialResult {
+  /** 是否通过对抗（最终 reviewer approved） */
+  passed: boolean
+  /** 总轮次数 */
+  totalRounds: number
+  /** 最终审查结论 */
+  finalVerdict: ReviewVerdict
+  /** 从对抗中提取的质量信号 (0.0 - 1.0) */
+  qualityScore: number
+  /** 人可读摘要 */
+  summary: string
+}
+
+/**
+ * 节点的对抗配置（可在模板中声明）
+ */
+export interface AdversarialConfig {
+  /** 是否启用对抗 */
+  enabled: boolean
+  /** 对抗策略 */
+  strategy: AdversarialStrategy
+  /** 最大对抗轮次（默认 3） */
+  maxRounds?: number
+  /** Reviewer 的 roleStatement（覆盖默认） */
+  reviewerRoleStatement?: string
+  /** Tester 的 roleStatement（覆盖默认） */
+  testerRoleStatement?: string
+  /** 对抗通过后是否仍需要 AutoFlow 评估（默认 true） */
+  requireAutoFlowAfterPass?: boolean
 }
 
 // ─── A2A Protocol (Agent-to-Agent 通信协议增强) ───
