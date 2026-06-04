@@ -1,6 +1,7 @@
 import { spawn, execSync, type ChildProcess } from 'child_process'
 import type { AgentConfig, AgentRole } from '../types/index.js'
 import type { WorkflowEngine } from './workflow-engine.js'
+import type { AutoFlowEngine } from './auto-flow-engine.js'
 
 /**
  * AgentService — 多角色 Agent 调度服务
@@ -21,10 +22,18 @@ export class AgentService {
   private activeProcesses: Map<string, ChildProcess> = new Map()  // turnId → process
   private cancelledTurns: Set<string> = new Set()  // 已取消的 turn，防止 close handler 重复提交
   private workflowEngine: WorkflowEngine
+  private autoFlowEngine?: AutoFlowEngine
 
   constructor(workflowEngine: WorkflowEngine) {
     this.workflowEngine = workflowEngine
     this.registerDefaults()
+  }
+
+  /**
+   * 注入 AutoFlowEngine（延迟注入，避免循环依赖）
+   */
+  injectAutoFlow(autoFlowEngine: AutoFlowEngine): void {
+    this.autoFlowEngine = autoFlowEngine
   }
 
   private registerDefaults(): void {
@@ -358,6 +367,10 @@ export class AgentService {
         console.log(`[Agent] Turn ${turnId} token usage: ${JSON.stringify(tokenUsage)}`)
       }
 
+      // ★ 解析工具调用和文件修改（从 CLI 输出中提取）
+      const toolCalls = this.parseToolCalls(fullOutput)
+      const filesModified = this.parseFilesModified(fullOutput)
+
       // ★ 产出物结构化解析：从 Agent 输出中提取代码块和文件引用
       if (code === 0 && !wasCancelled) {
         this.parseAndCreateArtifacts(fullOutput, runId, nodeId)
@@ -365,7 +378,7 @@ export class AgentService {
 
       // Phase 2: RecordAgentTurnResult
       const result = wasCancelled ? 'failed' : (code === 0 ? 'succeeded' : 'failed')
-      this.workflowEngine.recordTurnResult(turnId, nodeId, result as any, undefined, tokenUsage)
+      this.workflowEngine.recordTurnResult(turnId, nodeId, result as any, undefined, tokenUsage, toolCalls, filesModified)
 
       // Phase 3+4: Finalize
       this.workflowEngine.finalizeTurn(turnId, nodeId)
@@ -382,10 +395,23 @@ export class AgentService {
 
       // 通知节点完成/失败 — 通过自动提交节点决策（只提交一次）
       try {
+        let decision: 'waiting_user_review' | 'completed' | 'failed'
+        if (wasCancelled) {
+          decision = 'failed'
+        } else if (code !== 0) {
+          decision = 'failed'
+        } else {
+          // ★ AutoFlow 决策点：执行验证 Turn + 评估是否可自动通过
+          // 使用异步版本以支持验证脚本执行（lint/test/LLM review）
+          decision = this.autoFlowEngine
+            ? await this.autoFlowEngine.evaluateAndDecideAsync(runId, nodeId)
+            : 'waiting_user_review'
+        }
+
         await this.workflowEngine.submitNodeDecision(
           runId,
           nodeId,
-          wasCancelled ? 'failed' : (code === 0 ? 'waiting_user_review' : 'failed'),
+          decision,
           wasCancelled ? '用户取消执行' : (code !== 0 ? `Agent 退出码: ${code}` : undefined)
         )
       } catch (e) {
@@ -903,6 +929,69 @@ export class AgentService {
       }
     } catch (e) {
       console.error('[Agent] Failed to parse token usage:', (e as Error).message)
+    }
+    return undefined
+  }
+
+  /**
+   * 从 CLI 输出中解析工具调用列表
+   * 支持格式：
+   * - Codex: "Called: tool_name" 或 "tool_use: tool_name"
+   * - Claude: "⏺ tool_name" 或 "Tool: tool_name"  
+   * - 通用: "Using tool: xxx" / "Calling: xxx"
+   */
+  private parseToolCalls(output: string): string[] | undefined {
+    try {
+      // eslint-disable-next-line no-control-regex
+      const clean = output.replace(/\x1b\[[0-9;]*m/g, '')
+      const tools = new Set<string>()
+
+      // Codex/Claude 常见格式
+      const patterns = [
+        /(?:Called|Calling|Tool|tool_use|Using tool)[:\s]+([a-zA-Z_][\w.-]*)/g,
+        /⏺\s+([a-zA-Z_][\w.-]*)\s*(?:\(|$)/gm,
+      ]
+
+      for (const pattern of patterns) {
+        let match
+        while ((match = pattern.exec(clean)) !== null) {
+          const tool = match[1].trim()
+          if (tool && tool.length < 60) tools.add(tool)
+        }
+      }
+
+      return tools.size > 0 ? Array.from(tools) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * 从 CLI 输出中解析修改的文件数量
+   * 支持格式：
+   * - "N file(s) changed" / "N files modified"
+   * - "Wrote N files" / "Updated N files"
+   * - 统计输出中出现的 write/create/update 文件路径
+   */
+  private parseFilesModified(output: string): number | undefined {
+    try {
+      // eslint-disable-next-line no-control-regex
+      const clean = output.replace(/\x1b\[[0-9;]*m/g, '')
+
+      // 直接数字声明：N file(s) changed/modified/written
+      const countMatch = clean.match(/(\d+)\s+files?\s+(?:changed|modified|written|updated|created)/i)
+        || clean.match(/(?:wrote|updated|created|modified)\s+(\d+)\s+files?/i)
+      if (countMatch) {
+        return parseInt(countMatch[1], 10)
+      }
+
+      // 统计写文件路径模式：Write/Create/Update path/to/file.ext
+      const fileOps = clean.match(/(?:(?:Writ(?:e|ing|ten)|Creat(?:e|ing|ed)|Updat(?:e|ing|ed))\s+)[./\w-]+\.\w+/g)
+      if (fileOps && fileOps.length > 0) {
+        return fileOps.length
+      }
+    } catch {
+      // 解析失败静默
     }
     return undefined
   }

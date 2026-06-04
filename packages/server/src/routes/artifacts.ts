@@ -320,5 +320,141 @@ export function createArtifactsRouter(deps: {
     }
   })
 
+  /** 语义聚合反馈 — 按类别分组、优先级排序、urgency 标记 */
+  router.post('/feedback/aggregate', async (req, res) => {
+    try {
+      const { days = 14, runId } = req.body || {}
+      const entries = await feedbackCollector.query({
+        startTime: Date.now() - days * 24 * 60 * 60 * 1000,
+        endTime: Date.now(),
+        runId,
+      })
+
+      // 按 type + severity 分组聚合
+      interface AggCluster {
+        category: string
+        categoryLabel: string
+        severity: string
+        urgency: 'critical' | 'high' | 'normal' | 'low'
+        count: number
+        entries: typeof entries
+        topPatterns: Array<{ pattern: string; count: number }>
+        latestTimestamp: number
+        affectedNodes: string[]
+      }
+
+      const typeLabels: Record<string, string> = {
+        review_reject: '审批打回',
+        diff_discard: 'Diff 丢弃',
+        execution_failure: '执行失败',
+        validation_failure: '验证失败',
+        manual_note: '手动备注',
+      }
+
+      // Group by type
+      const typeGroups = new Map<string, typeof entries>()
+      for (const entry of entries) {
+        const key = entry.type
+        const group = typeGroups.get(key) || []
+        group.push(entry)
+        typeGroups.set(key, group)
+      }
+
+      const clusters: AggCluster[] = []
+
+      for (const [type, group] of typeGroups) {
+        // Sub-group by severity
+        const severityGroups = new Map<string, typeof entries>()
+        for (const entry of group) {
+          const key = entry.severity
+          const sg = severityGroups.get(key) || []
+          sg.push(entry)
+          severityGroups.set(key, sg)
+        }
+
+        for (const [severity, severityGroup] of severityGroups) {
+          // Extract pattern by summary similarity (simple word-level)
+          const patternCounts = new Map<string, number>()
+          const affectedNodesSet = new Set<string>()
+          let latestTs = 0
+
+          for (const entry of severityGroup) {
+            // Use summary as pattern key (truncated for grouping)
+            const pattern = entry.summary.slice(0, 100)
+            patternCounts.set(pattern, (patternCounts.get(pattern) || 0) + 1)
+            if (entry.nodeName) affectedNodesSet.add(entry.nodeName)
+            if (entry.timestamp > latestTs) latestTs = entry.timestamp
+          }
+
+          const topPatterns = Array.from(patternCounts.entries())
+            .map(([pattern, count]) => ({ pattern, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+
+          // Compute urgency based on severity + recency + frequency
+          const hoursSinceLatest = (Date.now() - latestTs) / (1000 * 60 * 60)
+          let urgency: AggCluster['urgency'] = 'normal'
+          if (severity === 'critical' || (severity === 'high' && severityGroup.length >= 3)) {
+            urgency = 'critical'
+          } else if (severity === 'high' || (severity === 'medium' && severityGroup.length >= 5) || hoursSinceLatest < 2) {
+            urgency = 'high'
+          } else if (severity === 'low' && severityGroup.length <= 1) {
+            urgency = 'low'
+          }
+
+          clusters.push({
+            category: type,
+            categoryLabel: typeLabels[type] || type,
+            severity,
+            urgency,
+            count: severityGroup.length,
+            entries: severityGroup,
+            topPatterns,
+            latestTimestamp: latestTs,
+            affectedNodes: Array.from(affectedNodesSet),
+          })
+        }
+      }
+
+      // Sort by urgency priority then count
+      const urgencyOrder: Record<string, number> = { critical: 0, high: 1, normal: 2, low: 3 }
+      clusters.sort((a, b) => {
+        const urgDiff = (urgencyOrder[a.urgency] ?? 2) - (urgencyOrder[b.urgency] ?? 2)
+        if (urgDiff !== 0) return urgDiff
+        return b.count - a.count
+      })
+
+      // Summary stats
+      const totalEntries = entries.length
+      const criticalCount = clusters.filter(c => c.urgency === 'critical').reduce((s, c) => s + c.count, 0)
+      const highCount = clusters.filter(c => c.urgency === 'high').reduce((s, c) => s + c.count, 0)
+
+      res.json({
+        success: true,
+        data: {
+          summary: {
+            totalEntries,
+            clusterCount: clusters.length,
+            criticalCount,
+            highCount,
+            periodDays: days,
+          },
+          clusters: clusters.map(c => ({
+            category: c.category,
+            categoryLabel: c.categoryLabel,
+            severity: c.severity,
+            urgency: c.urgency,
+            count: c.count,
+            topPatterns: c.topPatterns,
+            latestTimestamp: c.latestTimestamp,
+            affectedNodes: c.affectedNodes,
+          })),
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
   return router
 }

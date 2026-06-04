@@ -17,6 +17,38 @@ interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    version: 'v2.9.0',
+    date: '2026-06-04',
+    title: 'L2 深化：AutoFlow 自动审批引擎 + 验证 Turn + L1 规则生命周期 + 全面板 UI',
+    type: 'feature',
+    highlights: [
+      '新增 AutoFlowEngine（1494行）：7 维信号加权评估信心分，>=阈值自动放行、<阈值进入人工审批，含安全机制和自适应学习',
+      '新增 ValidationTurnService（1031行）：Agent 完成后自动运行验证策略（script/contract/llm/composite），结果作为信心信号',
+      '新增 L1RuleLifecycleService（929行）：规则生命周期 draft→active→decaying→deprecated→archived，版本化+自动衰减',
+      '前端新增 6 个面板：AutoFlow / 周报摘要 / L1 规则 / 验证 / 冲突检测 / 反馈聚合，RunDetail Tab 扩展到 13 个',
+      'WeeklyDigest 升级为多维分析引擎：趋势对比 + Z-Score 异常检测 + 信号健康度 + 8 周历史快照',
+      'RepoIsolation 冲突检测升级：类型分类(content/add-add/modify-delete/rename) + 严重度评分',
+      'DynamicAgentFactory 增强：反馈注入 Agent prompt + 惰性清理防内存泄漏',
+      'Metrics 同步补全：4 项运行时指标嵌入 TaskNode/AgentTurn 结构体，随 Run 自然同步（SSOT 方案）',
+      '全局 Optional Chaining 审计：DiffReviewPanel + MetricsPanel 防御性编码修复',
+    ],
+    details: `v2.9.0 是 AgentFlow L2 深化方案的完整落地版本，实现从"人工逐节点审批"到"信心驱动自动放行"的质变。总新增/修改约 5900 行代码，涉及 36 个文件。
+
+【AutoFlow 自动审批引擎】核心决策链：Agent 完成节点 → 收集 7 维信号（contract满足度/准出条件/历史通过率/输出质量/执行稳定性/冲突风险/验证分数）→ 加权计算信心分 → 与阈值对比决策。安全机制包括 alwaysReviewNodes 强制审批、maxConsecutiveAutoApprove 连续放行上限。Phase 2 AutoStart 实现节点 ready→自动分配 Agent 启动执行。Phase 3 自适应学习通过 approve/reject 反馈持续优化决策准确率。
+
+【验证 Turn 机制】Agent 主 Turn 完成后自动运行验证：代码节点跑 lint/test 脚本（60s 超时），文档节点可选 LLM reviewer Turn，全部输出 ValidationResult(passed, score, strategy, details)。验证分数作为 AutoFlow 第 7 维信号（动态 15% 权重），提升自动决策的可靠性。
+
+【L1 规则生命周期】从 reject 原因自动沉淀的质量规则现在有了完整管理：draft（新生成）→ active（验证有效后激活）→ decaying（长期未触发开始衰减）→ deprecated（确认无效）→ archived（移出 context）。支持版本化、有效性追踪、语义去重合并。
+
+【前端 6 新面板】AutoFlowPanel 展示信号雷达图和自适应统计；WeeklyDigestPanel 呈现趋势对比和异常高亮；L1RulePanel 管理规则状态和版本；ValidationTurnPanel 展示验证详情和分数；MergeConflictPanel 可视化冲突严重度；FeedbackAggregatePanel 语义聚合反馈并标记 urgency。Tab 栏横向滚动适配。
+
+【WeeklyDigest 升级】从静态汇总重写为多维分析引擎（+714行）：Z-Score 异常检测、多周期趋势对比、信号分布健康度监控、8 周历史快照。接入 AutoFlowEngine 运营指标。
+
+【Metrics 同步补全】4 项缺口（rejectCount/reviewEnteredAt/toolCalls/filesModified）嵌入 TaskNode/AgentTurn 结构体，随 SyncService Run Push 自然同步。MetricsCollector 双源读取（结构体优先 + Map fallback），完全向后兼容。
+
+编译验证：Server + Client tsc --noEmit 均 0 错误。`,
+  },
+  {
     version: 'v2.8.7',
     date: '2026-06-03',
     title: '产出物体系优化 — Prompt 格式引导 + 模板交付物声明 + 前端展示升级',

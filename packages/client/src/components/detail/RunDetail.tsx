@@ -41,6 +41,12 @@ import { ContextDBPanel } from './ContextDBPanel'
 import { A2APanel } from './A2APanel'
 import { DiffReviewPanel } from './DiffReviewPanel'
 import { MetricsPanel } from './MetricsPanel'
+import { AutoFlowPanel } from './AutoFlowPanel'
+import { WeeklyDigestPanel } from './WeeklyDigestPanel'
+import { L1RulePanel } from './L1RulePanel'
+import { ValidationTurnPanel } from './ValidationTurnPanel'
+import { MergeConflictPanel } from './MergeConflictPanel'
+import { FeedbackAggregatePanel } from './FeedbackAggregatePanel'
 import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab, SkillInfo, Artifact } from '../../types'
 
 interface Props {
@@ -348,29 +354,37 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden">
-      {/* Tab 切换栏 */}
-      <div className="flex items-center gap-1 px-4 pb-2 border-b border-gray-100 mb-2 shrink-0">
-        {([
-          { key: 'dag', label: 'DAG 视图' },
-          { key: 'diff-review', label: 'Diff Review' },
-          { key: 'metrics', label: 'Metrics' },
-          { key: 'agent-tree', label: 'Agent Tree' },
-          { key: 'checkpoint', label: 'Checkpoint' },
-          { key: 'context-db', label: 'Context DB' },
-          { key: 'a2a', label: 'A2A 消息' },
-        ] as { key: RunDetailTab; label: string }[]).map((tab) => (
-          <button
-            key={tab.key}
-            className={`px-3 py-1.5 text-[12px] rounded-md transition-colors ${
-              runDetailTab === tab.key
-                ? 'bg-indigo-50 text-indigo-600 font-medium'
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
-            onClick={() => setRunDetailTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Tab 切换栏 — 可横向滚动 */}
+      <div className="overflow-x-auto scrollbar-hide shrink-0 border-b border-gray-100 mb-2">
+        <div className="flex items-center gap-0.5 px-4 pb-2 min-w-max">
+          {([
+            { key: 'dag', label: 'DAG 视图' },
+            { key: 'diff-review', label: 'Diff Review' },
+            { key: 'metrics', label: 'Metrics' },
+            { key: 'autoflow', label: 'AutoFlow' },
+            { key: 'digest', label: '周报摘要' },
+            { key: 'l1-rules', label: 'L1 规则' },
+            { key: 'validation', label: '验证' },
+            { key: 'merge-conflict', label: '冲突检测' },
+            { key: 'feedback', label: '反馈聚合' },
+            { key: 'agent-tree', label: 'Agent Tree' },
+            { key: 'checkpoint', label: 'Checkpoint' },
+            { key: 'context-db', label: 'Context DB' },
+            { key: 'a2a', label: 'A2A 消息' },
+          ] as { key: RunDetailTab; label: string }[]).map((tab) => (
+            <button
+              key={tab.key}
+              className={`px-2.5 py-1.5 text-[11px] rounded-md transition-colors whitespace-nowrap ${
+                runDetailTab === tab.key
+                  ? 'bg-indigo-50 text-indigo-600 font-semibold border border-indigo-100'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+              onClick={() => setRunDetailTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 内容区 */}
@@ -397,6 +411,30 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
       ) : runDetailTab === 'a2a' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <A2APanel run={run} />
+        </div>
+      ) : runDetailTab === 'autoflow' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <AutoFlowPanel run={run} />
+        </div>
+      ) : runDetailTab === 'digest' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <WeeklyDigestPanel run={run} />
+        </div>
+      ) : runDetailTab === 'l1-rules' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <L1RulePanel run={run} />
+        </div>
+      ) : runDetailTab === 'validation' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <ValidationTurnPanel run={run} />
+        </div>
+      ) : runDetailTab === 'merge-conflict' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <MergeConflictPanel run={run} />
+        </div>
+      ) : runDetailTab === 'feedback' ? (
+        <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
+          <FeedbackAggregatePanel run={run} />
         </div>
       ) : (
         <div className="flex-1 flex overflow-hidden">

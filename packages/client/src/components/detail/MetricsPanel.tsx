@@ -253,7 +253,7 @@ function OverviewSection({ metrics }: { metrics: RunMetrics }) {
           <span className="text-[12px] text-amber-700">
             瓶颈节点：
             <span className="font-medium">
-              {metrics.nodeMetrics.find(n => n.nodeId === metrics.bottleneckNodeId)?.nodeName || metrics.bottleneckNodeId}
+              {metrics.nodeMetrics?.find(n => n.nodeId === metrics.bottleneckNodeId)?.nodeName || metrics.bottleneckNodeId}
             </span>
             （耗时最长）
           </span>
@@ -265,7 +265,7 @@ function OverviewSection({ metrics }: { metrics: RunMetrics }) {
         <h4 className="text-[12px] font-medium text-gray-700 mb-3">节点状态分布</h4>
         <div className="flex gap-2 flex-wrap">
           {Object.entries(
-            metrics.nodeMetrics.reduce((acc, nm) => {
+            (metrics.nodeMetrics ?? []).reduce((acc, nm) => {
               acc[nm.finalStatus] = (acc[nm.finalStatus] || 0) + 1
               return acc
             }, {} as Record<string, number>)
@@ -288,7 +288,7 @@ function OverviewSection({ metrics }: { metrics: RunMetrics }) {
 // ═══════════════ Timeline Section (甘特图) ═══════════════
 
 function TimelineSection({ metrics }: { metrics: RunMetrics }) {
-  const timeline = metrics.timeline
+  const timeline = metrics.timeline ?? []
   if (timeline.length === 0) {
     return <Empty description="暂无时间线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
   }
@@ -342,7 +342,7 @@ function TimelineSection({ metrics }: { metrics: RunMetrics }) {
                 />
               </Tooltip>
               {/* 分段（如果有多轮） */}
-              {entry.segments.length > 1 && entry.segments.map((seg, i) => {
+              {(entry.segments?.length ?? 0) > 1 && entry.segments.map((seg, i) => {
                 const segLeft = ((seg.startedAt - minTime) / totalSpan) * 100
                 const segWidth = Math.max(0.5, (seg.duration / totalSpan) * 100)
                 const segColor = seg.type === 'review' ? '#f97316' : seg.type === 'waiting' ? '#9ca3af' : color

@@ -19,6 +19,7 @@ import {
   BranchesOutlined,
   HistoryOutlined,
   SyncOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons'
 
 /**
@@ -41,7 +42,7 @@ export function AboutPage() {
             <RocketOutlined className="text-white text-[28px]" />
           </div>
           <h1 className="text-[28px] font-bold text-gray-900 mb-2">AgentFlow</h1>
-          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.8.7</p>
+          <p className="text-[15px] text-gray-500 mb-4">AI 驱动的多 Agent 协作开发工作流引擎 · v2.9.0</p>
           <div className="flex items-center justify-center gap-2">
             <Tag color="blue">DAG 可视化</Tag>
             <Tag color="purple">多角色 Agent</Tag>
@@ -52,6 +53,7 @@ export function AboutPage() {
             <Tag color="geekblue">Metrics 可观测</Tag>
             <Tag color="magenta">反馈闭环</Tag>
             <Tag color="lime">Skill 自动沉淀</Tag>
+            <Tag color="red">AutoFlow 自动审批</Tag>
           </div>
         </div>
 
@@ -920,6 +922,69 @@ export function AboutPage() {
               title="可展开内容预览"
               desc="有 content 的产出物支持点击展开，代码类用 SyntaxHighlighter 高亮渲染，文档类用 Markdown 预览，截断超长内容并提示。"
               color="#059669"
+            />
+          </div>
+        </section>
+
+        {/* ═══ v2.9.0 L2 深化 ═══ */}
+        <section className="mb-12">
+          <SectionTitle icon={<DashboardOutlined />} title="L2 深化 — 自动审批 + 自验能力 + 规则生命周期（v2.9.0）" color="indigo" />
+          <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-100 rounded-xl p-6 mb-5">
+            <p className="text-[14px] text-gray-700 leading-[1.8]">
+              v2.9.0 是 AgentFlow L2 深化方案的完整落地，实现从"<strong>人工逐节点审批</strong>"到"<strong>信心驱动自动放行</strong>"的质变。
+              核心交付：AutoFlow 7 维信号信心评估引擎、验证 Turn 自验能力、L1 规则生命周期管理、6 个新前端面板。
+              总新增/修改约 5900 行代码，涉及 36 个文件。
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <ArchCard
+              icon={<DashboardOutlined />}
+              title="AutoFlow 自动审批引擎"
+              desc="7 维信号加权评估信心分（contract满足度/准出条件/历史通过率/输出质量/执行稳定性/冲突风险/验证分数），>=阈值自动放行，<阈值人工审批。含安全机制和自适应学习。"
+              color="#4f46e5"
+            />
+            <ArchCard
+              icon={<ExperimentOutlined />}
+              title="验证 Turn 机制"
+              desc="Agent 主 Turn 完成后自动运行验证策略（script/contract/llm/composite），结果作为 AutoFlow 第 7 维信号（动态15%权重），提升自动决策可靠性。"
+              color="#7c3aed"
+            />
+            <ArchCard
+              icon={<SafetyCertificateOutlined />}
+              title="L1 规则生命周期"
+              desc="reject 原因自动沉淀为质量规则，完整状态机 draft→active→decaying→deprecated→archived。版本化存储、有效性追踪、自动衰减、语义去重合并。"
+              color="#059669"
+            />
+            <ArchCard
+              icon={<ThunderboltOutlined />}
+              title="AutoStart 自动推进"
+              desc="节点变为 ready 时自动分配 DynamicAgent 实例并启动 Turn，并行度控制（maxParallel），防重复启动（Set 去重），完全自动化执行链路。"
+              color="#f59e0b"
+            />
+            <ArchCard
+              icon={<DesktopOutlined />}
+              title="6 个新前端面板"
+              desc="AutoFlow 信号雷达图 / 周报趋势分析 / L1 规则管理 / 验证详情 / 冲突检测可视化 / 反馈语义聚合。RunDetail Tab 栏扩展到 13 个，横向滚动适配。"
+              color="#0891b2"
+            />
+            <ArchCard
+              icon={<SyncOutlined />}
+              title="WeeklyDigest 升级"
+              desc="从静态汇总重写为多维分析引擎：Z-Score 异常检测、多周期趋势对比、信号分布健康度监控、8 周历史快照。接入 AutoFlowEngine 运营指标。"
+              color="#9333ea"
+            />
+            <ArchCard
+              icon={<BranchesOutlined />}
+              title="冲突检测升级"
+              desc="checkMergeConflict 从布尔值升级为结构化分析：冲突类型分类（content/add-add/modify-delete/rename）+ severityScore 严重度评分 + 详细文件信息。"
+              color="#dc2626"
+            />
+            <ArchCard
+              icon={<DatabaseOutlined />}
+              title="Metrics 同步补全"
+              desc="4 项运行时指标（rejectCount/reviewEnteredAt/toolCalls/filesModified）嵌入 TaskNode/AgentTurn 结构体，随 Run 自然同步，SSOT 方案零同步逻辑改动。"
+              color="#0d9488"
             />
           </div>
         </section>

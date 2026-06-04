@@ -181,7 +181,8 @@ export class MetricsCollector {
 
       const nodeTurns = allTurns.get(node.id) || []
       const turnMetricsForNode = this.turnMetrics.get(node.id) || []
-      const rejectCount = this.nodeRejectCounts.get(node.id) || 0
+      // 优先从持久化的 node.rejectCount 读取，fallback 到运行时 Map
+      const rejectCount = node.rejectCount ?? this.nodeRejectCounts.get(node.id) ?? 0
 
       // 计算节点总 token
       let nodeInput = 0
@@ -205,21 +206,24 @@ export class MetricsCollector {
           if (tokenUsage) {
             nodeInput += tokenUsage.input
             nodeOutput += tokenUsage.output
-            // 构建 TurnMetrics 以便 Token 分布和效率表格能读取
-            turnMetricsForNode.push({
-              turnId: turn.id,
-              nodeId: turn.nodeId,
-              agentId: turn.agentId,
-              turnIndex: turn.turnIndex,
-              startedAt: turn.startedAt,
-              completedAt: turn.completedAt || Date.now(),
-              duration: (turn.completedAt || Date.now()) - turn.startedAt,
-              tokenUsage,
-              toolCalls: [],
-              filesModified: 0,
-              result: turn.result,
-            })
           }
+          // 从 AgentTurn 持久化字段读取 toolCalls（同步后可用）
+          const turnToolCalls = turn.toolCalls || []
+          nodeToolCalls.push(...turnToolCalls)
+          // 构建 TurnMetrics 以便 Token 分布和效率表格能读取
+          turnMetricsForNode.push({
+            turnId: turn.id,
+            nodeId: turn.nodeId,
+            agentId: turn.agentId,
+            turnIndex: turn.turnIndex,
+            startedAt: turn.startedAt,
+            completedAt: turn.completedAt || Date.now(),
+            duration: (turn.completedAt || Date.now()) - turn.startedAt,
+            tokenUsage: tokenUsage || { input: 0, output: 0, total: 0 },
+            toolCalls: turnToolCalls,
+            filesModified: turn.filesModified || 0,
+            result: turn.result,
+          })
         }
       }
 
@@ -231,7 +235,8 @@ export class MetricsCollector {
       const nodeDuration = (node.completedAt && node.startedAt)
         ? node.completedAt - node.startedAt
         : 0
-      const reviewEnterTime = this.nodeReviewTimes.get(node.id)
+      // 优先从持久化的 node.reviewEnteredAt 读取，fallback 到运行时 Map
+      const reviewEnterTime = node.reviewEnteredAt ?? this.nodeReviewTimes.get(node.id)
       const waitDuration = (reviewEnterTime && node.completedAt)
         ? node.completedAt - reviewEnterTime
         : 0

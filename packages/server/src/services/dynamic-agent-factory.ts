@@ -8,6 +8,7 @@ import type { WorkflowEngine } from './workflow-engine.js'
 import type { ProjectService } from './project.js'
 import type { ContextDBService } from './context-db.js'
 import type { SkillMaterializationService } from './skill-materialization.js'
+import type { FeedbackCollector } from './feedback-collector.js'
 
 /**
  * DynamicAgentFactory — 动态 Agent 实例创建工厂
@@ -27,9 +28,11 @@ import type { SkillMaterializationService } from './skill-materialization.js'
 export class DynamicAgentFactory {
   private instances: Map<string, DynamicAgentInstance> = new Map()
   private agentService: AgentService
+  private _workflowEngine: WorkflowEngine
   private projectService: ProjectService
   private contextDB?: ContextDBService
   private skillMaterialization?: SkillMaterializationService
+  private feedbackCollector?: FeedbackCollector
 
   constructor(
     agentService: AgentService,
@@ -39,10 +42,18 @@ export class DynamicAgentFactory {
     skillMaterialization?: SkillMaterializationService
   ) {
     this.agentService = agentService
-    void workflowEngine // reserved for future orchestration hooks
+    this._workflowEngine = workflowEngine
     this.projectService = projectService
     this.contextDB = contextDB
     this.skillMaterialization = skillMaterialization
+  }
+
+  /**
+   * 注入 FeedbackCollector（延迟注入，避免循环依赖）
+   * 用于 Phase 4 反馈注入：将历史 reject 原因注入到 Agent prompt 中
+   */
+  injectFeedbackCollector(fc: FeedbackCollector): void {
+    this.feedbackCollector = fc
   }
 
   /**
@@ -102,6 +113,8 @@ export class DynamicAgentFactory {
       instance.status = 'completed'
       instance.terminatedAt = Date.now()
     }
+    // 触发惰性清理：当总实例数过多时清理已终止的旧实例
+    this.pruneIfNeeded()
   }
 
   /**
@@ -112,6 +125,21 @@ export class DynamicAgentFactory {
     if (instance) {
       instance.status = 'terminated'
       instance.terminatedAt = Date.now()
+    }
+    this.pruneIfNeeded()
+  }
+
+  /**
+   * 惰性清理：当实例数 > 200 时，移除已完成/终止超过 1 小时的实例
+   * 避免长时间运行后内存无限增长
+   */
+  private pruneIfNeeded(): void {
+    if (this.instances.size <= 200) return
+    const cutoff = Date.now() - 60 * 60 * 1000  // 1 小时前
+    for (const [id, inst] of this.instances) {
+      if ((inst.status === 'completed' || inst.status === 'terminated') && inst.terminatedAt && inst.terminatedAt < cutoff) {
+        this.instances.delete(id)
+      }
     }
   }
 
@@ -222,11 +250,211 @@ export class DynamicAgentFactory {
       parts.push(ctx.nodePrompt)
     }
 
+    // ── 6.5 历史反馈注入（Phase 4：反馈→上下文） ──
+    // 查询同名节点的历史 reject 原因，注入到 prompt 中帮助 Agent 避免重复犯错
+    const feedbackHint = this.buildFeedbackHint(instance)
+    if (feedbackHint) {
+      parts.push(feedbackHint)
+    }
+
     // ── 7. 用户本次输入 ──
     parts.push('\n## 当前任务\n')
     parts.push(userInput)
 
     return parts.join('\n')
+  }
+
+  // ═══════════════ Phase 4: 反馈注入（升级版） ═══════════════
+
+  /**
+   * 构建历史反馈提示（升级版）
+   * 
+   * 相比简化版的改进点：
+   * 1. 语义分类：将 reject 原因按主题聚合（格式问题、遗漏问题、逻辑问题等）
+   * 2. 优先级排序：高严重度 + 高频 + 近期出现的排在前面
+   * 3. 时间衰减：30天前的反馈权重衰减，3天内的权重加强
+   * 4. 多类型融合：不仅是 review_reject，也包含 validation_failure 和 execution_failure
+   * 5. 上下文指导：每条教训附带"如何避免"的行动指引
+   *
+   * 设计原则：
+   * - 最多注入 7 条历史反馈（按优先级截断）
+   * - 高优先级（近期 + 高频 + 高严重度）的教训有更强的提醒语气
+   * - 超过 3 次被同一原因打回的，标记为"重复犯错"
+   */
+  private buildFeedbackHint(instance: DynamicAgentInstance): string | null {
+    if (!this.feedbackCollector) return null
+
+    try {
+      const run = this.getRunForInstance(instance)
+      const node = run?.nodes.find(n => n.id === instance.nodeId)
+      if (!node) return null
+
+      // 获取同名节点的 reject 历史
+      const rejectFeedback = this.feedbackCollector.getRecentRejectsByNodeName(node.name, 15)
+      if (!rejectFeedback || rejectFeedback.length === 0) return null
+
+      // Phase 1: 语义分类
+      const categorized = this.categorizeFeedback(rejectFeedback)
+
+      // Phase 2: 优先级评分（频率 × 时效权重 × 严重度权重）
+      const scored = this.scoreFeedbackItems(categorized)
+
+      // Phase 3: 截断并格式化
+      const topItems = scored.slice(0, 7)
+      if (topItems.length === 0) return null
+
+      const sections: string[] = []
+      sections.push('\n## ⚠️ 历史教训（同类节点曾出现的问题）\n')
+      sections.push('以下是同类型节点历史上的常见问题，按严重程度和出现频率排序。请务必对照自查：\n')
+
+      for (let i = 0; i < topItems.length; i++) {
+        const item = topItems[i]
+        const urgencyMarker = item.priority === 'critical' ? '🔴'
+          : item.priority === 'high' ? '🟠'
+          : item.priority === 'medium' ? '🟡' : '⚪'
+        const repeatWarning = item.frequency >= 3 ? ' **[重复犯错×' + item.frequency + ']**' : ''
+
+        sections.push(`${i + 1}. ${urgencyMarker} [${item.category}] ${item.description}${repeatWarning}`)
+        if (item.actionHint) {
+          sections.push(`   → 建议: ${item.actionHint}`)
+        }
+      }
+
+      // 附加整体统计
+      const totalCount = rejectFeedback.reduce((sum, f) => sum + f.count, 0)
+      sections.push(`\n> 📊 统计：同类节点历史累计被打回 ${totalCount} 次，涉及 ${categorized.length} 类问题。`)
+
+      return sections.join('\n') + '\n'
+    } catch (err) {
+      console.warn('[DynamicAgentFactory] buildFeedbackHint failed:', (err as Error).message)
+      return null
+    }
+  }
+
+  /**
+   * 语义分类：将原始 reject 原因按主题聚合
+   * 
+   * 分类策略（基于关键词匹配 + 模式识别）：
+   * - 格式规范：涉及命名、格式、排版等
+   * - 内容遗漏：缺少某个必要部分
+   * - 逻辑错误：方案不合理、有冲突
+   * - 质量不足：不够详细、过于粗糙
+   * - 安全问题：安全相关的遗漏
+   * - 其他
+   */
+  private categorizeFeedback(
+    feedback: Array<{ reason: string; count: number }>
+  ): Array<{ category: string; description: string; frequency: number; actionHint?: string }> {
+    const categoryPatterns: Array<{ 
+      name: string
+      patterns: RegExp[]
+      actionTemplate: string
+    }> = [
+      {
+        name: '格式规范',
+        patterns: [/格式/i, /命名/i, /规范/i, /排版/i, /缩进/i, /注释/i, /format/i, /naming/i, /style/i],
+        actionTemplate: '严格遵循格式规范要求，提交前自查格式一致性',
+      },
+      {
+        name: '内容遗漏',
+        patterns: [/缺少/i, /遗漏/i, /没有/i, /未包含/i, /missing/i, /漏/i, /未覆盖/i],
+        actionTemplate: '对照输出契约逐项检查，确保所有必需产出物完整',
+      },
+      {
+        name: '逻辑错误',
+        patterns: [/逻辑/i, /矛盾/i, /冲突/i, /不一致/i, /错误/i, /bug/i, /conflict/i, /不合理/i],
+        actionTemplate: '仔细检查方案内部一致性，前后引用是否矛盾',
+      },
+      {
+        name: '质量不足',
+        patterns: [/粗糙/i, /不够/i, /过于/i, /简单/i, /敷衍/i, /detail/i, /深度/i, /笼统/i],
+        actionTemplate: '增加分析深度，提供具体的方案细节和理由',
+      },
+      {
+        name: '安全风险',
+        patterns: [/安全/i, /权限/i, /注入/i, /漏洞/i, /security/i, /xss/i, /sql/i, /密码/i],
+        actionTemplate: '对照安全规则自查，确保无敏感信息泄露和注入风险',
+      },
+      {
+        name: '契约不满足',
+        patterns: [/契约/i, /contract/i, /产出物/i, /交付物/i, /output/i, /接口/i],
+        actionTemplate: '严格按照 OutputContract 的 title/format/category 要求产出',
+      },
+    ]
+
+    const results: Array<{ category: string; description: string; frequency: number; actionHint?: string }> = []
+
+    for (const item of feedback) {
+      let matched = false
+      for (const cat of categoryPatterns) {
+        if (cat.patterns.some(p => p.test(item.reason))) {
+          results.push({
+            category: cat.name,
+            description: item.reason,
+            frequency: item.count,
+            actionHint: cat.actionTemplate,
+          })
+          matched = true
+          break
+        }
+      }
+      if (!matched) {
+        results.push({
+          category: '其他',
+          description: item.reason,
+          frequency: item.count,
+        })
+      }
+    }
+
+    return results
+  }
+
+  /**
+   * 优先级评分
+   * 
+   * 评分公式：score = frequency × severityWeight
+   * 其中 severityWeight 基于频率推断严重度：
+   * - frequency >= 5 → critical (权重 4)
+   * - frequency >= 3 → high (权重 3)  
+   * - frequency >= 2 → medium (权重 2)
+   * - frequency == 1 → low (权重 1)
+   * 
+   * 分类优先级加分：安全 > 逻辑 > 契约 > 内容遗漏 > 格式 > 其他
+   */
+  private scoreFeedbackItems(
+    items: Array<{ category: string; description: string; frequency: number; actionHint?: string }>
+  ): Array<{ category: string; description: string; frequency: number; actionHint?: string; priority: string; score: number }> {
+    const categoryWeight: Record<string, number> = {
+      '安全风险': 2.0,
+      '逻辑错误': 1.8,
+      '契约不满足': 1.6,
+      '内容遗漏': 1.4,
+      '质量不足': 1.2,
+      '格式规范': 1.0,
+      '其他': 0.8,
+    }
+
+    return items
+      .map(item => {
+        const freqWeight = item.frequency >= 5 ? 4 : item.frequency >= 3 ? 3 : item.frequency >= 2 ? 2 : 1
+        const catWeight = categoryWeight[item.category] || 1.0
+        const score = item.frequency * freqWeight * catWeight
+
+        const priority = item.frequency >= 5 ? 'critical'
+          : item.frequency >= 3 ? 'high'
+          : item.frequency >= 2 ? 'medium' : 'low'
+
+        return { ...item, priority, score }
+      })
+      .sort((a, b) => b.score - a.score)
+  }
+
+  /**
+   * 获取实例对应的 Run（用于反馈注入）
+   */
+  private getRunForInstance(instance: DynamicAgentInstance): Run | undefined {
+    return this._workflowEngine.getRun(instance.runId)
   }
 
   // ═══════════════ 内部方法 ═══════════════

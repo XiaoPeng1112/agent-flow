@@ -345,6 +345,7 @@ export class RunManager {
     switch (decision) {
       case 'waiting_user_review':
         node.status = 'wait_user_review'
+        node.reviewEnteredAt = Date.now()
         break
       case 'completed': {
         // 准出条件验证：如果定义了 exitConditions，必须全部满足才能标记为 completed
@@ -416,6 +417,7 @@ export class RunManager {
     if (node.status !== 'wait_user_review') throw new Error(`Node ${nodeId} is not waiting for review`)
 
     node.status = 'running'
+    node.rejectCount = (node.rejectCount || 0) + 1
     if (feedback) {
       node.userInput = feedback
     }
@@ -538,6 +540,22 @@ export class RunManager {
   async updateRunConfig(runId: string, config: import('../types/index.js').RunConfig): Promise<void> {
     const run = this.getRun(runId)
     if (!run) throw new Error(`Run not found: ${runId}`)
+
+    // 深度合并 autoFlow 配置（避免浅覆盖丢失嵌套字段）
+    if (config.autoFlow && run.config?.autoFlow) {
+      config = {
+        ...config,
+        autoFlow: {
+          ...run.config.autoFlow,
+          ...config.autoFlow,
+          // nodeOverrides 也做合并
+          nodeOverrides: config.autoFlow.nodeOverrides !== undefined
+            ? { ...run.config.autoFlow.nodeOverrides, ...config.autoFlow.nodeOverrides }
+            : run.config.autoFlow.nodeOverrides,
+        },
+      }
+    }
+
     run.config = { ...run.config, ...config }
     await this.persist()
   }

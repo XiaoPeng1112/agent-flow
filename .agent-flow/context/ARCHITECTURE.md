@@ -1,6 +1,6 @@
 # AgentFlow 项目架构
 
-> 最后更新：2026-06-03（v2.8.7 — 产出物体系优化 + Skill 自动沉淀 + Skill 物化执行链路）  
+> 最后更新：2026-06-01（v2.7.1 — GitHub Private Repo 数据同步 + Context DB 同步）  
 > 维护者：@XiaoPeng1112
 
 ## 项目定位
@@ -37,19 +37,15 @@ agent-flow/
 │   │   ├── vite.config.ts
 │   │   └── index.html
 │   └── server/          # 后端 Express 服务
-│       ├── tests/         # Vitest 单元测试（122 cases）
+│       ├── tests/         # Vitest 单元测试（68 cases）
 │       │   ├── workflow-engine.test.ts
 │       │   ├── a2a-protocol.test.ts
 │       │   └── contract-validator.test.ts
 │       └── src/
-│           ├── index.ts       # 服务入口（v2.8.7）
-│           ├── routes/        # 模块化路由（v2.7.3 拆分）
-│           │   ├── api.ts       # 路由聚合入口
-│           │   ├── projects.ts  # 项目 + 模板路由
-│           │   ├── runs.ts      # Run / Node / Turn 路由
-│           │   ├── artifacts.ts # Metrics / DiffReview / Feedback / PR 路由
-│           │   └── files.ts     # Skills / FileSystem / Git / Terminal 路由
-│           ├── services/      # 业务服务层（24 个模块）
+│           ├── index.ts       # 服务入口（v2.6.0）
+│           ├── routes/
+│           │   └── api.ts     # REST API 路由定义（全部 async/await）
+│           ├── services/      # 业务服务层（21 个模块）
 │           │   ├── project.ts       # 项目 CRUD
 │           │   ├── template.ts      # 工作流模板管理（4 个内置模板，含 deliver 节点）
 │           │   ├── workflow-engine.ts # DAG 工作流引擎（三层状态机 + Context Chaining）
@@ -71,8 +67,7 @@ agent-flow/
 │           │   ├── metrics-collector.ts   # [v2.6.0] 可观测性指标采集（时间/Token/质量评分）
 │           │   ├── feedback-collector.ts  # [v2.7.0] 反馈采集器（审批打回/Discard/失败 自动记录）
 │           │   ├── weekly-digest.ts       # [v2.7.0] 周报摘要生成器（汇总指标+反馈→Markdown）
-│           │   ├── sync.ts               # [v2.7.1] GitHub Private Repo 数据同步服务
-│           │   └── skill-extraction.ts   # [v2.8.6] Skill 自动沉淀（评分引擎+去重+持久化）
+│           │   └── sync.ts               # [v2.7.1] GitHub Private Repo 数据同步服务
 │           └── types/
 │               └── index.ts   # 核心类型定义（含 NodeContext、EdgeCondition、A2A、RBAC 等）
 ├── .agent-flow/
@@ -113,10 +108,11 @@ agent-flow/
 
 ### 数据持久化
 
-- **SQLite + WAL** [v2.7.3]：项目、模板、Run、Node、Turn 等核心数据迁移到 SQLite 数据库（`~/.agent-flow/data.db`），WAL 模式支持并发读写
+- 项目数据：`~/.agent-flow/projects.json`
+- 工作流模板：`~/.agent-flow/templates.json`
+- Run 历史：`~/.agent-flow/runs/index.json`
 - 认证信息：`~/.agent-flow/auth.json`
 - 同步配置：`~/.agent-flow/sync-config.json`
-- Skill 沉淀：`project.path/.agent-flow/skills/<name>/SKILL.md` [v2.8.6]
 - 日志：localStorage（前端，最近 200 条）
 
 ### 数据同步（GitHub Private Repo）[v2.7.1]
@@ -333,45 +329,6 @@ API：`POST /api/contracts/validate/:nodeId`
 
 API：`POST /api/robustness/retry`、`GET /api/robustness/dlq`、`POST /api/robustness/checkpoint`、`GET /api/robustness/health`
 
-### Skill 物化执行链路（完整接入）[v2.8.5]
-
-v2.4.0 的 SkillMaterializationService 在 v2.8.5 正式接入执行链路，Skill 内容真正参与 Agent prompt 组装：
-
-- **DynamicAgentFactory 接入**：`assembleScopedContext()` 第 7 步读取节点 `skillIds`，调用 `SkillMaterializationService.initWhitelistFromTemplate()` 设置白名单，`getSkillPromptForNode()` 物化 Skill 文件内容生成 prompt 片段
-- **Prompt 注入层级**：`buildFullPrompt()` 第 5.5 步（前置产出物之后、L2 节点指令之前）注入 `skillPrompt`
-- **节点 Skill 绑定 API**：`PATCH /api/runs/:runId/nodes/:nodeId/skills` 支持动态更新节点 Skill 绑定并即时持久化
-- **前端 UI**：NodeSkillBinding 组件改为 Select 多选下拉框（搜索过滤 + 乐观更新 + 失败回滚）
-
-类型扩展：`ScopedContext` 接口新增 `skillPrompt?: string` 字段。
-
-### Skill 自动沉淀系统 [v2.8.6]
-
-节点执行完成后自动评估产出物价值并择优沉淀为可复用 Skill 文件：
-
-- **SkillExtractionService**（419行）：核心服务，包含评分引擎、去重检测、持久化逻辑
-- **百分制 5 维评分引擎**：节点类型权重（0~30）+ 内容长度（0~15）+ Markdown 结构化（0~20）+ 代码块密度（0~15）+ 关键词匹配（0~20），满分 100 转 0~1 置信度，阈值 0.6
-- **Jaccard 去重**：词集相似度 >0.7 视为重复自动跳过
-- **存储路径**：`project.path/.agent-flow/skills/<skill-name>/SKILL.md`，含 YAML frontmatter
-- **事件驱动**：`run:node_updated` status=completed 异步触发，不阻塞主流程
-- **双模式**：自动沉淀（评分达标）+ 手动沉淀（`forceExtract()` 置信度 1.0）
-
-API 路由：`GET /skills/extraction-stats`、`GET /skills/extraction-log`、`POST /skills/extract`、`GET /skills/project-dir/:projectId`
-
-### 产出物体系优化（全链路闭环）[v2.8.7]
-
-解决"Agent 不知道如何标记产出物"导致解析噪音的问题，建立"引导产出 → 精准解析 → 分类展示"三段闭环：
-
-- **后端 Prompt 格式引导**：`AgentService.getArtifactFormatGuidance()` 在 `buildContextualPrompt()` 末尾追加格式规范，引导 Agent 使用 ` ```lang:filename` 标记代码、`## 标题` 标记文档
-- **模板层交付物声明**：4 个模板 20 个节点 prompt 末尾追加"你必须产出以下交付物"列表，与 `outputContracts` 一一对应
-- **前端分类展示**：`ArtifactItem` 组件按 category 差异化展示（code 蓝/document 绿/test 紫/report 橙/config 灰），支持展开/折叠内容预览（代码 SyntaxHighlighter 高亮，文档文本预览）
-
-产出物 5 大功能联动点：
-1. **节点间上下文传递**：`buildContextualPrompt()` 将前置节点 artifacts 注入后续节点 prompt
-2. **准入条件门控**：`computeReadyNodes()` 检查前置节点是否产出 required artifacts
-3. **合同验证**：`ContractValidator` 校验实际产出与 `outputContracts` 声明是否匹配
-4. **Skill 自动沉淀**：`SkillExtractionService` 从高价值 artifacts 提取可复用 Skill
-5. **Diff Review / Git 合入**：`ArtifactMergeService` 基于代码类 artifacts 生成 PR
-
 ### 安全机制
 
 - **文件系统**: allowedRoots 白名单，路径穿越防护（规范化 + 前缀匹配）
@@ -386,9 +343,6 @@ API 路由：`GET /skills/extraction-stats`、`GET /skills/extraction-log`、`PO
 - **产出物闭环**: [v2.6.0] Git worktree Diff Review + 三种合并策略，代码变更可审可控
 - **可观测性**: [v2.6.0] 全链路指标采集 + 持久化，运行效率可量化可追溯
 - **数据同步**: [v2.7.1] GitHub Private Repo 同步，多设备数据互通，Context DB 知识资产不丢失
-- **SQLite + WAL**: [v2.7.3] 持久化迁移到 SQLite，WAL 模式并发读写安全
-- **Skill 白名单隔离**: [v2.8.5] 节点只能使用显式绑定的 Skills，避免信息过载
-- **产出物格式引导**: [v2.8.7] Prompt 引导 Agent 规范输出格式，降低解析误识别
 
 ## 运行方式
 

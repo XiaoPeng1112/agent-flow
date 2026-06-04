@@ -81,6 +81,11 @@ export class WorkflowEngine {
     return this.runManager.onEvent(handler)
   }
 
+  /** 发射事件（供外部服务广播 WebSocket 消息） */
+  emit(type: WsMessage['type'], payload: unknown): void {
+    this.runManager.emit(type, payload)
+  }
+
   // ═══════════════ Run 管理（委托 RunManager） ═══════════════
 
   async createRun(projectId: string, template: WorkflowTemplate, name?: string): Promise<Run> {
@@ -194,9 +199,11 @@ export class WorkflowEngine {
     nodeId: string,
     result: TurnResult,
     question?: string,
-    tokenUsage?: { input: number; output: number; total: number }
+    tokenUsage?: { input: number; output: number; total: number },
+    toolCalls?: string[],
+    filesModified?: number
   ): AgentTurn {
-    return this.turnManager.recordTurnResult(turnId, nodeId, result, question, tokenUsage)
+    return this.turnManager.recordTurnResult(turnId, nodeId, result, question, tokenUsage, toolCalls, filesModified)
   }
 
   finalizeTurn(turnId: string, nodeId: string): AgentTurn {

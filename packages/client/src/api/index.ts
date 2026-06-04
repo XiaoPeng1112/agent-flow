@@ -379,16 +379,414 @@ export const metricsApi = {
 
 export const feedbackApi = {
   /** 查询反馈记录 */
-  query: (params?: { type?: string; runId?: string; limit?: number }) =>
-    request<{ entries: any[] }>('/artifacts/feedback', { method: 'POST', body: JSON.stringify(params || {}) }),
+  query: (params?: { type?: string; runId?: string; severity?: string; limit?: number }) =>
+    request<{ entries: FeedbackEntry[] }>('/artifacts/feedback', { method: 'POST', body: JSON.stringify(params || {}) }),
 
   /** 获取反馈统计 */
   getStats: (days = 7) =>
-    request<{ stats: any }>(`/artifacts/feedback/stats?days=${days}`),
+    request<{ stats: FeedbackStats }>(`/artifacts/feedback/stats?days=${days}`),
 
   /** 生成周报摘要 */
   generateDigest: (days = 7) =>
-    request<{ digest: any }>(`/artifacts/feedback/digest`, { method: 'POST', body: JSON.stringify({ days }) }),
+    request<{ digest: DigestData }>(`/artifacts/feedback/digest`, { method: 'POST', body: JSON.stringify({ days }) }),
+}
+
+// ═══════════════ AutoFlow API (自动放行引擎) ═══════════════
+
+export const autoFlowApi = {
+  /** 获取自适应学习统计 */
+  getAdaptiveStats: () =>
+    request<{ stats: AutoFlowAdaptiveStats }>('/runs/autoflow/adaptive-stats'),
+
+  /** 获取节点的 AutoFlow 评估结果 */
+  getNodeEvaluation: (runId: string, nodeId: string) =>
+    request<{ evaluation: AutoFlowEvaluation | null }>(`/runs/${runId}/nodes/${nodeId}/autoflow`),
+
+  /** 获取 Run 的 AutoFlow 汇总 */
+  getRunSummary: (runId: string) =>
+    request<AutoFlowRunSummary>(`/runs/${runId}/autoflow/summary`),
+
+  /** 更新 Run 的 AutoFlow 配置 */
+  updateConfig: (runId: string, config: AutoFlowConfig) =>
+    request<void>(`/runs/${runId}/config`, {
+      method: 'PATCH',
+      body: JSON.stringify({ autoFlow: config }),
+    }),
+}
+
+// ═══════════════ L1 Rule API (规则生命周期) ═══════════════
+
+export const l1RuleApi = {
+  /** 获取全局规则统计 */
+  getStats: () =>
+    request<{ stats: L1RuleStats }>('/l1-rules/stats'),
+
+  /** 获取模板下所有规则 */
+  getRulesForTemplate: (templateId: string) =>
+    request<{ rules: L1Rule[] }>(`/l1-rules/template/${templateId}`),
+
+  /** 获取节点的活跃规则 */
+  getActiveRulesForNode: (templateId: string, nodeName: string) =>
+    request<{ rules: L1Rule[] }>(`/l1-rules/node/${templateId}/${encodeURIComponent(nodeName)}`),
+
+  /** 手动激活规则 */
+  activateRule: (ruleId: string) =>
+    request<void>(`/l1-rules/${ruleId}/activate`, { method: 'POST' }),
+
+  /** 手动废弃规则 */
+  deprecateRule: (ruleId: string, reason?: string) =>
+    request<void>(`/l1-rules/${ruleId}/deprecate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+}
+
+// ═══════════════ API Types (前后端共享类型) ═══════════════
+
+// ─── Feedback Types ───
+
+export interface FeedbackEntry {
+  id: string
+  type: 'review_reject' | 'diff_discard' | 'execution_failure' | 'manual_note'
+  runId?: string
+  nodeId?: string
+  nodeName?: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  reason?: string
+  note?: string
+  timestamp: number
+}
+
+export interface FeedbackStats {
+  total: number
+  byType: Record<string, number>
+  bySeverity: Record<string, number>
+}
+
+// ─── AutoFlow Types ───
+
+export interface AutoFlowAdaptiveStats {
+  totalEvaluations: number
+  autoApproved: number
+  requireReview: number
+  averageConfidence: number
+  confidenceHistory: Array<{ timestamp: number; confidence: number; decision: string }>
+  signalWeights: Record<string, number>
+  bayesianPrior: { alpha: number; beta: number; mean: number }
+}
+
+export interface AutoFlowEvaluation {
+  decision: 'auto_approve' | 'require_review'
+  confidence: number
+  signals: ConfidenceSignals
+  reasoning: string[]
+  timestamp: number
+}
+
+export interface ConfidenceSignals {
+  feedbackPositive: number
+  contextRelevance: number
+  historicalPassRate: number
+  outputQuality: number
+  executionStability: number
+  mergeConflictFree: number
+}
+
+export interface AutoFlowRunSummary {
+  autoFlowConfig: AutoFlowConfig | null
+  totalEvaluated: number
+  autoApproved: number
+  requireReview: number
+  evaluations: Array<{
+    nodeId: string
+    nodeName: string
+    evaluation: AutoFlowEvaluation
+  }>
+}
+
+export interface AutoFlowConfig {
+  enabled?: boolean
+  confidenceThreshold?: number
+  nodeOverrides?: Record<string, { enabled?: boolean; confidenceThreshold?: number }>
+}
+
+// ─── L1 Rule Types ───
+
+export type RuleLifecycleStatus = 'draft' | 'active' | 'decaying' | 'deprecated' | 'archived'
+export type RuleSeverity = 'critical' | 'high' | 'medium' | 'low'
+
+export interface L1Rule {
+  id: string
+  templateId: string
+  nodeName: string
+  status: RuleLifecycleStatus
+  version: number
+  items: RuleItem[]
+  totalTriggerCount: number
+  effectiveness: RuleEffectiveness
+  decayInfo: RuleDecayInfo
+  createdAt: number
+  updatedAt: number
+  changelog: RuleChangelogEntry[]
+}
+
+export interface RuleItem {
+  description: string
+  frequency: number
+  severity: RuleSeverity
+  example?: string
+  firstSeen: number
+  lastSeen: number
+}
+
+export interface RuleEffectiveness {
+  baselineRejectRate: number
+  currentRejectRate: number
+  postRuleSamples: number
+  postRuleRejects: number
+  improvementRate: number
+  lastMeasuredAt: number
+}
+
+export interface RuleDecayInfo {
+  lastTriggeredAt: number
+  daysSinceLastTrigger: number
+  decayScore: number
+}
+
+export interface RuleChangelogEntry {
+  version: number
+  timestamp: number
+  description: string
+  changes: string[]
+}
+
+export interface L1RuleStats {
+  total: number
+  byStatus: Record<RuleLifecycleStatus, number>
+  averageEffectiveness: number
+  topEffective: Array<{ ruleId: string; nodeName: string; improvement: number }>
+  decayingCount: number
+}
+
+// ─── WeeklyDigest Types ───
+
+export type TrendDirection = 'improving' | 'stable' | 'degrading'
+
+export interface MetricTrend {
+  current: number
+  previous: number
+  changePercent: number
+  direction: TrendDirection
+}
+
+export interface TrendAnalysis {
+  runCount: MetricTrend
+  completionRate: MetricTrend
+  averageDuration: MetricTrend
+  tokenUsage: MetricTrend
+  firstPassRate: MetricTrend
+  autoApproveRate?: MetricTrend
+  accuracy?: MetricTrend
+  overallDirection: TrendDirection
+}
+
+export interface Anomaly {
+  metric: string
+  value: number
+  mean: number
+  stddev: number
+  zScore: number
+  severity: 'warning' | 'critical'
+  direction: 'spike' | 'drop'
+  isNegative: boolean
+  suggestion: string
+}
+
+export interface SignalHealthItem {
+  name: string
+  mean: number
+  stdDev: number
+  sampleCount: number
+  health: 'healthy' | 'low_variance' | 'high_variance' | 'saturated'
+}
+
+export interface SignalHealthReport {
+  signals: SignalHealthItem[]
+  overallHealth: 'healthy' | 'acceptable' | 'needs_attention' | 'unknown' | 'insufficient_data'
+}
+
+export interface DigestData {
+  period: { start: string; end: string }
+  runsSummary: {
+    totalRuns: number
+    completedRuns: number
+    failedRuns: number
+    averageDuration: number
+    totalTokens: number
+  }
+  feedbackSummary: FeedbackStats
+  topIssues: Array<{
+    pattern: string
+    count: number
+    severity: string
+    suggestion: string
+  }>
+  agentPerformance: Array<{
+    agentId: string
+    runsParticipated: number
+    firstPassRate: number
+    averageTokens: number
+  }>
+  autoFlowMetrics?: {
+    totalEvaluations: number
+    autoApproved: number
+    requireReview: number
+    accuracy: number
+    falsePositiveRate: number
+    averageConfidence: number
+    savedReviewTime: number
+  }
+  trendAnalysis?: TrendAnalysis
+  anomalies: Anomaly[]
+  signalHealth: SignalHealthReport
+  historicalSnapshots: Array<{
+    weekId: string
+    period: { start: string; end: string }
+    metrics: Record<string, number>
+    generatedAt: number
+  }>
+  generatedAt: number
+}
+
+// ─── Validation Turn Types ───
+
+export interface ValidationDetail {
+  name: string
+  passed: boolean
+  score: number
+  output?: string
+  error?: string
+  duration?: number
+}
+
+export interface ValidationResult {
+  passed: boolean
+  strategy: 'script' | 'llm' | 'contract' | 'composite' | 'skipped'
+  score: number
+  details: ValidationDetail[]
+  duration: number
+  summary: string
+}
+
+export interface ValidationSummary {
+  totalValidated: number
+  passed: number
+  failed: number
+  averageScore: number
+}
+
+export interface ValidationNodeResult {
+  nodeId: string
+  nodeName: string
+  nodeType: string
+  result: ValidationResult | null
+}
+
+// ─── Merge Conflict Types ───
+
+export type ConflictSeverity = 'none' | 'low' | 'medium' | 'high' | 'critical'
+
+export interface ConflictDetail {
+  type: 'content' | 'add/add' | 'modify/delete' | 'rename' | 'unknown'
+  filePath: string
+}
+
+export interface MergeConflictResult {
+  hasConflict: boolean
+  conflictFiles: string[]
+  conflicts: ConflictDetail[]
+  targetBranch?: string
+  severity: ConflictSeverity
+  severityScore: number
+}
+
+export interface MergeConflictNodeEntry {
+  nodeId: string
+  nodeName: string
+  hasConflict: boolean
+  severity: string
+  severityScore: number
+  conflictFiles: string[]
+  conflicts: ConflictDetail[]
+}
+
+export interface MergeConflictSummary {
+  nodesWithConflicts: number
+  totalConflictFiles: number
+  worstSeverityScore: number
+}
+
+// ─── Feedback Aggregate Types ───
+
+export type FeedbackUrgency = 'critical' | 'high' | 'normal' | 'low'
+
+export interface FeedbackCluster {
+  category: string
+  categoryLabel: string
+  severity: string
+  urgency: FeedbackUrgency
+  count: number
+  topPatterns: Array<{ pattern: string; count: number }>
+  latestTimestamp: number
+  affectedNodes: string[]
+}
+
+export interface FeedbackAggregateSummary {
+  totalEntries: number
+  clusterCount: number
+  criticalCount: number
+  highCount: number
+  periodDays: number
+}
+
+// ═══════════════ Validation API ═══════════════
+
+export const validationApi = {
+  /** 获取 Run 的验证汇总 */
+  getRunSummary: (runId: string) =>
+    request<{ summary: ValidationSummary; results: ValidationNodeResult[] }>(`/validation/${runId}`),
+
+  /** 获取单个节点的验证结果 */
+  getNodeResult: (runId: string, nodeId: string) =>
+    request<{ result: ValidationResult | null }>(`/validation/${runId}/${nodeId}`),
+
+  /** 手动触发验证 */
+  triggerValidation: (runId: string, nodeId: string) =>
+    request<{ result: ValidationResult }>(`/validation/${runId}/${nodeId}/trigger`, { method: 'POST' }),
+}
+
+// ═══════════════ Merge Conflict API ═══════════════
+
+export const mergeConflictApi = {
+  /** 获取 Run 的冲突汇总 */
+  getRunConflicts: (runId: string) =>
+    request<{ summary: MergeConflictSummary; conflicts: MergeConflictNodeEntry[] }>(`/runs/${runId}/merge-conflicts`),
+
+  /** 获取单个节点的冲突详情 */
+  getNodeConflict: (runId: string, nodeId: string) =>
+    request<{ conflict: MergeConflictResult }>(`/runs/${runId}/nodes/${nodeId}/merge-conflicts`),
+}
+
+// ═══════════════ Feedback Aggregate API extension ═══════════════
+
+export const feedbackAggregateApi = {
+  /** 获取语义聚合视图 */
+  getAggregate: (days = 14, runId?: string) =>
+    request<{ summary: FeedbackAggregateSummary; clusters: FeedbackCluster[] }>('/artifacts/feedback/aggregate', {
+      method: 'POST',
+      body: JSON.stringify({ days, runId }),
+    }),
 }
 
 // ═══════════════ Skill API ═══════════════

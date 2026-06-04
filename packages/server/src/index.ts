@@ -26,6 +26,9 @@ import { FeedbackCollector } from './services/feedback-collector.js'
 import { WeeklyDigest } from './services/weekly-digest.js'
 import { SyncService } from './services/sync.js'
 import { SkillExtractionService } from './services/skill-extraction.js'
+import { AutoFlowEngine } from './services/auto-flow-engine.js'
+import { ValidationTurnService } from './services/validation-turn.js'
+import { L1RuleLifecycleService } from './services/l1-rule-lifecycle.js'
 import type { WsMessage } from './types/index.js'
 
 const PORT = Number(process.env.PORT) || 3001
@@ -61,12 +64,47 @@ const weeklyDigest = new WeeklyDigest(feedbackCollector, metricsCollector)
 const dynamicAgentFactory = new DynamicAgentFactory(agentService, workflowEngine, projectService, contextDBService, skillMaterializationService)
 const syncService = new SyncService(authService, projectService, workflowEngine, templateService)
 const skillExtractionService = new SkillExtractionService(skillService, projectService)
+const autoFlowEngine = new AutoFlowEngine()
+const validationTurnService = new ValidationTurnService()
+const l1RuleLifecycleService = new L1RuleLifecycleService()
 
 // 注入 ContextDBService 到需要它的服务（延迟注入避免循环依赖）
 projectService.injectContextDB(contextDBService)
 workflowEngine.injectContextDB(contextDBService)
 // 注入 AuthService 到 ArtifactMergeService（PR 模式需要 GitHub token）
 artifactMergeService.injectAuth(authService)
+// 注入 ValidationTurnService 依赖
+validationTurnService.inject({
+  workflowEngine,
+  contractValidator: contractValidatorService,
+  feedbackCollector,
+  robustnessService,
+  repoIsolation: repoIsolationService,
+  agentService,
+  dynamicAgentFactory,
+})
+// 注入 L1RuleLifecycleService 依赖
+l1RuleLifecycleService.inject({
+  contextDB: contextDBService,
+  feedbackCollector,
+})
+// 注入 AutoFlowEngine 依赖（含 ValidationTurnService + L1RuleLifecycle）
+autoFlowEngine.inject({
+  workflowEngine,
+  contractValidator: contractValidatorService,
+  metricsCollector,
+  feedbackCollector,
+  robustnessService,
+  repoIsolation: repoIsolationService,
+  validationTurnService,
+  l1RuleLifecycle: l1RuleLifecycleService,
+  emitter: (type, payload) => workflowEngine.emit(type, payload),
+})
+agentService.injectAutoFlow(autoFlowEngine)
+// 注入 FeedbackCollector 到 DynamicAgentFactory（Phase 4: 反馈→上下文注入）
+dynamicAgentFactory.injectFeedbackCollector(feedbackCollector)
+// 注入 AutoFlowEngine 到 WeeklyDigest（Phase 4: 周报指标）
+weeklyDigest.injectAutoFlow(autoFlowEngine)
 
 // ═══════════════ Express 应用 ═══════════════
 
@@ -98,13 +136,16 @@ app.use('/api', createApiRouter({
   weeklyDigest,
   syncService,
   skillExtractionService,
+  autoFlowEngine,
+  l1RuleLifecycleService,
+  validationTurnService,
 }))
 
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2.8.3',
+    version: '2.9.0',
     timestamp: Date.now(),
     services: {
       projects: projectService.getProjects().length,
@@ -148,6 +189,72 @@ function broadcast(message: WsMessage): void {
   }
 }
 
+// ═══════════════ Phase 2: AutoFlow 自动启动 Ready 节点 ═══════════════
+// 当节点变为 ready 且 autoFlow.autoStart 开启时，自动选择 Agent 并启动执行
+const autoStartInProgress = new Set<string>()  // 防止重复启动：nodeId 集合
+
+async function autoStartReadyNode(runId: string, nodeId: string): Promise<void> {
+  // 防止同一节点被重复自动启动（事件可能多次触发）
+  const key = `${runId}:${nodeId}`
+  if (autoStartInProgress.has(key)) return
+  autoStartInProgress.add(key)
+
+  try {
+    const run = workflowEngine.getRun(runId)
+    if (!run) return
+
+    const config = run.config
+    const autoFlow = config?.autoFlow
+    if (!autoFlow?.enabled) return
+    if (autoFlow.autoStart === false) return  // 显式关闭
+
+    const node = run.nodes.find(n => n.id === nodeId)
+    if (!node || node.status !== 'ready') return
+
+    // 检查并行度限制
+    const maxParallel = config?.maxParallel || 5
+    const runningCount = run.nodes.filter(n => n.status === 'running').length
+    if (runningCount >= maxParallel) {
+      console.log(`[AutoStart] Skipping node "${node.name}" (${nodeId}): parallel limit reached (${runningCount}/${maxParallel})`)
+      return
+    }
+
+    console.log(`[AutoStart] Auto-starting ready node "${node.name}" (${nodeId}) in run ${runId}`)
+
+    // Step 1: 使用 DynamicAgentFactory 创建动态实例（自动选择合适的 Agent）
+    const instance = await dynamicAgentFactory.createInstance(node, run, config?.defaultAgentId)
+
+    // Step 2: 构建完整 prompt（含 scoped context + context DB 四层装配）
+    const userInput = node.userInput || node.prompt || node.description
+    const fullPrompt = dynamicAgentFactory.buildFullPrompt(instance, userInput)
+
+    // Step 3: 激活实例
+    dynamicAgentFactory.activateInstance(instance.id)
+
+    // Step 4: 将节点状态从 ready → running
+    await workflowEngine.startNode(runId, nodeId)
+
+    // Step 5: 获取项目工作目录作为 cwd
+    const project = projectService.getProject(run.projectId)
+    const cwd = project?.path
+
+    // Step 6: 启动 Agent Turn（非阻塞）
+    agentService.startTurnAsync({
+      agentId: instance.baseAgentId,
+      nodeId,
+      runId,
+      prompt: fullPrompt,
+      cwd,
+    })
+
+    console.log(`[AutoStart] Node "${node.name}" started with agent ${instance.baseAgentId}`)
+  } catch (err) {
+    console.error(`[AutoStart] Failed to auto-start node ${nodeId}:`, (err as Error).message)
+  } finally {
+    autoStartInProgress.delete(key)
+  }
+}
+
 // 注册 WorkflowEngine 事件 → 广播给所有 WebSocket 客户端 + 指标采集 + 自动同步
 workflowEngine.onEvent((message) => {
   broadcast(message)
@@ -162,6 +269,15 @@ workflowEngine.onEvent((message) => {
       case 'wait_user_review':
         metricsCollector.recordNodeWaitReview(nodeId)
         break
+      case 'ready': {
+        // ★ Phase 2 AutoStart：节点变为 ready 时尝试自动启动
+        if (runId) {
+          autoStartReadyNode(runId, nodeId).catch(err => {
+            console.error(`[AutoStart] Unhandled error:`, (err as Error).message)
+          })
+        }
+        break
+      }
       case 'completed': {
         // Skill 自动沉淀：节点完成时异步分析产出物
         if (runId) {
@@ -182,6 +298,12 @@ workflowEngine.onEvent((message) => {
         break
       }
     }
+  }
+
+  // Turn 完成时同步记录到 MetricsCollector 运行时缓存
+  if (message.type === 'agent:turn_completed') {
+    const { turn } = message.payload as { turn: import('./types/index.js').AgentTurn }
+    metricsCollector.recordTurnComplete(turn, turn.toolCalls || [], turn.filesModified || 0)
   }
 
   // 自动同步：Run 状态变化时标记 dirty 并触发 debounce push
@@ -257,6 +379,7 @@ async function start() {
   await contextDBService.initialize()
   await projectService.ensureL0Seeds()
   await metricsCollector.load()
+  await l1RuleLifecycleService.start()
   await syncService.load()
 
   // 启动时尝试从远端拉取最新数据（静默，不中断启动）
@@ -319,6 +442,9 @@ function gracefulShutdown() {
   fileService.unwatchAll()
   a2aProtocolService.dispose()
   robustnessService.dispose()
+  // 确保 AutoFlow 自适应状态和 L1 规则在退出前持久化
+  autoFlowEngine.flushState().catch(() => {/* ignore */})
+  l1RuleLifecycleService.stop().catch(() => {/* ignore */})
   server.close()
   process.exit(0)
 }

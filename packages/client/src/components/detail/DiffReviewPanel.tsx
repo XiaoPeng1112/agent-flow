@@ -391,7 +391,7 @@ function DiffContent({ fileDiff }: { fileDiff: FileDiff }) {
       </div>
 
       {/* Hunks */}
-      {fileDiff.hunks.map((hunk, hunkIdx) => (
+      {fileDiff.hunks?.map((hunk, hunkIdx) => (
         <div key={hunkIdx} className="border-b border-gray-100">
           {/* Hunk header */}
           <div className="px-4 py-1 bg-blue-50/50 text-[11px] font-mono text-blue-600 border-b border-blue-100/50">
@@ -399,14 +399,14 @@ function DiffContent({ fileDiff }: { fileDiff: FileDiff }) {
           </div>
           {/* Lines */}
           <div className="font-mono text-[11px] leading-[20px]">
-            {hunk.lines.map((line, lineIdx) => (
+            {hunk.lines?.map((line, lineIdx) => (
               <DiffLineRow key={lineIdx} line={line} />
             ))}
           </div>
         </div>
       ))}
 
-      {fileDiff.hunks.length === 0 && (
+      {!fileDiff.hunks?.length && (
         <div className="p-8 text-center text-gray-400 text-[12px]">
           无差异内容（可能是权限或元数据变更）
         </div>

@@ -28,6 +28,29 @@ export interface RunConfig {
   autoExecute?: boolean          // 是否自动执行 ready 节点（并行模式）
   defaultAgentId?: string        // 默认 Agent（自动执行时使用）
   maxParallel?: number           // 最大并行节点数
+  autoFlow?: AutoFlowConfig      // AutoFlow 自动审批配置
+}
+
+/**
+ * AutoFlow 自动审批配置
+ * 
+ * 当 enabled=true 时，Agent 成功完成的节点会经过信心评估：
+ * - 信心分 >= threshold → 自动标记 completed（跳过人工审批）
+ * - 信心分 < threshold → 正常进入 wait_user_review
+ */
+export interface AutoFlowConfig {
+  enabled: boolean                    // 总开关，默认 false（向后兼容）
+  confidenceThreshold: number         // 全局阈值 (0-100)，默认 75
+  nodeOverrides?: Record<string, {    // key = 节点模板原始 ID（不含 runId 前缀）
+    enabled?: boolean                 // 节点级开关（覆盖全局）
+    threshold?: number                // 节点级阈值（覆盖全局）
+  }>
+  // ── 安全机制 ──
+  alwaysReviewNodes?: string[]        // 强制人工 review 的节点类型/模板 ID（默认 ['specify','design','deliver']）
+  neverReviewNodes?: string[]         // 跳过 review 的节点类型/模板 ID
+  maxConsecutiveAutoApprove?: number  // 连续自动放行上限（默认 3），超过后强制人工 review
+  // ── 自动推进 ──
+  autoStart?: boolean                 // ready 节点自动启动（默认 true when enabled）
 }
 
 // ─── DAG (有向无环图定义) ───
@@ -99,6 +122,8 @@ export interface TaskNode {
   scriptCwd?: string             // 脚本执行目录
   startedAt?: number
   completedAt?: number
+  reviewEnteredAt?: number       // 进入 wait_user_review 的时刻（用于计算等待耗时）
+  rejectCount?: number           // 被 reject 打回的累计次数
   error?: string
 }
 
@@ -182,6 +207,8 @@ export interface AgentTurn {
   output: string                 // Agent 输出
   question?: string              // paused_for_question 时的问题
   tokenUsage?: TokenUsage
+  toolCalls?: string[]           // 本次 turn 调用的工具列表
+  filesModified?: number         // 本次 turn 修改的文件数量
   startedAt: number
   completedAt?: number
 }
@@ -682,6 +709,11 @@ export type WsMessageType =
   | 'agent:turn_completed'
   | 'agent:turn_paused'
   | 'agent:turn_error'
+  // AutoFlow
+  | 'autoflow:evaluated'
+  | 'run:node_auto_approved'      // 节点被自动放行
+  | 'run:waiting_human_review'    // 需要人介入审核
+  | 'run:auto_flow_blocked'       // 自动流转被阻断（安全机制触发）
   // 文件变更
   | 'file:changed'
   | 'file:created'

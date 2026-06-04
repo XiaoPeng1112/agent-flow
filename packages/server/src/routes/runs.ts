@@ -1,13 +1,17 @@
 import { Router } from 'express'
 import type { WorkflowEngine } from '../services/workflow-engine.js'
 import type { TemplateService } from '../services/template.js'
+import type { AutoFlowEngine } from '../services/auto-flow-engine.js'
+import type { RepoIsolationService } from '../services/repo-isolation.js'
 
 export function createRunsRouter(deps: {
   workflowEngine: WorkflowEngine
   templateService: TemplateService
+  autoFlowEngine?: AutoFlowEngine
+  repoIsolationService?: RepoIsolationService
 }): Router {
   const router = Router()
-  const { workflowEngine, templateService } = deps
+  const { workflowEngine, templateService, autoFlowEngine, repoIsolationService } = deps
 
   // ═══════════════ Run API ═══════════════
 
@@ -16,6 +20,16 @@ export function createRunsRouter(deps: {
     const projectId = req.query.projectId as string | undefined
     const runs = workflowEngine.getRuns(projectId)
     res.json({ success: true, data: { runs } })
+  })
+
+  /** 获取 AutoFlow 自适应学习统计（放在 /:id 之前避免路由冲突） */
+  router.get('/autoflow/adaptive-stats', (_req, res) => {
+    if (!autoFlowEngine) {
+      res.status(501).json({ success: false, error: 'AutoFlow engine not available' })
+      return
+    }
+    const stats = autoFlowEngine.getAdaptiveStats()
+    res.json({ success: true, data: { stats } })
   })
 
   /** 获取单个 Run 详情 */
@@ -99,7 +113,26 @@ export function createRunsRouter(deps: {
   /** 更新 Run 配置（自动执行、并行度等） */
   router.patch('/:runId/config', async (req, res) => {
     try {
-      await workflowEngine.updateRunConfig(req.params.runId, req.body)
+      const config = req.body
+      // 校验 autoFlow 配置的基本类型合法性
+      if (config.autoFlow) {
+        const af = config.autoFlow
+        if (af.enabled !== undefined && typeof af.enabled !== 'boolean') {
+          res.status(400).json({ success: false, error: 'autoFlow.enabled must be a boolean' })
+          return
+        }
+        if (af.confidenceThreshold !== undefined) {
+          if (typeof af.confidenceThreshold !== 'number' || !Number.isFinite(af.confidenceThreshold) || af.confidenceThreshold < 0 || af.confidenceThreshold > 100) {
+            res.status(400).json({ success: false, error: 'autoFlow.confidenceThreshold must be a number between 0 and 100' })
+            return
+          }
+        }
+        if (af.nodeOverrides !== undefined && (typeof af.nodeOverrides !== 'object' || af.nodeOverrides === null || Array.isArray(af.nodeOverrides))) {
+          res.status(400).json({ success: false, error: 'autoFlow.nodeOverrides must be an object' })
+          return
+        }
+      }
+      await workflowEngine.updateRunConfig(req.params.runId, config)
       res.json({ success: true })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -134,6 +167,10 @@ export function createRunsRouter(deps: {
     const { feedback } = req.body || {}
     try {
       const node = await workflowEngine.approveNode(req.params.runId, req.params.nodeId, feedback)
+      // Phase 3: 记录反馈用于自适应学习
+      autoFlowEngine?.recordFeedback(req.params.runId, req.params.nodeId, 'approve')
+      // 人工 approve 重置连续自动放行计数器
+      autoFlowEngine?.resetConsecutiveCount(req.params.runId)
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -145,6 +182,8 @@ export function createRunsRouter(deps: {
     const { feedback } = req.body
     try {
       const node = await workflowEngine.rejectNode(req.params.runId, req.params.nodeId, feedback)
+      // Phase 3: 记录反馈用于自适应学习
+      autoFlowEngine?.recordFeedback(req.params.runId, req.params.nodeId, 'reject')
       res.json({ success: true, data: { node } })
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
@@ -218,6 +257,133 @@ export function createRunsRouter(deps: {
     } catch (err) {
       res.status(400).json({ success: false, error: (err as Error).message })
     }
+  })
+
+  // ═══════════════ AutoFlow API ═══════════════
+
+  /** 获取节点的 AutoFlow 评估结果 */
+  router.get('/:runId/nodes/:nodeId/autoflow', (req, res) => {
+    if (!autoFlowEngine) {
+      res.status(501).json({ success: false, error: 'AutoFlow engine not available' })
+      return
+    }
+    const result = autoFlowEngine.getLastEvaluation(req.params.runId, req.params.nodeId)
+    res.json({ success: true, data: { evaluation: result || null } })
+  })
+
+  // ═══════════════ Merge-Conflict API ═══════════════
+
+  /** 获取节点的合并冲突详情 */
+  router.get('/:runId/nodes/:nodeId/merge-conflicts', (req, res) => {
+    if (!repoIsolationService) {
+      res.status(501).json({ success: false, error: 'RepoIsolation service not available' })
+      return
+    }
+    const { runId, nodeId } = req.params
+    try {
+      const result = repoIsolationService.checkMergeConflict(runId, nodeId)
+      res.json({ success: true, data: { conflict: result } })
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message })
+    }
+  })
+
+  /** 获取 Run 所有节点的冲突汇总 */
+  router.get('/:runId/merge-conflicts', (req, res) => {
+    if (!repoIsolationService) {
+      res.status(501).json({ success: false, error: 'RepoIsolation service not available' })
+      return
+    }
+    const { runId } = req.params
+    const run = workflowEngine.getRun(runId)
+    if (!run) {
+      res.status(404).json({ success: false, error: 'Run not found' })
+      return
+    }
+
+    const conflicts: Array<{
+      nodeId: string
+      nodeName: string
+      hasConflict: boolean
+      severity: string
+      severityScore: number
+      conflictFiles: string[]
+      conflicts: Array<{ type: string; filePath: string }>
+    }> = []
+
+    for (const node of run.nodes) {
+      try {
+        const result = repoIsolationService.checkMergeConflict(runId, node.id)
+        if (result.hasConflict) {
+          conflicts.push({
+            nodeId: node.id,
+            nodeName: node.name,
+            hasConflict: true,
+            severity: result.severity,
+            severityScore: result.severityScore,
+            conflictFiles: result.conflictFiles,
+            conflicts: result.conflicts,
+          })
+        }
+      } catch {
+        // skip nodes without workspaces
+      }
+    }
+
+    const totalConflicts = conflicts.reduce((sum, c) => sum + c.conflicts.length, 0)
+    const worstSeverity = conflicts.length > 0
+      ? conflicts.reduce((worst, c) => Math.min(worst, c.severityScore), 1.0)
+      : 1.0
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          nodesWithConflicts: conflicts.length,
+          totalConflictFiles: totalConflicts,
+          worstSeverityScore: worstSeverity,
+        },
+        conflicts,
+      },
+    })
+  })
+
+  /** 获取 Run 的 AutoFlow 汇总（所有已评估节点） */
+  router.get('/:runId/autoflow/summary', (req, res) => {
+    if (!autoFlowEngine) {
+      res.status(501).json({ success: false, error: 'AutoFlow engine not available' })
+      return
+    }
+
+    const run = workflowEngine.getRun(req.params.runId)
+    if (!run) {
+      res.status(404).json({ success: false, error: 'Run not found' })
+      return
+    }
+
+    const config = workflowEngine.getRunConfig(req.params.runId)
+    const evaluations: Array<{ nodeId: string; nodeName: string; evaluation: ReturnType<typeof autoFlowEngine.getLastEvaluation> }> = []
+
+    for (const node of run.nodes) {
+      const evaluation = autoFlowEngine.getLastEvaluation(req.params.runId, node.id)
+      if (evaluation) {
+        evaluations.push({ nodeId: node.id, nodeName: node.name, evaluation })
+      }
+    }
+
+    const autoApproved = evaluations.filter(e => e.evaluation?.decision === 'auto_approve').length
+    const requireReview = evaluations.filter(e => e.evaluation?.decision === 'require_review').length
+
+    res.json({
+      success: true,
+      data: {
+        autoFlowConfig: config?.autoFlow || null,
+        totalEvaluated: evaluations.length,
+        autoApproved,
+        requireReview,
+        evaluations,
+      },
+    })
   })
 
   return router

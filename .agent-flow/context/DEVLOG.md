@@ -1,183 +1,226 @@
 # 开发日志
 
-## 2026-06-03 — v2.8.7 产出物体系优化 — Prompt 格式引导 + 模板交付物声明 + 前端展示升级
+## 2026-06-04 — v2.9.0 L2 深化：AutoFlow 自动审批引擎 + 验证 Turn + L1 规则生命周期 + 全面板 UI + Metrics 同步补全
 
-### 问题背景
+### 版本概述
 
-v2.8.6 完成了 Skill 自动沉淀系统和 extractArtifactsFromOutput 4 层优先级解析重写，但 Agent 本身不知道应该以什么格式标记产出物，导致输出中大量代码片段、命令行输出被误识别为产出物（典型案例：问题分析节点产出 13 个垃圾产出物、修复实现节点产出 60 个碎片）。同时前端展示只有简单列表，无法区分产出物类型和重要性。
-
-### 修复内容
-
-**1. 后端 Prompt 格式引导 — agent.ts**
-
-- 新增 `getArtifactFormatGuidance()` 私有方法，返回格式规范字符串
-- 在 `buildContextualPrompt()` 组装 prompt 时自动追加到末尾（`parts.push(this.getArtifactFormatGuidance())`）
-- 引导内容：代码类产出物格式（` ```typescript:src/path/file.ts `）、文档类产出物格式（`## 标题` + 正文 ≥200字符）、注意事项（不要将短片段标记为代码块、产出物应完整可独立使用）
-- 与 `extractArtifactsFromOutput()` 4 层解析规则完全对齐
-
-**2. 模板层 prompt 交付物声明 — template.ts**
-
-- 4 个模板（sdd-standard 7节点、quick-feature 4节点、bug-fix 4节点、parallel-dev 5节点）共 20 个节点
-- 每个节点 prompt 字段末尾追加 `\n\n你必须产出以下交付物：\n1. 「标题」— 使用 ## 标题 或 ```typescript:path`
-- 每条声明与节点的 `outputContracts` 一一对应，确保声明→产出→验证一致
-
-**3. 前端 ArtifactItem 组件 — RunDetail.tsx**
-
-- 新增 `ARTIFACT_CATEGORY_CONFIG` 常量映射 5 种 category：
-  - code → CodeOutlined / 蓝色
-  - document → FileTextOutlined / 绿色
-  - test → ExperimentOutlined / 紫色
-  - report → BarChartOutlined / 橙色
-  - config → SettingOutlined / 灰色
-- 新增 `ArtifactItem` 组件：按 category 显示差异化图标色彩、可展开/折叠
-- 代码类使用 SyntaxHighlighter + oneDark 主题高亮
-- 文档类显示前 1000 字符的预览文本
-- 展开/折叠使用 DownOutlined/RightOutlined 指示器
-
-**4. 文档更新**
-
-- AboutPage 新增"产出物体系优化（v2.8.7）"板块，4 个 ArchCard 说明格式引导/模板声明/精准解析/分类展示
-- ChangelogPage 新增 v2.8.7 条目
-
-### 设计决策
-
-- **引导 vs 强制**：prompt 引导是"建议"而非"硬约束"，Agent 仍有灵活性。但实测表明 LLM 对格式引导的遵循率 >90%，效果显著
-- **全链路闭环**："引导产出（prompt）→ 精准解析（extractArtifactsFromOutput）→ 分类展示（ArtifactItem）"三段闭环，每段职责清晰
-- **与 outputContracts 对齐**：模板声明的交付物直接映射到 outputContracts，后续 ContractValidator 可以验证产出是否达标
-
-### 编译验证
-
-- Client `tsc --noEmit` — 0 错误 ✅
-- Server `tsc --noEmit` — 0 错误 ✅
+v2.9.0 是 AgentFlow L2 深化方案的完整落地版本，实现了从"人工逐节点审批"到"信心驱动自动放行"的质变。核心交付包含 5 大模块：AutoFlow 多信号信心评估引擎、验证 Turn 自验能力、L1 规则生命周期管理、6 个新前端面板、以及 Metrics 数据同步完整性补全。总新增/修改约 5900 行代码，涉及 36 个文件。
 
 ---
 
-## 2026-06-03 — v2.8.6 Skill 自动沉淀系统 — 执行产出物智能提取为复用 Skill
+### 一、AutoFlow 自动审批引擎（Phase 1-3）
 
-### 功能背景
+**新增文件：`packages/server/src/services/auto-flow-engine.ts`（1494 行）**
 
-v2.8.5 完成了 Skill 物化注入执行链路，Skill 从"静态配置"变为"动态注入 Agent prompt"。但 Skill 内容仍需人工编写。v2.8.6 实现"方向二"：执行产出物自动沉淀——当节点执行完成后，系统自动分析其 Artifacts 内容的价值并择优沉淀为可复用的 Skill 文件，实现"越用越强"的知识积累闭环。
+核心职责：Agent 成功完成节点后，收集 7 维信号计算信心分（0-100），信心分 >= 阈值则自动 completed，否则进入 wait_user_review。
 
-### 新增功能
+**7 维信号体系（加权评分）：**
 
-**1. SkillExtractionService（419行）— skill-extraction.ts**
+| 信号 | 权重 | 来源 |
+|------|------|------|
+| contractSatisfaction | 0.30 | ContractValidator 产出物满足度 |
+| exitConditionsPassed | 0.22 | 节点准出脚本执行结果 |
+| historicalPassRate | 0.18 | 同模板同位置历史一次通过率 |
+| outputQuality | 0.10 | 输出长度/结构化/代码块启发式 |
+| executionStability | 0.08 | 无 error/重试次数/无 crash |
+| mergeConflictFree | 0.12 | Git merge-tree 冲突检测 |
+| validationScore | 动态 15% | 验证 Turn 结果（可选，按比例从其余借用） |
 
-- 核心方法 `extractFromNode(node, run)`：遍历节点 artifacts → 过滤短文本（< 200字）→ evaluateCandidate() 百分制评分 → 置信度 < 0.6 跳过 → isDuplicate() 去重 → persistSkill() 写入磁盘
-- `forceExtract(content, name, projectId)`：手动沉淀，跳过评分直接以置信度 1.0 写入
+**安全机制：**
+- `alwaysReviewNodes`：指定节点类型强制人工审（默认 specify/design/deliver）
+- `maxConsecutiveAutoApprove`：连续自动放行上限（默认 3），超限强制人工
+- 所有决策记录审计日志，支持 `recordFeedback()` 自适应学习
 
-**2. 百分制 5 维评分引擎 — evaluateCandidate()**
+**AutoStart（Phase 2）：**
+- 节点变为 ready 时自动创建 DynamicAgent 实例并启动 Turn
+- 并行度控制：当前 running 节点数 >= maxParallel 时排队等待
+- 完整流程：DynamicAgentFactory.createInstance → buildFullPrompt → activateInstance → startNode → startTurnAsync
 
-- 节点类型权重（0~30分）：design 0.9 / implement 0.8 / specify & test 0.7 / review 0.6 / task 0.5 / deliver 0.4
-- 内容长度梯度（0~15分）：≥500字/≥1000字/≥2000字 各+5
-- Markdown 结构化（0~20分）：每个标题行 +3
-- 代码块密度（0~15分）：每个代码块 +4
-- 关键词匹配（0~20分）：16 个关键词如模板/架构/最佳实践/工具等，每命中 +4
-
-**3. Jaccard 词集相似度去重 — isDuplicate()**
-
-- 先检查名称完全匹配
-- 再计算内容 Jaccard 词集相似度（过滤 ≤3 字符短词，计算交集/并集比率）
-- 相似度 >0.7 视为重复自动跳过
-
-**4. 存储策略 — persistSkill()**
-
-- 写入路径：`project.path/.agent-flow/skills/<skill-name>/SKILL.md`
-- 含 YAML frontmatter（name / description / triggers / source / confidence / extractedAt）+ 正文
-- 目录结构随项目 git 版本控制
-
-**5. 事件驱动集成 — index.ts**
-
-- `run:node_updated` 事件处理器新增 case `'completed'`
-- 异步调用 `extractFromNode()`，成功输出日志，异常仅 warn 不阻塞主流程
-
-**6. SkillService 扩展（5个新方法）**
-
-- `reload()` 重新加载
-- `loadAdditional()` 追加加载
-- `writeSkill()` 写入 SKILL.md
-- `getSkillById()` 精确查找
-- `unregisterSkill()` 内存移除
-
-**7. ProjectService 扩展**
-
-- `.agent-flow/skills` 加入搜索路径首位
-- `getSkillsDir(projectId)` 返回项目 Skill 存储目录
-
-**8. API 层 — 4 条新路由**
-
-- `GET /skills/extraction-stats` — 沉淀统计
-- `GET /skills/extraction-log` — 沉淀日志（可按 runId 过滤）
-- `POST /skills/extract` — 手动或自动触发沉淀
-- `GET /skills/project-dir/:projectId` — 项目 Skill 目录
-
-**9. 路由优先级修复**
-
-- `/skills/:name` 通配参数路由移至文件末尾，解决 extraction-stats 等具名路径被错误匹配的 404 问题
-
-### 设计决策
-
-- **阈值 0.6 的选择**：百分制 60 分转为置信度 0.6。设计类节点（30分类型分）+ 2000字内容（15分）+ 3个标题（9分）+ 2个代码块（8分）= 62分即达标。确保只有真正有结构、有内容的产出物才被沉淀
-- **去重阈值 0.7**：Jaccard 相似度 0.7 意味着两篇内容 70% 的词汇相同，视为实质重复。低于此阈值的允许共存（可能是同一主题的不同角度）
-- **异步非阻塞**：沉淀过程通过事件驱动异步执行，不阻塞节点执行主流程，失败也不影响用户体验
-
-### 编译验证
-
-- Client `tsc --noEmit` — 0 错误 ✅
-- Server `tsc --noEmit` — 0 错误 ✅
+**自适应学习（Phase 3）：**
+- approve/reject 事件回调 `recordFeedback()`，累计统计自动放行准确率
+- `getAdaptiveStats()` 返回总评估数、自动放行数、准确率等运营指标
+- 人工 approve 重置连续计数器 `resetConsecutiveCount()`
 
 ---
 
-## 2026-06-03 — v2.8.5 Skill 物化注入执行链路 + 节点 Skill 绑定 UI
+### 二、验证 Turn 机制（Phase 3 自验能力）
 
-### 功能背景
+**新增文件：`packages/server/src/services/validation-turn.ts`（1031 行）**
 
-v2.4.0 引入 SkillMaterializationService（白名单/黑名单 + TTL 缓存 + 文件复制物化），但该服务从未接入实际执行链路——DynamicAgentFactory 创建 Agent 实例时不会读取节点 Skill 配置、不会调用物化服务。v2.8.5 将 Skill 系统从"已建设但未接入"的状态推进到真正参与节点执行的完整链路。
+核心职责：Agent 主 Turn 完成后，自动运行验证策略，结果作为信心信号接入 AutoFlow。
 
-### 修复内容
+**验证策略：**
+- `script`：运行 lint/test 等准出脚本（严格超时限制，默认 60s）
+- `contract`：调用 ContractValidator 检查 OutputContract 满足度
+- `llm`：可选 LLM 验证 Turn（使用 reviewer 角色检查产出物质量）
+- `composite`：组合多种策略，加权计算综合分数
 
-**1. DynamicAgentFactory — 执行链路接入**
+**输出：** `ValidationResult { passed, strategy, score(0-1), details[], duration, summary }`
 
-- `assembleScopedContext()` 新增第 7 步 Skill 物化
-- 当节点配置了 `skillIds` 时，调用 `SkillMaterializationService.initWhitelistFromTemplate()` 设置白名单
-- 通过 `getSkillPromptForNode()` 物化 Skill 文件内容生成 prompt 片段
-- `buildFullPrompt()` 在前置产出物与 L2 节点指令之间（第 5.5 步）注入该片段
+**路由：** `packages/server/src/routes/validation.ts`（84 行）— 提供验证结果查询 API
 
-**2. API 层 — 新增节点 Skill 绑定路由**
+---
 
-- `PATCH /api/runs/:runId/nodes/:nodeId/skills`
-- 接收 `{ skillIds: string[] }`，更新节点的 Skill 绑定
-- 通过 `WorkflowEngine.persist()` 即时写入磁盘
+### 三、L1 规则生命周期管理（Phase 4 L1 沉淀升级）
 
-**3. WorkflowEngine — 新增 persist() 公开方法**
+**新增文件：`packages/server/src/services/l1-rule-lifecycle.ts`（929 行）**
 
-- 允许外部路由在修改 Run/Node 数据后触发即时持久化
-- 避免等待下一次状态变更才写入
+核心职责：管理从 reject 原因自动沉淀的 L1 质量规则的完整生命周期。
 
-**4. 前端 NodeSkillBinding 组件改造**
+**规则状态机：** `draft → active → decaying → deprecated → archived`
 
-- 从标签平铺改为 Ant Design Select mode="multiple" 下拉框
-- 支持关键词搜索过滤
-- maxTagCount 响应式折叠
-- 乐观更新 + 失败回滚
+**关键能力：**
+- 版本化存储：每次更新产生新版本号，保留 changelog
+- 有效性追踪：监控规则生效后同类节点的 reject 率变化
+- 自动衰减：长期未触发的规则逐步降级
+- 规则合并：语义相似规则自动聚合（Jaccard 词集相似度）
+- 对 ContextDB 的写入最终落地为 Markdown 文件
 
-**5. 类型扩展**
+**路由：** `packages/server/src/routes/l1-rules.ts`（76 行）— 规则查询/激活/废弃 API
 
-- `ScopedContext` 接口新增 `skillPrompt?: string` 字段
+**启动集成：** `l1RuleLifecycleService.start()` 在 server 启动时加载，`stop()` 在 gracefulShutdown 时持久化
 
-### 设计决策
+---
 
-- **注入层级（第 5.5 步）**：Skill 内容放在前置产出物（上下文）之后、L2 节点指令之前，既能利用上下文信息理解 Skill，又不被后续具体指令覆盖
-- **白名单模式**：节点只能使用显式绑定的 Skills，避免信息过载。未绑定 Skill 的节点不做任何注入
-- **乐观更新**：UI 即时响应用户操作，失败时回滚。提升操作体验
+### 四、前端 6 个新面板
 
-### 端到端验证
+| 面板 | 文件 | 行数 | 功能 |
+|------|------|------|------|
+| AutoFlowPanel | `AutoFlowPanel.tsx` | 383 | Run 级 AutoFlow 配置展示、各节点评估结果信号雷达图、自适应学习统计 |
+| WeeklyDigestPanel | `WeeklyDigestPanel.tsx` | 525 | 周报摘要生成/展示、趋势对比、异常检测高亮、信号健康度仪表盘 |
+| L1RulePanel | `L1RulePanel.tsx` | 445 | 模板维度规则列表、状态标签、版本历史、手动激活/废弃操作 |
+| ValidationTurnPanel | `ValidationTurnPanel.tsx` | 357 | 各节点验证结果卡片、策略标记、detail 条目展开、分数进度条 |
+| MergeConflictPanel | `MergeConflictPanel.tsx` | 288 | Run 级冲突汇总、按节点/文件列出冲突类型和严重度、severityScore 色阶 |
+| FeedbackAggregatePanel | `FeedbackAggregatePanel.tsx` | 274 | 语义聚合反馈、按 category/severity 分组、urgency 标记、topPatterns |
 
-- PATCH API → 节点 skillIds 持久化 → createInstance 物化 → buildFullPrompt 注入 → Agent CLI 接收完整 prompt
+**RunDetail.tsx 改造：**
+- Tab 栏从 7 个扩展到 13 个（新增 AutoFlow/周报摘要/L1 规则/验证/冲突检测/反馈聚合）
+- Tab 栏改为横向可滚动（`overflow-x-auto scrollbar-hide`），适配小屏
+- 文字缩小到 11px + `whitespace-nowrap` 避免换行
+
+---
+
+### 五、WeeklyDigest 周报系统升级
+
+**修改文件：`packages/server/src/services/weekly-digest.ts`（+714 行，大幅重写）**
+
+从"静态汇总"升级为"多维分析引擎"：
+- 趋势分析：对比本周与上周关键指标变化（自动放行率、reject 率、平均信心分等）
+- 异常检测：基于 Z-Score 统计学方法检测指标突变
+- 信号健康度：监控 AutoFlow 各信号分布是否退化
+- 保留最近 8 周历史快照，支持长期趋势追踪
+- 新增 `injectAutoFlow()` 方法接入 AutoFlowEngine 指标
+
+---
+
+### 六、RepoIsolation 冲突检测升级
+
+**修改文件：`packages/server/src/services/repo-isolation.ts`（+256 行）**
+
+`checkMergeConflict()` 从布尔值升级为结构化分析：
+- 冲突类型分类：content / add-add / modify-delete / rename / unknown
+- 严重度评分（severityScore 0-1）：基于冲突文件路径、类型和数量加权
+- 详细信息：每个冲突文件的类型和路径
+- 对外暴露 `ConflictDetail` 和 `MergeConflictResult` 类型
+
+---
+
+### 七、DynamicAgentFactory 增强
+
+**修改文件：`packages/server/src/services/dynamic-agent-factory.ts`（+230 行）**
+
+- 注入 `FeedbackCollector`：Phase 4 反馈→上下文注入，将历史 reject 原因注入 Agent prompt
+- 惰性清理 `pruneIfNeeded()`：实例数 > 200 时清理已终止超 1 小时的旧实例，防止内存增长
+- 保存 `_workflowEngine` 引用用于编排钩子
+
+---
+
+### 八、FeedbackCollector 增强
+
+**修改文件：`packages/server/src/services/feedback-collector.ts`（+125 行）**
+
+- 新增 `validation_failure` 反馈类型
+- 新增 `recordValidationFailure()` 方法
+- 滚动内存缓存 `rejectCache`：最近 N 天的 review_reject 条目（用于同步查询避免 IO）
+- `warmRejectCache()` 异步预热
+- `query()` 合并当天内存数据（todayEntries 可能未落盘）
+
+---
+
+### 九、前端 API 层扩展
+
+**修改文件：`packages/client/src/api/index.ts`（+406 行）**
+
+新增 API 模块：
+- `autoFlowApi`：getAdaptiveStats / getNodeEvaluation / getRunSummary / updateConfig
+- `l1RuleApi`：getStats / getRulesForTemplate / getActiveRulesForNode / activateRule / deprecateRule
+- `validationApi`（内嵌于 runs 路由）：验证结果查询
+- `mergeConflictApi`（内嵌于 runs 路由）：节点/Run 级冲突检测
+- `feedbackApi` 升级：强类型化 + aggregate 聚合接口
+
+新增前后端共享类型定义约 20 个 interface（FeedbackEntry, AutoFlowAdaptiveStats, AutoFlowEvaluation, L1Rule, ValidationResult 等）
+
+---
+
+### 十、Metrics 数据同步完整性补全
+
+**问题：** 4 项运行时指标仅存在于 MetricsCollector 内存 Map，跨设备同步后丢失。
+
+**方案 A（SSOT 原则）：** 数据嵌入源头结构体，随 Run 自然同步。
+
+| 数据 | 嵌入位置 | 写入时机 |
+|------|---------|---------|
+| rejectCount | TaskNode | rejectNode() 时累加 |
+| reviewEnteredAt | TaskNode | submitNodeDecision('waiting_user_review') 时打戳 |
+| toolCalls | AgentTurn | Agent Turn 完成时解析 CLI 输出 |
+| filesModified | AgentTurn | Agent Turn 完成时解析 CLI 输出 |
+
+MetricsCollector 采用"结构体优先、Map fallback"双源读取策略，完全向后兼容。
+
+---
+
+### 十一、全局 Optional Chaining 审计修复
+
+- `DiffReviewPanel.tsx`：`fileDiff.hunks.map` → `fileDiff.hunks?.map`；`hunk.lines.map` → `hunk.lines?.map`；`fileDiff.hunks.length === 0` → `!fileDiff.hunks?.length`
+- `MetricsPanel.tsx`：`metrics.nodeMetrics.find` → `metrics.nodeMetrics?.find`；`metrics.nodeMetrics.reduce` → `(metrics.nodeMetrics ?? []).reduce`；`metrics.timeline` → `metrics.timeline ?? []`；`entry.segments.length` → `(entry.segments?.length ?? 0)`
+
+---
+
+### 十二、类型系统扩展（`packages/server/src/types/index.ts`）
+
+- `RunConfig` 新增 `autoFlow?: AutoFlowConfig`
+- 新增 `AutoFlowConfig` interface（13 字段：enabled / confidenceThreshold / nodeOverrides / alwaysReviewNodes / neverReviewNodes / maxConsecutiveAutoApprove / autoStart）
+- `TaskNode` 新增 `reviewEnteredAt?: number` / `rejectCount?: number`
+- `AgentTurn` 新增 `toolCalls?: string[]` / `filesModified?: number`
+- `WsMessageType` 新增 4 个事件：`autoflow:evaluated` / `run:node_auto_approved` / `run:waiting_human_review` / `run:auto_flow_blocked`
+
+---
+
+### 十三、服务集成与启动流程（`packages/server/src/index.ts`）
+
+- 实例化 3 个新服务：AutoFlowEngine / ValidationTurnService / L1RuleLifecycleService
+- 延迟注入链：ValidationTurnService.inject / L1RuleLifecycleService.inject / AutoFlowEngine.inject / agentService.injectAutoFlow / dynamicAgentFactory.injectFeedbackCollector / weeklyDigest.injectAutoFlow
+- API Router 传入 3 个新依赖
+- Phase 2 AutoStart：`run:node_updated status=ready` 事件触发 `autoStartReadyNode()` 异步执行
+- 防重复启动：`autoStartInProgress` Set 保证同一节点不重复触发
+- `agent:turn_completed` 事件 → metricsCollector.recordTurnComplete() 保持缓存同步
+- Runs 路由 approve/reject 回调 AutoFlow recordFeedback / resetConsecutiveCount
+- gracefulShutdown 新增 `autoFlowEngine.flushState()` + `l1RuleLifecycleService.stop()`
+
+---
+
+### 十四、DEV Seed 接口
+
+`POST /api/dev/seed/:runId` — 为前端验证注入 mock 数据：
+- 验证结果：为 Run 每个节点生成随机 ValidationResult
+- 反馈数据：注入 review_reject×2 / execution_failure×2 / validation_failure×2 / diff_discard×1 / manual_note×1
+
+---
 
 ### 编译验证
 
-- Client `tsc --noEmit` — 0 错误 ✅
 - Server `tsc --noEmit` — 0 错误 ✅
+- Client 编译通过 ✅
 
 ---
 

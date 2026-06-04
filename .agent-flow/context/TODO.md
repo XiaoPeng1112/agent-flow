@@ -1,7 +1,7 @@
 # 待办与后续计划
 
 > 按优先级排列，P0 = 必须做，P1 = 应该做，P2 = 可以做  
-> 最后更新：2026-06-03（v2.8.7）
+> 最后更新：2026-06-01（v2.7.1）
 
 ## 当前阶段已完成 ✅
 
@@ -38,20 +38,11 @@
 - [x] 路由级代码分割（React.lazy + Suspense，页面 chunk 独立拆分）
 - [x] React ErrorBoundary 全局错误隔离
 - [x] useRequest Hook（Loading / Toast / 指数退避重试）
-- [x] Vitest 单元测试（68→122 cases 覆盖三大核心服务）
+- [x] Vitest 单元测试（68 cases 覆盖三大核心服务）
 - [x] 产出物闭环（ArtifactMergeService：Git worktree Diff Review + Squash/Merge/Rebase）
 - [x] 可观测性增强（MetricsCollector：时间/Token/质量指标采集 + 效率评分 + 持久化）
 - [x] Diff Review 前端面板（GitHub PR 风格文件树 + 行级 Diff + 合并/丢弃操作）
 - [x] Metrics 前端面板（Overview/Timeline/Token Distribution/Efficiency 四视图）
-- [x] 反馈闭环（FeedbackCollector + WeeklyDigest + Feedback Tab）
-- [x] 数据同步（SyncService — GitHub Private Repo + Context DB 递归同步）
-- [x] SQLite + WAL 持久化迁移（v2.7.3）
-- [x] WorkflowEngine Facade 拆分 + 路由模块化（v2.7.3）
-- [x] GitHub PR 工作流 + 仓库类型自动检测 + 团队项目强制 PR 模式（v2.8.3）
-- [x] 全项目流程审计 + 前后端连通性修复 + 性能优化（v2.8.4）
-- [x] Skill 物化正式接入执行链路 + 节点 Skill 绑定 UI（v2.8.5）
-- [x] Skill 自动沉淀系统 — 5 维评分引擎 + Jaccard 去重 + 事件驱动（v2.8.6）
-- [x] 产出物体系优化 — Prompt 格式引导 + 模板交付物声明 + ArtifactItem 分类展示（v2.8.7）
 
 ## P0 — 核心功能待完善
 
@@ -68,8 +59,6 @@
 - [x] ~~**代码分割**~~：已在 v2.4.1 实现（React.lazy + Suspense 路由级分割）
 - [ ] **移动端适配**：当前仅桌面端布局
 - [x] ~~**Vite strictPort 配置**~~：已在 v2.5.0 修复
-- [ ] **产出物预览增强**：Markdown 渲染（react-markdown）替代纯文本预览，支持 Mermaid 图表
-- [ ] **Skill 沉淀可视化面板**：在 Skills Tab 中展示自动沉淀的 Skill 列表、置信度、来源节点
 
 ## P2 — 长期规划
 
@@ -78,9 +67,9 @@
 - [ ] **权限系统**：基于 GitHub OAuth 的 RBAC 权限守卫
 - [ ] **插件体系**：自定义 Agent 类型、自定义节点类型
 - [ ] **执行历史回放**：Turn 级别的执行录像回放
-- [x] ~~**数据库迁移**~~：已在 v2.7.3 实现（SQLite + WAL 模式）
+- [ ] **数据库迁移**：从 JSON 文件迁移到 SQLite（当数据量增大时）
 - [ ] **Docker 容器化**：CI/CD 流程
-- [x] ~~**单元测试**~~：已在 v2.4.1 实现，v2.7.3 扩展到 122 cases
+- [x] ~~**单元测试**~~：已在 v2.4.1 实现（Vitest 68 cases 覆盖三大核心服务）
 - [ ] **E2E 测试**：Playwright 覆盖核心用户路径
 - [x] ~~**OutputContract 自动校验**~~：已在 v2.4.0 实现（ContractValidatorService）
 - [ ] **Context Chaining 可视化**：在 DAG 视图中显示节点间的上下文传递关系
@@ -90,11 +79,6 @@
 - [x] ~~**可观测性增强**~~：已在 v2.6.0 实现（MetricsCollector + MetricsPanel）
 - [x] ~~**反馈闭环**~~：已在 v2.7.0 实现（FeedbackCollector + WeeklyDigest + Feedback Tab）
 - [x] ~~**数据同步**~~：已在 v2.7.1 实现（SyncService — GitHub Private Repo 同步 + Context DB 递归同步）
-- [x] ~~**Skill 执行链路接入**~~：已在 v2.8.5 实现（DynamicAgentFactory 物化注入 + 节点绑定 API）
-- [x] ~~**Skill 自动沉淀**~~：已在 v2.8.6 实现（SkillExtractionService 评分引擎 + 事件驱动）
-- [x] ~~**产出物质量优化**~~：已在 v2.8.7 实现（格式引导 + 模板声明 + 分类展示）
-- [ ] **Skill 版本管理**：沉淀的 Skill 支持版本号，手动编辑后保留历史
-- [ ] **跨项目 Skill 共享**：全局 Skill 库 + 项目间 Skill 导入/导出
 
 ## 已知问题 🐛
 
@@ -103,4 +87,3 @@
 - ~~Vite dev server 未配置 strictPort，端口被占用时会静默递增到下一个可用端口~~ → 已在 v2.5.0 修复
 - GitHub OAuth 需要配置环境变量，未配置时登录按钮点击会报错（需加友好提示）
 - `tsx watch` 仅监听 server 端代码变更，client 端依赖 Vite HMR 独立热更新
-- ~~JSON 持久化在数据量大时性能下降~~ → 已在 v2.7.3 迁移到 SQLite + WAL

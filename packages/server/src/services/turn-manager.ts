@@ -102,7 +102,9 @@ export class TurnManager {
     nodeId: string,
     result: TurnResult,
     question?: string,
-    tokenUsage?: { input: number; output: number; total: number }
+    tokenUsage?: { input: number; output: number; total: number },
+    toolCalls?: string[],
+    filesModified?: number
   ): AgentTurn {
     const turns = this.turns.get(nodeId)
     if (!turns) throw new Error(`No turns for node: ${nodeId}`)
@@ -114,6 +116,8 @@ export class TurnManager {
     turn.result = result
     if (question) turn.question = question
     if (tokenUsage) turn.tokenUsage = tokenUsage
+    if (toolCalls && toolCalls.length > 0) turn.toolCalls = toolCalls
+    if (filesModified != null && filesModified > 0) turn.filesModified = filesModified
 
     return turn
   }
