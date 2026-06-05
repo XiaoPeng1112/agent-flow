@@ -187,6 +187,7 @@ export function createApiRouter(deps: {
 
   // ═══════════════ DEV: Seed mock data for frontend verification ═══════════════
 
+  if (process.env.NODE_ENV !== 'production') {
   router.post('/dev/seed/:runId', (req, res) => {
     const { runId } = req.params
     const run = deps.workflowEngine.getRun(runId)
@@ -308,6 +309,7 @@ export function createApiRouter(deps: {
       },
     })
   })
+  } // end dev-only guard
 
   return router
 }

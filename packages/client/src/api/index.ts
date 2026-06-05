@@ -15,6 +15,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   const json = await res.json()
   if (!res.ok || json.success === false) {
+    // 条件路由未注册时后端返回 404，给出更友好的错误信息
+    if (res.status === 404) {
+      throw new Error(json.error || '该功能模块未启用 (404)')
+    }
     throw new Error(json.error || `Request failed: ${res.status}`)
   }
   return json.data ?? json
@@ -1048,9 +1052,20 @@ export function createWebSocket(onMessage: (msg: any) => void): ManagedWebSocket
   let ws: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
+  // 指数退避重连参数
+  const BASE_DELAY = 1000       // 初始延迟 1s
+  const MAX_DELAY = 30000       // 最大延迟 30s
+  const MAX_RETRIES = 10        // 最大连续重试次数
+  let retryCount = 0
+
   function connect() {
     if (disposed) return
     ws = new WebSocket(wsUrl)
+
+    ws.onopen = () => {
+      // 连接成功，重置重试计数
+      retryCount = 0
+    }
 
     ws.onmessage = (event) => {
       try {
@@ -1063,8 +1078,14 @@ export function createWebSocket(onMessage: (msg: any) => void): ManagedWebSocket
 
     ws.onclose = () => {
       if (disposed) return
-      console.log('[WS] Disconnected, reconnecting in 3s...')
-      reconnectTimer = setTimeout(connect, 3000)
+      if (retryCount >= MAX_RETRIES) {
+        console.error(`[WS] Max retries (${MAX_RETRIES}) reached, giving up.`)
+        return
+      }
+      const delay = Math.min(BASE_DELAY * Math.pow(2, retryCount), MAX_DELAY)
+      retryCount++
+      console.log(`[WS] Disconnected, reconnecting in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})...`)
+      reconnectTimer = setTimeout(connect, delay)
     }
 
     ws.onerror = () => {

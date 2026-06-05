@@ -28,7 +28,7 @@ export function RunDetailPage() {
         .then((res) => setRuns(res.runs))
         .catch(console.error)
     }
-  }, [projectId])
+  }, [projectId, runs.length, setRuns])
 
   // 项目列表未加载完成
   if (projects.length === 0) {
