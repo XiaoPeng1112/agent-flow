@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Input, Tooltip, Badge, App } from 'antd'
 import {
@@ -15,7 +15,7 @@ import {
   DownOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { projectApi } from '../../api'
+import { projectApi, authApi } from '../../api'
 import { AddProjectModal } from './AddProjectModal'
 import { UserPanel } from './UserPanel'
 import { SyncPanel } from './SyncPanel'
@@ -220,6 +220,29 @@ export function Sidebar({ serverStatus }: SidebarProps) {
 /** 可折叠的更多功能区域（同步、更新日志、项目介绍） */
 function CollapsibleMoreSection({ navigate, location }: { navigate: (path: string) => void; location: { pathname: string } }) {
   const [expanded, setExpanded] = useState(false)
+  const [authorized, setAuthorized] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    authApi.me()
+      .then((res) => {
+        if (cancelled) return
+        setAuthorized(
+          res.authenticated &&
+          res.user?.login?.toLowerCase() === 'xiaopeng1112'
+        )
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthorized(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <div className="px-3 py-1">
@@ -235,28 +258,32 @@ function CollapsibleMoreSection({ navigate, location }: { navigate: (path: strin
         <div className="flex flex-col gap-0.5 pt-1">
           <UserPanel />
           <SyncPanel />
-          <button
-            onClick={() => navigate('/changelog')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
-              location.pathname === '/changelog'
-                ? 'text-white bg-white/10'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <FileTextOutlined className="text-[13px]" />
-            <span>更新日志</span>
-          </button>
-          <button
-            onClick={() => navigate('/about')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
-              location.pathname === '/about'
-                ? 'text-white bg-white/10'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <InfoCircleOutlined className="text-[13px]" />
-            <span>项目介绍</span>
-          </button>
+          {authorized && (
+            <>
+              <button
+                onClick={() => navigate('/changelog')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
+                  location.pathname === '/changelog'
+                    ? 'text-white bg-white/10'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <FileTextOutlined className="text-[13px]" />
+                <span>更新日志</span>
+              </button>
+              <button
+                onClick={() => navigate('/about')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] rounded-lg transition-colors ${
+                  location.pathname === '/about'
+                    ? 'text-white bg-white/10'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <InfoCircleOutlined className="text-[13px]" />
+                <span>项目介绍</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
