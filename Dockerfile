@@ -3,36 +3,26 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# 复制 package 文件
-COPY package.json yarn.lock ./
-COPY packages/client/package.json packages/server/package.json packages/server/tsconfig.json ./packages/
+# 复制后端 package 文件和锁文件
+COPY packages/server/package.json packages/server/tsconfig.json ./
+COPY yarn.lock ./
 
-# 安装依赖
+# 安装依赖并编译后端
 RUN yarn install --frozen-lockfile
-
-# 复制源代码（仅构建阶段）
-COPY packages/server/src ./packages/server/src
-
-# 编译 TypeScript
-WORKDIR /app/packages/server
+COPY packages/server/src ./src
 RUN yarn build
 
-# 生成生产依赖目录
-WORKDIR /app
-RUN yarn install --frozen-lockfile --production --modules-folder /app/prod_node_modules
+# 安装生产依赖到单独目录
+RUN yarn install --production --frozen-lockfile --modules-folder /app/prod_node_modules
 
 # ═══ 运行阶段 ═══
 FROM node:20-alpine
 
 WORKDIR /app
 
-# 复制 package metadata
-COPY package.json yarn.lock ./
-COPY packages/server/package.json ./packages/server/
-
-# 复制生产依赖和编译产物
+# 复制运行时依赖和编译产物
 COPY --from=builder /app/prod_node_modules ./node_modules
-COPY --from=builder /app/packages/server/dist ./packages/server/dist
+COPY --from=builder /app/dist ./dist
 
 # 创建数据目录
 RUN mkdir -p /app/data
@@ -45,4 +35,4 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
 # 启动后端服务
-CMD ["node", "packages/server/dist/index.js"]
+CMD ["node", "dist/index.js"]
