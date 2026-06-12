@@ -198,3 +198,20 @@ docker rmi xiaopeng1112/agentflow:latest
 - **生产依赖**：使用 `--production` 标志，不安装 devDependencies
 - **健康检查**：内置 healthcheck 便于监控容器状态
 - **Alpine Linux**：使用轻量级基础镜像，减小镜像大小
+
+---
+
+## CI 构建（GitHub Actions）
+
+仓库已添加一个 GitHub Actions workflow，位于 `.github/workflows/docker-publish.yml`，在推送到 `main` 分支或手动触发时会自动构建并推送镜像到 Docker Hub。
+
+使用说明：
+
+- 在仓库设置中添加 Secrets：
+  - `DOCKER_HUB_USERNAME`：你的 Docker Hub 用户名
+  - `DOCKER_HUB_TOKEN`：Docker Hub 的访问令牌（推荐使用 Access Token）
+
+- 手动触发或推送到 `main` 后，Actions 会执行构建并将镜像推送到 `xiaopeng1112/agentflow:latest`。
+
+触发后可在 GitHub 仪表盘的 Actions 标签页查看运行日志。CI 方式适合在本地网络受限或无法直接构建时使用。
+
