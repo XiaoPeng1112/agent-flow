@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# 安装构建 better-sqlite3 所需的工具
+RUN apk add --no-cache python3 make g++
+
 # 复制后端 package 文件和锁文件
 COPY packages/server/package.json packages/server/tsconfig.json ./
 COPY yarn.lock ./
@@ -19,6 +22,9 @@ RUN yarn install --production --frozen-lockfile --modules-folder /app/prod_node_
 FROM node:20-alpine
 
 WORKDIR /app
+
+# 安装 better-sqlite3 运行时依赖
+RUN apk add --no-cache libstdc++
 
 # 复制运行时依赖和编译产物
 COPY --from=builder /app/prod_node_modules ./node_modules
