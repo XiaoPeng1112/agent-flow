@@ -5,7 +5,7 @@ WORKDIR /app
 
 # 复制 package 文件
 COPY package.json yarn.lock ./
-COPY packages/server/package.json packages/server/tsconfig.json ./packages/server/
+COPY packages/client/package.json packages/server/package.json packages/server/tsconfig.json ./packages/
 
 # 安装依赖
 RUN yarn install --frozen-lockfile
@@ -17,19 +17,21 @@ COPY packages/server/src ./packages/server/src
 WORKDIR /app/packages/server
 RUN yarn build
 
+# 生成生产依赖目录
+WORKDIR /app
+RUN yarn install --frozen-lockfile --production --modules-folder /app/prod_node_modules
+
 # ═══ 运行阶段 ═══
 FROM node:20-alpine
 
 WORKDIR /app
 
-# 从构建阶段复制 package.json
+# 复制 package metadata
 COPY package.json yarn.lock ./
 COPY packages/server/package.json ./packages/server/
 
-# 安装生产依赖（--production 不安装 devDependencies）
-RUN yarn install --frozen-lockfile --production
-
-# 从构建阶段复制编译产物（不含源代码）
+# 复制生产依赖和编译产物
+COPY --from=builder /app/prod_node_modules ./node_modules
 COPY --from=builder /app/packages/server/dist ./packages/server/dist
 
 # 创建数据目录
