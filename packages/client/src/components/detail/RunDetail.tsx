@@ -90,6 +90,7 @@ export function RunDetail({ run, onBack }: Props) {
 
   // ★ 根据项目 enabledAgentIds 过滤可选 Agent
   const currentProject = projects.find((p) => p.id === run.projectId)
+  const demoMode = currentProject?.isDemo === true || run.isDemo === true
   const agents = currentProject?.enabledAgentIds
     ? allAgents.filter((a) => currentProject.enabledAgentIds!.includes(a.id))
     : allAgents
@@ -192,6 +193,11 @@ export function RunDetail({ run, onBack }: Props) {
             <Tag color={run.status === 'running' ? 'processing' : run.status === 'paused' ? 'warning' : run.status === 'completed' ? 'success' : run.status === 'failed' ? 'error' : 'default'}>
               {run.status === 'paused' ? '已暂停' : run.status}
             </Tag>
+            {demoMode && (
+              <Tag color="blue" className="!text-[11px] !m-0">
+                Demo · 只读
+              </Tag>
+            )}
           </div>
         </div>
 
@@ -206,7 +212,7 @@ export function RunDetail({ run, onBack }: Props) {
         )}
 
         {run.status === 'created' && (
-          <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStartRun}>
+          <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStartRun} disabled={demoMode}>
             启动 Run
           </Button>
         )}
@@ -215,6 +221,7 @@ export function RunDetail({ run, onBack }: Props) {
           <Button
             icon={<PauseCircleOutlined />}
             onClick={handlePauseRun}
+            disabled={demoMode}
             className="!text-amber-600 !border-amber-200 !bg-amber-50 hover:!bg-amber-100"
           >
             暂停
@@ -226,6 +233,7 @@ export function RunDetail({ run, onBack }: Props) {
             type="primary"
             icon={<PlayCircleOutlined />}
             onClick={handleResumeRun}
+            disabled={demoMode}
           >
             恢复运行
           </Button>
@@ -352,28 +360,41 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
 
   const runDetailTab = useAppStore((s) => s.runDetailTab)
   const setRunDetailTab = useAppStore((s) => s.setRunDetailTab)
+  const demoMode = useAppStore((s) => s.projects.find((project) => project.id === run.projectId)?.isDemo === true) || run.isDemo === true
+  const visibleTabs = (demoMode
+    ? [
+        { key: 'dag', label: 'DAG 视图' },
+        { key: 'context-db', label: 'Context DB' },
+      ]
+    : [
+        { key: 'dag', label: 'DAG 视图' },
+        { key: 'diff-review', label: 'Diff Review' },
+        { key: 'metrics', label: 'Metrics' },
+        { key: 'autoflow', label: 'AutoFlow' },
+        { key: 'digest', label: '周报摘要' },
+        { key: 'l1-rules', label: 'L1 规则' },
+        { key: 'validation', label: '验证' },
+        { key: 'merge-conflict', label: '冲突检测' },
+        { key: 'feedback', label: '反馈聚合' },
+        { key: 'agent-tree', label: 'Agent Tree' },
+        { key: 'checkpoint', label: 'Checkpoint' },
+        { key: 'context-db', label: 'Context DB' },
+        { key: 'a2a', label: 'A2A 消息' },
+        { key: 'sub-turn', label: '对抗审查' },
+      ]) as { key: RunDetailTab; label: string }[]
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.key === runDetailTab)) {
+      setRunDetailTab('dag')
+    }
+  }, [runDetailTab, setRunDetailTab, visibleTabs])
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden">
       {/* Tab 切换栏 — 可横向滚动 */}
       <div className="overflow-x-auto scrollbar-hide shrink-0 border-b border-gray-100 mb-2">
         <div className="flex items-center gap-0.5 px-4 pb-2 min-w-max">
-          {([
-            { key: 'dag', label: 'DAG 视图' },
-            { key: 'diff-review', label: 'Diff Review' },
-            { key: 'metrics', label: 'Metrics' },
-            { key: 'autoflow', label: 'AutoFlow' },
-            { key: 'digest', label: '周报摘要' },
-            { key: 'l1-rules', label: 'L1 规则' },
-            { key: 'validation', label: '验证' },
-            { key: 'merge-conflict', label: '冲突检测' },
-            { key: 'feedback', label: '反馈聚合' },
-            { key: 'agent-tree', label: 'Agent Tree' },
-            { key: 'checkpoint', label: 'Checkpoint' },
-            { key: 'context-db', label: 'Context DB' },
-            { key: 'a2a', label: 'A2A 消息' },
-            { key: 'sub-turn', label: '对抗审查' },
-          ] as { key: RunDetailTab; label: string }[]).map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.key}
               className={`px-2.5 py-1.5 text-[11px] rounded-md transition-colors whitespace-nowrap ${
@@ -794,6 +815,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedbackText, setFeedbackText] = useState('')
   const { message } = App.useApp()
+  const isDemo = useAppStore((s) => s.projects.find((project) => project.id === run.projectId)?.isDemo === true) || run.isDemo === true
 
   // ★ Agent 列表：所有可用的排前面，同角色优先
   const allAgents = [...agents].sort((a, b) => {
@@ -1025,6 +1047,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
           <div className="flex items-center gap-1.5 mt-0.5">
             <Tag color={config.tagColor} className="!text-[10px] !m-0">{config.label}</Tag>
             {role && <Tag color={role.color} className="!text-[10px] !m-0">{role.label}</Tag>}
+            {isDemo && <Tag color="blue" className="!text-[10px] !m-0">Demo 只读</Tag>}
           </div>
         </div>
       </div>
@@ -1173,7 +1196,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
             icon={node.executionMode === 'det' ? <ThunderboltOutlined /> : <SendOutlined />}
             onClick={handleStart}
             loading={loading}
-            disabled={node.executionMode !== 'det' && !userInput.trim()}
+            disabled={isDemo || (node.executionMode !== 'det' && !userInput.trim())}
             block
           >
             {node.executionMode === 'det' ? '执行脚本' : node.executionMode === 'hyb' ? '启动混合执行' : '启动 Agent 执行'}
@@ -1187,6 +1210,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
             icon={<StopOutlined />}
             onClick={handleCancel}
             loading={cancelling}
+            disabled={isDemo}
             block
             className="!bg-red-50 !border-red-200 !text-red-600 hover:!bg-red-100"
           >
@@ -1200,6 +1224,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
               type="primary"
               icon={<CheckCircleOutlined />}
               onClick={() => handleApprove(false)}
+              disabled={isDemo}
               block
               style={{ backgroundColor: '#10b981' }}
             >
@@ -1208,6 +1233,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
             <Button
               icon={<EditOutlined />}
               onClick={() => setShowFeedback(true)}
+              disabled={isDemo}
               block
               className="!text-blue-600 !border-blue-200 !bg-blue-50 hover:!bg-blue-100"
             >
@@ -1216,6 +1242,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
             <Button
               icon={<CloseCircleOutlined />}
               onClick={handleReject}
+              disabled={isDemo}
               block
               danger
             >
@@ -1225,8 +1252,8 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
         )}
 
         {(node.status === 'ready' || node.status === 'pending') && (
-          <Popconfirm title="确定跳过此节点？" onConfirm={handleSkip}>
-            <Button type="text" icon={<StepForwardOutlined />} block className="!text-gray-400">
+          <Popconfirm title="确定跳过此节点？" onConfirm={handleSkip} disabled={isDemo}>
+            <Button type="text" icon={<StepForwardOutlined />} block className="!text-gray-400" disabled={isDemo}>
               跳过此节点
             </Button>
           </Popconfirm>
@@ -1237,6 +1264,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
           <Button
             icon={<UndoOutlined />}
             onClick={handleForceReset}
+            disabled={isDemo}
             block
             className="!text-orange-600 !border-orange-200 !bg-orange-50 hover:!bg-orange-100"
           >
@@ -1245,8 +1273,8 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
         )}
 
         {(node.status === 'completed' || node.status === 'failed') && (
-          <Popconfirm title="确定回滚此节点？" onConfirm={handleRollback}>
-            <Button type="text" icon={<UndoOutlined />} block className="!text-gray-400">
+          <Popconfirm title="确定回滚此节点？" onConfirm={handleRollback} disabled={isDemo}>
+            <Button type="text" icon={<UndoOutlined />} block className="!text-gray-400" disabled={isDemo}>
               回滚此节点
             </Button>
           </Popconfirm>

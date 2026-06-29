@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { isForcedDemoMode } from '../demo/mockData'
 
 export type ServerStatus = 'connecting' | 'online' | 'offline'
 
@@ -36,6 +37,12 @@ export function useServerStatus(): ServerHealth {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const checkHealth = useCallback(async () => {
+    if (isForcedDemoMode) {
+      setStatus('offline')
+      setFailCount(0)
+      return
+    }
+
     try {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 5000)
@@ -70,6 +77,12 @@ export function useServerStatus(): ServerHealth {
   }, [checkHealth])
 
   useEffect(() => {
+    if (isForcedDemoMode) {
+      setStatus('offline')
+      setFailCount(0)
+      return
+    }
+
     // 立即检测
     checkHealth()
 

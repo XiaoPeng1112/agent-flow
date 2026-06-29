@@ -81,11 +81,18 @@ export function ProjectPage() {
               <p className="text-[11px] text-gray-400 font-mono mt-0.5">{project.path.replace(/^\/Users\/\w+\//, '~/')}</p>
             </div>
           </div>
-          {project.description && (
-            <Tag className="!text-[11px] !border-0 !bg-gray-50 !text-gray-500 !rounded-md">
-              {project.description}
-            </Tag>
-          )}
+          <div className="flex items-center gap-2">
+            {project.isDemo && (
+              <Tag color="blue" className="!text-[11px] !rounded-md">
+                Demo · 只读
+              </Tag>
+            )}
+            {project.description && (
+              <Tag className="!text-[11px] !border-0 !bg-gray-50 !text-gray-500 !rounded-md">
+                {project.description}
+              </Tag>
+            )}
+          </div>
         </div>
 
         {/* Tab 栏 */}

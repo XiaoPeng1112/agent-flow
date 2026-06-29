@@ -3,9 +3,15 @@
  * 与后端 REST API 对接
  */
 
+import { getDemoApiResponse, shouldUseDemoMode } from '../demo/mockData'
+
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  if (shouldUseDemoMode()) {
+    return getDemoApiResponse(path, options) as T
+  }
+
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
@@ -1047,6 +1053,15 @@ export interface ManagedWebSocket {
 }
 
 export function createWebSocket(onMessage: (msg: any) => void): ManagedWebSocket {
+  if (shouldUseDemoMode()) {
+    return {
+      dispose() {},
+      getSocket() {
+        return null
+      },
+    }
+  }
+
   const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws'
   let disposed = false
   let ws: WebSocket | null = null

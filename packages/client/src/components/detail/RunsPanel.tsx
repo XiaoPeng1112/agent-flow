@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Card, Empty, Progress, Tag, Modal, Form, Input, Select, Space, App, Popconfirm, Dropdown } from 'antd'
+import { Button, Card, Empty, Progress, Tag, Modal, Form, Input, Select, Space, App, Popconfirm, Dropdown, Alert } from 'antd'
 import {
   PlusOutlined,
   PlayCircleOutlined,
@@ -85,7 +85,7 @@ export function RunsPanel({ project }: Props) {
           <p className="text-[12px] text-gray-400 mt-0.5">每个 Run 是一次完整的 AI 工作流执行实例</p>
         </div>
         <Space size="small">
-          {projectRuns.length > 0 && (
+          {projectRuns.length > 0 && !project.isDemo && (
             <Dropdown
               menu={{
                 items: [
@@ -106,11 +106,22 @@ export function RunsPanel({ project }: Props) {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => setShowCreateModal(true)}
+            disabled={project.isDemo}
           >
-            新建 Run
+            {project.isDemo ? '示范数据只读' : '新建 Run'}
           </Button>
         </Space>
       </div>
+
+      {project.isDemo && (
+        <Alert
+          showIcon
+          type="info"
+          className="!mb-4"
+          message="当前项目是内置示范项目"
+          description="你现在看到的是静态 mock 数据，主要用于帮助第一次访问的人理解 Run、节点、产出物和 Agent 分工。"
+        />
+      )}
 
       {/* Run 列表 */}
       {projectRuns.length === 0 ? (
@@ -118,20 +129,20 @@ export function RunsPanel({ project }: Props) {
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={
             <span className="text-gray-400">
-              还没有工作流实例，点击"新建 Run"从模板创建
+              {project.isDemo ? '此示范项目暂未提供更多 Run' : '还没有工作流实例，点击"新建 Run"从模板创建'}
             </span>
           }
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {projectRuns.map((run) => (
-            <RunCard key={run.id} run={run} onClick={() => handleSelectRun(run.id)} onDelete={() => handleDeleteRun(run.id)} />
+            <RunCard key={run.id} run={run} onClick={() => handleSelectRun(run.id)} onDelete={() => handleDeleteRun(run.id)} hideDelete={project.isDemo} />
           ))}
         </div>
       )}
 
       {/* 创建 Run 弹窗 */}
-      {showCreateModal && (
+      {showCreateModal && !project.isDemo && (
         <CreateRunModal
           projectId={project.id}
           templates={templates}
@@ -149,7 +160,7 @@ export function RunsPanel({ project }: Props) {
 
 // ─── Run 卡片 ───
 
-function RunCard({ run, onClick, onDelete }: { run: Run; onClick: () => void; onDelete: () => void }) {
+function RunCard({ run, onClick, onDelete, hideDelete = false }: { run: Run; onClick: () => void; onDelete: () => void; hideDelete?: boolean }) {
   const config = statusConfig[run.status] || statusConfig.created
   const completedNodes = run.nodes.filter((n) => n.status === 'completed' || n.status === 'skipped').length
   const totalNodes = run.nodes.length
@@ -175,22 +186,24 @@ function RunCard({ run, onClick, onDelete }: { run: Run; onClick: () => void; on
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Popconfirm
-            title="确定删除此 Run？"
-            description="删除后不可恢复"
-            onConfirm={(e) => { e?.stopPropagation(); onDelete() }}
-            onCancel={(e) => e?.stopPropagation()}
-            okText="删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <button
-              onClick={(e) => e.stopPropagation()}
-              className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-all rounded"
+          {!hideDelete && (
+            <Popconfirm
+              title="确定删除此 Run？"
+              description="删除后不可恢复"
+              onConfirm={(e) => { e?.stopPropagation(); onDelete() }}
+              onCancel={(e) => e?.stopPropagation()}
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
             >
-              <DeleteOutlined className="text-[12px]" />
-            </button>
-          </Popconfirm>
+              <button
+                onClick={(e) => e.stopPropagation()}
+                className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-all rounded"
+              >
+                <DeleteOutlined className="text-[12px]" />
+              </button>
+            </Popconfirm>
+          )}
           <RightOutlined className="text-gray-300 text-[12px]" />
         </div>
       </div>

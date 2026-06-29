@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Button, Input, Empty, Popconfirm, Space, App, Tag, Card, Spin, Select } from 'antd'
+import { Button, Input, Empty, Popconfirm, Space, App, Tag, Card, Spin, Select, Alert } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SaveOutlined,
   ReloadOutlined, ApartmentOutlined, EditOutlined, LockOutlined,
 } from '@ant-design/icons'
 import { contextDBApi, templateApi } from '../api'
+import { shouldUseDemoMode } from '../demo/mockData'
 
 interface ContextFile {
   filename: string
@@ -148,6 +149,15 @@ export default function ContextDBL1Page() {
           <p className="text-sm text-gray-500 mt-1 mb-0">
             管理工作流模板的协作协议（数据流契约、质量基线、冲突解决规则等）。每个模板有独立的 L1 作用域。
           </p>
+          {shouldUseDemoMode() && (
+            <Alert
+              type="info"
+              showIcon
+              className="!mt-4"
+              message="Demo 模式下仅展示示例模板协议"
+              description="这部分数据是为了帮助新用户理解 L1 层如何约束模板协作，不会真实保存。"
+            />
+          )}
         </div>
         <div className="flex items-center gap-2 mt-1">
           <span className="text-xs text-gray-400">模板:</span>

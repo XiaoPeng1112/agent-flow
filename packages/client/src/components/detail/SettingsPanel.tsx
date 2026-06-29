@@ -881,6 +881,16 @@ export function SettingsPanel({ project }: Props) {
         </Text>
       </div>
 
+      {project.isDemo && (
+        <Alert
+          showIcon
+          type="info"
+          className="!mb-4"
+          message="示范项目设置页"
+          description="这里保留了真实项目里的配置结构，方便第一次访问的人理解系统能力；当前示范数据不会被保存。"
+        />
+      )}
+
       <Collapse
         items={collapseItems}
         defaultActiveKey={['basic', 'context']}

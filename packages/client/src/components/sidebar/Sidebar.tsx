@@ -30,9 +30,10 @@ function useCurrentProjectId(): string | undefined {
 
 interface SidebarProps {
   serverStatus: ServerStatus
+  demoMode: boolean
 }
 
-export function Sidebar({ serverStatus }: SidebarProps) {
+export function Sidebar({ serverStatus, demoMode }: SidebarProps) {
   const projects = useAppStore((s) => s.projects)
   const removeProject = useAppStore((s) => s.removeProject)
   const navigate = useNavigate()
@@ -53,6 +54,10 @@ export function Sidebar({ serverStatus }: SidebarProps) {
   }
 
   const handleRemoveProject = async (id: string, name: string) => {
+    if (demoMode) {
+      message.info('Demo 项目为只读示范，不能删除')
+      return
+    }
     if (confirm(`确定删除项目 "${name}" 吗？`)) {
       try {
         await projectApi.delete(id)
@@ -127,24 +132,31 @@ export function Sidebar({ serverStatus }: SidebarProps) {
                   <div className={`text-[13px] font-medium truncate ${isActive ? 'text-white' : ''}`}>
                     {project.name}
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                    {project.path.replace(/^\/Users\/\w+\//, '~/')}
+                  <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5">
+                    <span>{project.path.replace(/^\/Users\/\w+\//, '~/')}</span>
+                    {project.isDemo && (
+                      <span className="px-1 py-0.5 rounded bg-sky-500/15 text-sky-300 text-[10px] leading-none">
+                        Demo
+                      </span>
+                    )}
                   </div>
                 </div>
                 {isActive && (
                   <Badge status="processing" className="mr-1" />
                 )}
-                <Tooltip title="删除项目" placement="right">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleRemoveProject(project.id, project.name)
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-red-400 transition-all"
-                  >
-                    <DeleteOutlined className="text-[12px]" />
-                  </button>
-                </Tooltip>
+                {!project.isDemo && (
+                  <Tooltip title="删除项目" placement="right">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveProject(project.id, project.name)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-red-400 transition-all"
+                    >
+                      <DeleteOutlined className="text-[12px]" />
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             )
           })}
@@ -185,11 +197,21 @@ export function Sidebar({ serverStatus }: SidebarProps) {
         {/* 添加项目按钮 */}
         <div className="px-3 py-2">
           <button
-            onClick={() => setShowAdd(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-medium text-indigo-300 bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/20 rounded-lg transition-colors"
+            onClick={() => {
+              if (demoMode) {
+                message.info('Demo 模式下不可添加项目，请在本地启动后端后使用真实数据')
+                return
+              }
+              setShowAdd(true)
+            }}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-medium border rounded-lg transition-colors ${
+              demoMode
+                ? 'text-slate-400 bg-white/5 border-white/10'
+                : 'text-indigo-300 bg-indigo-600/10 hover:bg-indigo-600/20 border-indigo-500/20'
+            }`}
           >
             <PlusOutlined className="text-[11px]" />
-            添加项目
+            {demoMode ? '示范模式只读' : '添加项目'}
           </button>
         </div>
 
@@ -197,16 +219,19 @@ export function Sidebar({ serverStatus }: SidebarProps) {
         <div className="px-3 pb-3">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/5">
             <div className={`w-2 h-2 rounded-full ${
-              serverStatus === 'online'
-                ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.6)]'
-                : serverStatus === 'connecting'
-                  ? 'bg-blue-400 animate-pulse'
-                  : 'bg-red-400'
+              demoMode
+                ? 'bg-sky-400 shadow-[0_0_4px_rgba(56,189,248,0.6)]'
+                : serverStatus === 'online'
+                  ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.6)]'
+                  : serverStatus === 'connecting'
+                    ? 'bg-blue-400 animate-pulse'
+                    : 'bg-red-400'
             }`} />
             <span className="text-[11px] text-slate-500">
-              {serverStatus === 'online' && '后端服务运行中 · localhost:3001'}
-              {serverStatus === 'connecting' && '正在连接后端服务...'}
-              {serverStatus === 'offline' && '后端服务未连接'}
+              {demoMode && 'Demo Mode · 使用内置示范数据'}
+              {!demoMode && serverStatus === 'online' && '后端服务运行中 · localhost:3001'}
+              {!demoMode && serverStatus === 'connecting' && '正在连接后端服务...'}
+              {!demoMode && serverStatus === 'offline' && '后端服务未连接'}
             </span>
           </div>
         </div>

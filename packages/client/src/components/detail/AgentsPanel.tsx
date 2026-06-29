@@ -19,7 +19,7 @@ import { agentApi, projectApi } from '../../api'
 import type { AgentConfig, AgentTurn } from '../../types'
 
 interface Props {
-  project: { id: string; name: string }
+  project: { id: string; name: string; isDemo?: boolean }
 }
 
 export function AgentsPanel({ project: _project }: Props) {
@@ -203,7 +203,7 @@ export function AgentsPanel({ project: _project }: Props) {
       </Card>
 
       {/* ★ 项目 Agent 可用性配置 */}
-      <ProjectAgentConfig projectId={_project.id} agents={agents} />
+      <ProjectAgentConfig projectId={_project.id} agents={agents} isDemo={_project.isDemo} />
 
       {/* Agent 列表（按 category 分组） */}
       <div>
@@ -337,7 +337,7 @@ export function AgentsPanel({ project: _project }: Props) {
 
 // ═══════════════ 项目 Agent 可用性配置面板 ═══════════════
 
-function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: AgentConfig[] }) {
+function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: string; agents: AgentConfig[]; isDemo?: boolean }) {
   const { message } = App.useApp()
   const projects = useAppStore((s) => s.projects)
   const setProjects = useAppStore((s) => s.setProjects)
@@ -418,6 +418,7 @@ function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: 
           <Button
             size="small"
             onClick={allEnabled ? handleDeselectAll : handleSelectAll}
+            disabled={isDemo}
           >
             {allEnabled ? '全部取消' : '全部启用'}
           </Button>
@@ -426,6 +427,7 @@ function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: 
             size="small"
             loading={saving}
             onClick={handleSave}
+            disabled={isDemo}
           >
             保存
           </Button>
@@ -433,7 +435,10 @@ function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: 
       </div>
 
       <p className="text-[11px] text-gray-400 mb-4">
-        配置本项目可以使用的 Agent。未购买 API Key 的 Agent 可在此处禁用，避免执行时报错。未配置时默认全部启用。
+        {isDemo
+          ? '示范项目里这部分仅用于展示项目级 Agent 开关会如何影响执行面板。'
+          : '配置本项目可以使用的 Agent。未购买 API Key 的 Agent 可在此处禁用，避免执行时报错。未配置时默认全部启用。'
+        }
       </p>
 
       {noneEnabled && (
@@ -487,6 +492,7 @@ function ProjectAgentConfig({ projectId, agents }: { projectId: string; agents: 
                         size="small"
                         checked={isEnabled}
                         onChange={(checked) => handleToggle(agent.id, checked)}
+                        disabled={isDemo}
                       />
                     </div>
                   )

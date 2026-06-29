@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Button, Input, Empty, Popconfirm, Space, App, Tag, Card, Spin } from 'antd'
+import { Button, Input, Empty, Popconfirm, Space, App, Tag, Card, Spin, Alert } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SaveOutlined, FileTextOutlined,
   ReloadOutlined, EditOutlined, LockOutlined,
 } from '@ant-design/icons'
 import { contextDBApi } from '../api'
+import { shouldUseDemoMode } from '../demo/mockData'
 
 interface ContextFile {
   filename: string
@@ -124,6 +125,15 @@ export default function ContextDBSysPage() {
         <p className="text-sm text-gray-500 mt-1 mb-0">
           管理系统级上下文规则，这些规则会注入到所有 Agent 的 prompt 中。包括编码规范、安全规则、输出格式、行为准则等。
         </p>
+        {shouldUseDemoMode() && (
+          <Alert
+            type="info"
+            showIcon
+            className="!mt-4"
+            message="Demo 模式下仅展示示例规则"
+            description="这里的内容用于让新用户理解 SYS 层上下文会存什么，不会真的写回后端。"
+          />
+        )}
       </div>
 
       {/* 主体区域 */}

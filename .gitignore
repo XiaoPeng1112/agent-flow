@@ -25,3 +25,6 @@ npm-debug.log*
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Local tooling temp files
+.tmp/

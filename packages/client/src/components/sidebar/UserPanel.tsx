@@ -7,6 +7,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons'
 import { authApi } from '../../api'
+import { shouldUseDemoMode } from '../../demo/mockData'
 
 interface GitHubUser {
   login: string
@@ -74,6 +75,15 @@ export function UserPanel() {
   }
 
   if (!user) {
+    if (shouldUseDemoMode()) {
+      return (
+        <div className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-slate-500 rounded-lg">
+          <GithubOutlined className="text-[15px]" />
+          <span>GitHub 登录仅本地可用</span>
+        </div>
+      )
+    }
+
     return (
       <button
         onClick={handleLogin}
