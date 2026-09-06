@@ -440,7 +440,7 @@ function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: 
       <p className="text-[11px] text-gray-400 mb-4">
         {isDemo
           ? '示范项目里这部分仅用于展示项目级 Agent 开关会如何影响执行面板。'
-          : '配置本项目可以使用的 Agent。未购买 API Key 的 Agent 可在此处禁用，避免执行时报错。未配置时默认全部启用。'
+          : '配置本项目可以使用的 Agent。未安装 CLI 或未完成登录的 Agent 可在此处禁用。未配置时默认全部启用。'
         }
       </p>
 
@@ -486,7 +486,7 @@ function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: 
                           <p className="text-[10px] text-gray-400 mt-0.5">
                             {agent.description}
                             {agent.modelDescription && (
-                              <span className="text-[9px] text-gray-300 ml-1">「{agent.modelDescription}」</span>
+                              <span className="text-[11px] text-indigo-600 ml-1">模型：{agent.model || '跟随 CLI 默认'}</span>
                             )}
                           </p>
                         </div>
