@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 
@@ -61,7 +62,7 @@ export class AuthService {
   private clientSecret: string
 
   // OAuth state 参数防 CSRF：存储已生成的 state，回调时校验
-  private pendingStates: Map<string, number> = new Map()
+  private pendingStates: Map<string, { createdAt: number; returnUrl?: string }> = new Map()
   private static STATE_TTL = 10 * 60 * 1000 // state 10 分钟过期
 
   constructor() {
@@ -72,10 +73,10 @@ export class AuthService {
   }
 
   /** 获取 GitHub OAuth 授权 URL */
-  getAuthUrl(redirectUri: string): string {
+  getAuthUrl(redirectUri: string, returnUrl?: string): string {
     // 生成随机 state 并存储，用于回调时防 CSRF 校验
-    const state = `agentflow_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-    this.pendingStates.set(state, Date.now())
+    const state = randomBytes(32).toString('hex')
+    this.pendingStates.set(state, { createdAt: Date.now(), returnUrl })
     this.cleanExpiredStates()
 
     const params = new URLSearchParams({
@@ -89,18 +90,20 @@ export class AuthService {
 
   /** 校验 OAuth 回调的 state 参数 */
   validateState(state: string): boolean {
-    const createdAt = this.pendingStates.get(state)
-    if (!createdAt) return false
-    // 使用后立即删除（一次性）
+    return this.consumeState(state) !== undefined
+  }
+
+  consumeState(state: string): { returnUrl?: string } | undefined {
+    const pending = this.pendingStates.get(state)
     this.pendingStates.delete(state)
-    // 检查是否过期
-    return (Date.now() - createdAt) < AuthService.STATE_TTL
+    if (!pending || Date.now() - pending.createdAt >= AuthService.STATE_TTL) return undefined
+    return { returnUrl: pending.returnUrl }
   }
 
   /** 清理过期的 state */
   private cleanExpiredStates(): void {
     const now = Date.now()
-    for (const [state, createdAt] of this.pendingStates) {
+    for (const [state, { createdAt }] of this.pendingStates) {
       if (now - createdAt > AuthService.STATE_TTL) {
         this.pendingStates.delete(state)
       }

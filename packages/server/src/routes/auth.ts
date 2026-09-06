@@ -1,3 +1,4 @@
+import { createRequestSecurityConfig } from '../services/request-security.js'
 import { Router } from 'express'
 import type { AuthService } from '../services/auth.js'
 
@@ -12,32 +13,47 @@ export function createAuthRouter(deps: {
     const host = req.headers.host || 'localhost:3001'
     const protocol = req.headers['x-forwarded-proto'] || 'http'
     const redirectUri = `${protocol}://${host}/api/auth/callback`
-    const url = authService.getAuthUrl(redirectUri)
+    const requested = req.query.returnUrl
+    const fallback = process.env.FRONTEND_URL || 'http://localhost:5173/agent-flow/'
+    let returnUrl: URL
+    try {
+      returnUrl = new URL(typeof requested === 'string' ? requested : fallback)
+      const allowed = createRequestSecurityConfig().allowedOrigins
+      if (process.env.FRONTEND_URL) allowed.add(new URL(process.env.FRONTEND_URL).origin)
+      if (!['http:', 'https:'].includes(returnUrl.protocol) || returnUrl.username || returnUrl.password || !allowed.has(returnUrl.origin) || returnUrl.href.length > 4096) throw new Error('Invalid return URL')
+    } catch {
+      res.status(400).json({ success: false, error: '登录返回地址不在允许的前端来源中' }); return
+    }
+    const url = authService.getAuthUrl(redirectUri, returnUrl.href)
     res.json({ success: true, data: { url, configured: authService.isConfigured() } })
   })
 
   /** GitHub OAuth 回调 */
   router.get('/callback', async (req, res) => {
-    const { code, state } = req.query as { code?: string; state?: string }
-    if (!code) {
-      res.status(400).json({ success: false, error: 'Missing code parameter' })
-      return
+    const { code, state, error } = req.query
+    const pending = typeof state === 'string' ? authService.consumeState(state) : undefined
+    if (!pending?.returnUrl) {
+      res.status(403).json({ success: false, error: '登录会话已过期，请返回平台重新登录' }); return
     }
-    // 校验 state 参数防止 CSRF 攻击
-    if (!state || !authService.validateState(state)) {
-      res.status(403).json({ success: false, error: 'Invalid or expired OAuth state parameter' })
-      return
+    const target = new URL(pending.returnUrl)
+    target.searchParams.delete('user')
+    target.searchParams.delete('message')
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    if (typeof code !== 'string' || error) {
+      target.searchParams.set('auth', 'error')
+      target.searchParams.set('message', 'GitHub 授权未完成，请重试')
+      res.redirect(target.href); return
     }
     try {
       const accessToken = await authService.exchangeCode(code)
-      const user = await authService.login(accessToken)
-      // 重定向回前端页面
-      const frontendUrl = process.env.FRONTEND_URL || '/agent-flow/'
-      res.redirect(`${frontendUrl}?auth=success&user=${encodeURIComponent(user.login)}`)
-    } catch (err) {
-      const frontendUrl = process.env.FRONTEND_URL || '/agent-flow/'
-      res.redirect(`${frontendUrl}?auth=error&message=${encodeURIComponent((err as Error).message)}`)
+      await authService.login(accessToken)
+      target.searchParams.set('auth', 'success')
+    } catch {
+      target.searchParams.set('auth', 'error')
+      target.searchParams.set('message', 'GitHub 登录失败，请重试')
     }
+    res.redirect(target.href)
   })
 
   /** 获取当前登录用户 */

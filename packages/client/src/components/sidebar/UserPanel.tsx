@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Dropdown, Avatar, Spin } from 'antd'
+import { App, Dropdown, Avatar, Spin } from 'antd'
 import {
   GithubOutlined,
   LogoutOutlined,
@@ -24,6 +24,7 @@ interface GitHubUser {
  * 已登录：显示用户头像和名称，下拉菜单可查看详情/登出
  */
 export function UserPanel() {
+  const { message } = App.useApp()
   const [user, setUser] = useState<GitHubUser | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -43,21 +44,29 @@ export function UserPanel() {
     const params = new URLSearchParams(window.location.search)
     if (params.get('auth') === 'success') {
       // 清理 query 并重新获取用户信息
-      window.history.replaceState(null, '', window.location.pathname + window.location.hash)
+      const clean = new URL(window.location.href)
+      for (const key of ['auth', 'user', 'message']) clean.searchParams.delete(key)
+      window.history.replaceState(null, '', clean.href)
       authApi.me().then((res) => {
         if (res.authenticated && res.user) {
           setUser(res.user)
         }
-      })
+      }).catch(() => message.error('登录完成，但用户信息读取失败，请检查后端连接'))
+    } else if (params.get('auth') === 'error') {
+      message.error(params.get('message') || 'GitHub 登录失败')
+      const clean = new URL(window.location.href)
+      for (const key of ['auth', 'user', 'message']) clean.searchParams.delete(key)
+      window.history.replaceState(null, '', clean.href)
     }
-  }, [])
+  }, [message])
 
   const handleLogin = async () => {
     try {
-      const { url } = await authApi.getAuthUrl()
+      const { url, configured } = await authApi.getAuthUrl()
+      if (!configured) { message.error('本机后端尚未配置 GitHub OAuth'); return }
       window.location.href = url
     } catch (err) {
-      console.error('Failed to get auth URL:', err)
+      message.error((err as Error).message || '无法发起 GitHub 登录')
     }
   }
 

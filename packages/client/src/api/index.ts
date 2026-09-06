@@ -830,7 +830,7 @@ export const skillApi = {
 
 export const authApi = {
   /** 获取 GitHub OAuth 授权 URL */
-  getAuthUrl: () => request<{ url: string; configured: boolean }>('/auth/github'),
+  getAuthUrl: (returnUrl = window.location.href) => request<{ url: string; configured: boolean }>(`/auth/github?returnUrl=${encodeURIComponent(returnUrl)}`),
 
   /** 获取当前登录用户 */
   me: () => request<{ user: any; authenticated: boolean }>('/auth/me'),
