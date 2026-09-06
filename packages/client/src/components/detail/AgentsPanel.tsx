@@ -421,7 +421,7 @@ function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: 
           <Button
             size="small"
             onClick={allEnabled ? handleDeselectAll : handleSelectAll}
-            disabled={isDemo}
+            disabled={isDemo || saving}
           >
             {allEnabled ? '全部取消' : '全部启用'}
           </Button>
@@ -430,7 +430,7 @@ function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: 
             size="small"
             loading={saving}
             onClick={handleSave}
-            disabled={isDemo}
+            disabled={isDemo || saving}
           >
             保存
           </Button>
@@ -440,7 +440,7 @@ function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: 
       <p className="text-[11px] text-gray-400 mb-4">
         {isDemo
           ? '示范项目里这部分仅用于展示项目级 Agent 开关会如何影响执行面板。'
-          : '配置本项目可以使用的 Agent。未安装 CLI 或未完成登录的 Agent 可在此处禁用。未配置时默认全部启用。'
+          : '配置本项目可以使用的 Agent。未安装 CLI 或未完成登录的 Agent 可在此处禁用。未配置时默认全部启用。调整分类或单个开关后，点击保存生效。'
         }
       </p>
 
@@ -457,7 +457,18 @@ function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: 
           const catLabel = cat === 'codex' ? '⚡ OpenAI Codex' : cat === 'claude' ? '🤖 Anthropic Claude' : '🔧 Custom'
           return (
             <div key={cat}>
-              <div className="text-[11px] font-medium text-gray-500 mb-2">{catLabel}</div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 rounded-lg bg-gray-50 px-3 py-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                  {catLabel}
+                  <span className="text-gray-400">{catAgents.filter(a => enabledIds.includes(a.id)).length}/{catAgents.length} 已开启</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="small" disabled={isDemo || saving || catAgents.every(a => enabledIds.includes(a.id))}
+                    onClick={() => setEnabledIds(prev => [...new Set([...prev, ...catAgents.map(a => a.id)])])}>全部开启</Button>
+                  <Button size="small" disabled={isDemo || saving || catAgents.every(a => !enabledIds.includes(a.id))}
+                    onClick={() => setEnabledIds(prev => prev.filter(id => !catAgents.some(a => a.id === id)))}>全部关闭</Button>
+                </div>
+              </div>
               <div className="space-y-1.5">
                 {catAgents.map((agent) => {
                   const isEnabled = enabledIds.includes(agent.id)
@@ -495,7 +506,7 @@ function ProjectAgentConfig({ projectId, agents, isDemo = false }: { projectId: 
                         size="small"
                         checked={isEnabled}
                         onChange={(checked) => handleToggle(agent.id, checked)}
-                        disabled={isDemo}
+                        disabled={isDemo || saving}
                       />
                     </div>
                   )

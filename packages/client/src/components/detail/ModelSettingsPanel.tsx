@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, App, Select, Input, Button, Card } from 'antd'
+import { Alert, App, Select, Input, Button, Card, Tabs, Tag } from 'antd'
 import { agentApi } from '../../api'
 import { useAppStore } from '../../store/appStore'
 import type { AgentConfig } from '../../types'
@@ -35,21 +35,37 @@ export function ModelSettingsPanel({ agents, disabled }: { agents: AgentConfig[]
     store.setAgents(store.agents.map(item => item.id === id ? { ...item, ...agent } : item))
     message.success('模型选择已保存，新执行生效')
   }
-  return <Card title="模型选择（本机全局）" extra={<Button disabled={disabled} loading={loading} onClick={() => load(true)}>刷新模型</Button>}>
-    <p className="mb-3 text-gray-500">点击下拉框选择模型；每个角色下方显示推荐用途。选择“自定义模型”可手动填写，修改后点击保存。刷新列表不会改变已保存的选择。</p>
-    {(error || catalog?.warning) && <Alert type="warning" showIcon message={error || catalog?.warning} className="mb-3" />}
-    <p className="mb-3 text-gray-500">{catalog?.source === 'cli' ? 'CLI 已发现的模型与内置候选合并展示；实际执行仍取决于账号权限和网络。' : '来源：内置候选，尚未验证本机可用性。'}{catalog?.fetchedAt ? ` 更新于 ${new Date(catalog.fetchedAt).toLocaleString()}` : ''}</p>
-    {agents.filter(a => a.type !== 'custom-cli').map(agent => <ModelRow key={agent.id} agent={agent} disabled={disabled}
-      options={agent.type === 'codex' ? catalog?.models || [] : []} save={save} />)}
+  return <Card title="模型配置" extra={<Button disabled={disabled} loading={loading} onClick={() => load(true)}>刷新模型</Button>}>
+    <p className="text-xs text-gray-500 mb-4">本机全局配置 · 保存后用于新执行，刷新列表会保留当前选择。</p>
+    {(error || catalog?.warning) && <Alert type="warning" showIcon title={error || catalog?.warning} className="mb-3" />}
+    <Tabs items={(['codex', 'claude'] as const).map(provider => ({
+      key: provider,
+      label: provider === 'codex' ? 'OpenAI Codex' : 'Anthropic Claude',
+      children: <>
+        <div className="rounded-lg bg-gray-50 px-3 py-2 mb-2 text-xs text-gray-500">
+          {provider === 'codex'
+            ? `已发现 ${catalog?.models.filter(m => m.discovered).length || 0} 个模型；候选模型的执行权限由 CLI 校验。`
+            : '显示当前已配置的模型。Claude 尚未接入模型发现，可跟随 CLI 默认或填写模型 ID；已配置不代表已验证可用。'}
+          {provider === 'codex' && catalog?.fetchedAt && <span className="ml-2">更新于 {new Date(catalog.fetchedAt).toLocaleTimeString()}</span>}
+        </div>
+        {agents.filter(a => a.type === provider).map(agent => <ModelRow key={agent.id} agent={agent} disabled={disabled}
+          options={provider === 'codex' ? catalog?.models || [] : []} save={save} />)}
+      </>,
+    }))} />
   </Card>
 }
+
 function ModelRow({ agent, options, disabled, save }: { agent: AgentConfig; options: Array<{ id: string; name: string; discovered?: boolean }>; disabled?: boolean; save: (id: string, model: string) => Promise<void> }) {
   const [value, setValue] = useState(agent.model || '')
   const [saving, setSaving] = useState(false)
   const [custom, setCustom] = useState(false)
   const advice = roleAdvice[agent.id]
-  const known = !value || options.some(option => option.id === value)
-  const manual = custom || !known
+  // Keep saved and newly typed IDs selectable even when discovery is unavailable.
+  const displayOptions = [...options]
+  for (const id of [agent.model, value]) {
+    if (id && !displayOptions.some(option => option.id === id)) displayOptions.push({ id, name: id })
+  }
+  const manual = custom
   const { message } = App.useApp()
   useEffect(() => setValue(agent.model || ''), [agent.id, agent.model])
   const submit = async () => {
@@ -58,23 +74,34 @@ function ModelRow({ agent, options, disabled, save }: { agent: AgentConfig; opti
   }
   const choices = [
     { value: '', label: 'Default — 跟随本机 CLI 默认' },
-    ...options.map(option => ({ value: option.id, label: `${option.name}${advice?.model === option.id ? ' · 本角色推荐' : ''} · ${option.discovered ? 'CLI 已发现' : '候选未验证'}${modelPurpose[option.id] ? ' · ' + modelPurpose[option.id] : ''}` })),
+    ...displayOptions.map(option => ({ value: option.id, shortLabel: option.name, label: `${option.name}${advice?.model === option.id ? ' · 本角色推荐' : ''} · ${option.discovered ? 'CLI 已发现' : '候选未验证'}${modelPurpose[option.id] ? ' · ' + modelPurpose[option.id] : ''}` })),
     { value: '__custom__', label: '自定义模型 ID…' },
   ]
+  const selected = options.find(option => option.id === value)
+  const dirty = value.trim() !== (agent.model || '')
   return <div className="border-b border-gray-100 py-4 last:border-0">
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="w-56 shrink-0">
-        <div>{agent.name.replace(/ \([^)]*\)$/, '')}</div>
-        {advice && <div className="text-xs text-gray-500 mt-1">{advice.purpose}</div>}
+    <div className="grid gap-3 md:grid-cols-[210px_minmax(0,1fr)_auto] items-start">
+      <div>
+        <div className="font-medium text-sm text-gray-800">{agent.name.replace(/ \([^)]*\)$/, '')}</div>
+        {advice && <div className="text-xs text-gray-400 mt-1">{advice.purpose}</div>}
       </div>
-      <Select className="min-w-64 flex-1" aria-label={`${agent.name} 模型`} disabled={disabled || saving}
-        value={manual ? '__custom__' : value} showSearch optionFilterProp="label" options={choices}
-        onChange={next => { setCustom(next === '__custom__'); if (next !== '__custom__') setValue(next) }} />
-      {advice && <Button disabled={disabled || saving} onClick={() => { setCustom(false); setValue(advice.model) }}>使用推荐</Button>}
-      <Button disabled={disabled || value.trim() === (agent.model || '') || (manual && !value.trim())} loading={saving} onClick={submit}>保存</Button>
+      <div className="min-w-0">
+        <Select className="w-full" aria-label={`${agent.name} 模型`} disabled={disabled || saving}
+          value={manual ? '__custom__' : value} showSearch optionFilterProp="label" options={choices}
+          labelRender={item => displayOptions.find(option => option.id === item.value)?.name || item.label}
+          onChange={next => { setCustom(next === '__custom__'); if (next !== '__custom__') setValue(next) }} />
+        {manual && <Input className="mt-2" aria-label={`${agent.name} 自定义模型 ID`} placeholder="输入 CLI 支持的模型 ID" disabled={disabled || saving} value={value} onChange={e => setValue(e.target.value)} />}
+        <div className="flex flex-wrap items-center gap-1 mt-2 text-xs text-gray-400">
+          <Tag bordered={false} color={dirty ? 'orange' : 'default'}>{dirty ? '未保存' : '已保存'}</Tag>
+          {value && <Tag bordered={false} color={selected?.discovered ? 'green' : 'default'}>{selected?.discovered ? 'CLI 已发现' : agent.type === 'claude' ? '手动配置' : '未验证候选'}</Tag>}
+          {advice?.model === value && <Tag bordered={false} color="purple">角色推荐</Tag>}
+          {value && <span>{modelPurpose[value]}</span>}
+        </div>
+      </div>
+      <div className="flex gap-2">
+        {advice && <Button size="small" disabled={disabled || saving || value === advice.model} onClick={() => { setCustom(false); setValue(advice.model) }}>用推荐</Button>}
+        <Button size="small" type={dirty ? 'primary' : 'default'} disabled={disabled || !dirty || (manual && !value.trim())} loading={saving} onClick={submit}>保存</Button>
+      </div>
     </div>
-    {manual && <Input className="mt-3" aria-label={`${agent.name} 自定义模型 ID`} placeholder="输入模型 ID，例如 gpt-6-astra" disabled={disabled || saving} value={value} onChange={e => setValue(e.target.value)} />}
-    <div className="text-xs text-gray-500 mt-2">已保存：{agent.model || '跟随 CLI 默认'}{advice ? `；推荐：${advice.model}` : ''}</div>
-    {value && !options.some(option => option.id === value && option.discovered) && <div className="text-xs text-amber-600 mt-1">此模型尚未被 CLI 发现，实际执行可用性未验证。</div>}
   </div>
 }
