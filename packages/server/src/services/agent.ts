@@ -1,8 +1,18 @@
-import { spawn, execSync, type ChildProcess } from 'child_process'
+import { realpathSync, existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from 'fs'
+import { dirname } from 'path'
+import { ModelCatalogService, validModel } from './model-catalog.js'
+import { resolve } from 'path'
+import { ExecutionWorkerClient } from './execution-worker-client.js'
+import type { ExecutionJob, ExecutionResult } from '../workers/protocol.js'
+import type { ProviderExecution } from './providers/journal.js'
+import type { RepoIsolationService } from './repo-isolation.js'
+import type { ProjectService } from './project.js'
+import { executionEnvironment } from './execution-environment.js'
+import { execFileSync } from 'child_process'
 import type {
   AgentConfig, AgentRole, AgentCard, AgentCapability,
   AgentProvider, AgentEndpoint, AgentContextScope, AgentConstraints,
-  NodeType, A2AMessageType,
+  NodeType, A2AMessageType, AgentTurn,
 } from '../types/index.js'
 import type { WorkflowEngine } from './workflow-engine.js'
 import type { AutoFlowEngine } from './auto-flow-engine.js'
@@ -24,18 +34,24 @@ import type { A2AProtocolService } from './a2a-protocol.js'
  * - 超时保护
  */
 export class AgentService {
+  private shuttingDown = false
   private agents: Map<string, AgentConfig> = new Map()
   private agentCards: Map<string, AgentCard> = new Map()  // AgentCard Registry
-  private activeProcesses: Map<string, ChildProcess> = new Map()  // turnId → process
-  private cancelledTurns: Set<string> = new Set()  // 已取消的 turn，防止 close handler 重复提交
+  private activeProcesses: Map<string, ExecutionWorkerClient> = new Map()  // turnId → process
+  private completions = new Map<string, Promise<void>>()
+  private invalidatedTurns = new Set<string>()
   private workflowEngine: WorkflowEngine
   private autoFlowEngine?: AutoFlowEngine
   private adversarialTurnService?: AdversarialTurnService
   private a2aProtocol?: A2AProtocolService
 
-  constructor(workflowEngine: WorkflowEngine) {
+  readonly modelCatalog = new ModelCatalogService()
+
+  constructor(workflowEngine: WorkflowEngine, private modelSettingsPath?: string) {
     this.workflowEngine = workflowEngine
+    workflowEngine.onExecutionStop((runId, nodeIds) => this.stopNodes(runId, nodeIds))
     this.registerDefaults()
+    this.loadModelSettings()
     // AgentCards 已在 registerAgent() 中同步生成，无需额外调用 buildCardsFromConfigs
   }
 
@@ -60,71 +76,148 @@ export class AgentService {
     this.a2aProtocol = a2aProtocol
   }
 
+  private executionDependencies?: { isolation: RepoIsolationService; projects: ProjectService }
+
+  injectWorkspaces(isolation: RepoIsolationService, projects: ProjectService): void {
+    this.executionDependencies = { isolation, projects }
+  }
+
+  private workspaceJob(turnId: string, runId: string, nodeId: string, agentId: string, resumeFromTurnId?: string): ExecutionJob['workspace'] {
+    if (!this.executionDependencies) return undefined
+    const { isolation, projects } = this.executionDependencies
+    const run = this.workflowEngine.getRun(runId)!
+    const node = run.nodes.find(n => n.id === nodeId)!
+    const project = projects.getProject(run.projectId)
+    if (!project?.path) throw new Error('Project has no execution directory')
+    const previous = this.workflowEngine.getNodeTurns(nodeId).filter(t => t.id !== turnId && t.turnIndex >= (node.attemptStartIndex || 0) &&
+      !(t.output.includes('工作区准备失败:') && !isolation.executions.has(t.id))).at(-1)
+    const predecessorTurnIds: string[] = []
+    for (const parentId of this.workflowEngine.getCodePredecessors(runId, nodeId)) {
+      const turn = this.workflowEngine.getNodeTurns(parentId).at(-1)
+      if (!turn) throw new Error('Completed predecessor has no execution turn')
+      predecessorTurnIds.push(turn.id)
+    }
+    return { root: isolation.executions.root, resumeFromTurnId, prepare: { turnId, nodeId, runId, agentId,
+      projectPath: project.path, scriptCwd: node.scriptCwd, previousTurnId: previous?.id, predecessorTurnIds } }
+  }
+
+  private recoverySource(runId: string, nodeId: string, turnId: string, agentId: string): ProviderExecution {
+    const turns = this.workflowEngine.getNodeTurns(nodeId)
+    const source = turns.at(-1)
+    if (source?.id !== turnId || source.runId !== runId || source.status !== 'error' || source.agentId !== agentId) {
+      throw new Error('Only the latest failed turn of this node can be resumed')
+    }
+    const isolation = this.executionDependencies?.isolation
+    const state = isolation?.executions.providers.get(turnId)
+    const workspace = isolation?.executions.get(turnId)
+    const agent = this.agents.get(agentId)
+    if (!state?.sessionId || !workspace || workspace.nodeId !== nodeId || workspace.runId !== runId ||
+        state.cwd !== workspace.execution.cwd || agent?.type !== state.provider || agent.command !== state.command || agent.model !== state.model) {
+      throw new Error('Local provider session/workspace unavailable or provider configuration changed; start a new attempt')
+    }
+    const run = this.workflowEngine.getRun(runId)
+    const project = run && this.executionDependencies?.projects.getProject(run.projectId)
+    if (!project?.path || realpathSync(project.path) !== realpathSync(resolve(workspace.execution.repository, workspace.execution.projectDirectory))) {
+      throw new Error('Project directory changed since the original session')
+    }
+    if (this.activeProcesses.has(turnId)) throw new Error('Source process is still active')
+    if (state.pid) {
+      try { process.kill(state.pid, 0) } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') return { ...state, resumedFromTurnId: turnId }
+        throw new Error('Cannot confirm that the previous provider process stopped')
+      }
+      throw new Error('Previous provider process may still be alive; stop it before recovery')
+    }
+    return { ...state, resumedFromTurnId: turnId }
+  }
+
+  async resumeProviderTurn(params: { runId: string; nodeId: string; turnId: string; prompt: string }): Promise<string> {
+    const source = this.workflowEngine.getNodeTurns(params.nodeId).at(-1)
+    if (!source) throw new Error('Source turn missing')
+    this.recoverySource(params.runId, params.nodeId, params.turnId, source.agentId)
+    await this.workflowEngine.claimRecoveryNode(params.runId, params.nodeId)
+    try {
+      return this.startTurnAsync({ agentId: source.agentId, nodeId: params.nodeId, runId: params.runId,
+        prompt: params.prompt, resumeFromTurnId: params.turnId })
+    } catch (error) {
+      await this.workflowEngine.submitNodeDecision(params.runId, params.nodeId, 'failed', (error as Error).message)
+      throw error
+    }
+  }
+
+  getProviderEvents(runId: string, nodeId: string, turnId: string, after = 0) {
+    const turn = this.workflowEngine.getNodeTurns(nodeId).find(t => t.id === turnId && t.runId === runId)
+    if (!turn || !this.workflowEngine.getRun(runId)?.nodes.some(n => n.id === nodeId)) throw new Error('Turn does not belong to this node')
+    const journal = this.executionDependencies?.isolation.executions.providers
+    if (!journal) throw new Error('Local provider event journal unavailable')
+    return journal.read(turnId, after)
+  }
+
   private registerDefaults(): void {
     // ═══════════════ Codex 系列 Agent（OpenAI GPT 模型）═══════════════
 
     this.registerAgent({
       id: 'codex-planner',
-      name: 'Codex Planner (GPT-5.5)',
+      name: 'Codex Planner',
       role: 'planner',
       type: 'codex',
       command: 'codex',
-      model: 'gpt-5.5',
+      model: undefined,
       category: 'codex',
-      description: '旗舰模型，全局需求分析与架构设计，推理能力最强',
-      modelDescription: '最强旗舰模型，顶级推理与创造力',
+      description: '使用本机 Codex 执行该角色任务，可独立选择模型',
+      modelDescription: '跟随本机 CLI 默认模型',
       maxTurns: 3,
     })
 
     this.registerAgent({
       id: 'codex-manager',
-      name: 'Codex Manager (GPT-5.4)',
+      name: 'Codex Manager',
       role: 'manager',
       type: 'codex',
       command: 'codex',
-      model: 'gpt-5.4',
+      model: undefined,
       category: 'codex',
-      description: '深度推理模型，任务分派、代码审查与质量验收',
-      modelDescription: '深度推理模型，适合复杂分析与决策',
+      description: '使用本机 Codex 执行该角色任务，可独立选择模型',
+      modelDescription: '跟随本机 CLI 默认模型',
       maxTurns: 5,
     })
 
     this.registerAgent({
       id: 'codex-coder',
-      name: 'Codex Coder (GPT-5.3-codex)',
+      name: 'Codex Coder',
       role: 'executor',
       type: 'codex',
       command: 'codex',
-      model: 'gpt-5.3-codex',
+      model: undefined,
       category: 'codex',
-      description: '代码专精模型，Codex 系列能力天花板，性价比最优的代码生成选择',
-      modelDescription: '代码专精模型，编码能力最强',
+      description: '使用本机 Codex 执行该角色任务，可独立选择模型',
+      modelDescription: '跟随本机 CLI 默认模型',
       maxTurns: 10,
     })
 
     this.registerAgent({
       id: 'codex-tester',
-      name: 'Codex Tester (GPT-5.2)',
+      name: 'Codex Tester',
       role: 'executor',
       type: 'codex',
       command: 'codex',
-      model: 'gpt-5.2',
+      model: undefined,
       category: 'codex',
-      description: '通用模型，适合测试脚本编写与回归验证，成本最低',
-      modelDescription: '轻量通用模型，成本最低',
+      description: '使用本机 Codex 执行该角色任务，可独立选择模型',
+      modelDescription: '跟随本机 CLI 默认模型',
       maxTurns: 10,
     })
 
     this.registerAgent({
       id: 'codex-universal',
-      name: 'Codex Universal (GPT-5.4)',
+      name: 'Codex Universal',
       role: 'planner',
       type: 'codex',
       command: 'codex',
-      model: 'gpt-5.4',
+      model: undefined,
       category: 'codex',
-      description: '通用 Agent，平衡能力与成本，可用于任何节点类型',
-      modelDescription: '深度推理模型，平衡能力与成本',
+      description: '使用本机 Codex 执行该角色任务，可独立选择模型',
+      modelDescription: '跟随本机 CLI 默认模型',
       maxTurns: 10,
     })
 
@@ -203,6 +296,34 @@ export class AgentService {
     // 同步生成 AgentCard（确保新注册的 Agent 也能被能力路由发现）
     const card = this.buildCardFromConfig(config)
     this.agentCards.set(card.id, card)
+  }
+
+  private loadModelSettings(): void {
+    if (!this.modelSettingsPath || !existsSync(this.modelSettingsPath)) return
+    const data = JSON.parse(readFileSync(this.modelSettingsPath, 'utf8'))
+    if (!data || data.version !== 1 || !data.models || typeof data.models !== 'object' || Array.isArray(data.models)) throw new Error('Invalid agent model settings')
+    for (const [id, model] of Object.entries(data.models)) {
+      if (!validModel(model)) throw new Error('Invalid saved model ID')
+      const agent = this.agents.get(id)
+      if (agent) this.registerAgent({ ...agent, name: agent.name.replace(/ \([^)]*\)$/, ''), model: model || undefined, modelDescription: model ? '指定模型' : '跟随本机 CLI 默认模型' })
+    }
+  }
+
+  setAgentModel(id: string, model: unknown): AgentConfig {
+    const agent = this.agents.get(id)
+    if (!agent || agent.type === 'custom-cli') throw new Error('Agent does not support model selection')
+    if (!validModel(model)) throw new Error('Invalid model ID')
+    if (this.workflowEngine.getRuns().some(run => run.nodes.some(node => this.workflowEngine.getNodeTurns(node.id).some(turn => turn.agentId === id && (turn.status === 'running' || this.completions.has(turn.id)))))) throw new Error('Agent 正在执行，请结束后修改模型')
+    const updated = { ...agent, name: agent.name.replace(/ \([^)]*\)$/, ''), model: model || undefined, modelDescription: model ? '指定模型' : '跟随本机 CLI 默认模型' }
+    if (this.modelSettingsPath) {
+      const models = Object.fromEntries(this.getAgents().filter(a => a.type !== 'custom-cli').map(a => [a.id, a.id === id ? model : a.model || '']))
+      mkdirSync(dirname(this.modelSettingsPath), { recursive: true })
+      const tmp = this.modelSettingsPath + '.tmp'
+      writeFileSync(tmp, JSON.stringify({ version: 1, models }, null, 2), { mode: 0o600 })
+      renameSync(tmp, this.modelSettingsPath)
+    }
+    this.registerAgent(updated)
+    return updated
   }
 
   getAgents(): AgentConfig[] {
@@ -596,10 +717,10 @@ export class AgentService {
       ].join(':')
       const fullPath = `${extraPaths}:${process.env.PATH || ''}`
 
-      const result = execSync(`which ${command} 2>/dev/null || command -v ${command} 2>/dev/null`, {
+      const result = execFileSync('which', [command], {
         encoding: 'utf-8',
         timeout: 5000,
-        env: { ...process.env, PATH: fullPath },
+        env: { ...executionEnvironment(), PATH: fullPath },
       }).trim()
       
       if (result) {
@@ -632,6 +753,17 @@ export class AgentService {
    * @returns turnId - 立即返回，不等待进程完成
    * @throws 如果 CLI 不存在或 Agent 不存在
    */
+  private assertExecution(runId: string, nodeId: string): void {
+    if (this.shuttingDown) throw new Error('Execution service is shutting down')
+    if (this.workflowEngine.isTransitioning(runId)) throw new Error('Run state transition is in progress')
+    const run = this.workflowEngine.getRun(runId)
+    const node = run?.nodes.find(item => item.id === nodeId)
+    if (!run || run.status !== 'running' || node?.status !== 'running') throw new Error('Node is not running in an active run')
+    if (this.workflowEngine.getNodeTurns(nodeId).some(turn => turn.status === 'running' || turn.status === 'paused')) {
+      throw new Error('Node already has an active turn')
+    }
+  }
+
   startTurnAsync(params: {
     agentId: string
     nodeId: string
@@ -639,8 +771,10 @@ export class AgentService {
     prompt: string
     cwd?: string
     contextArtifacts?: string[]
+    resumeFromTurnId?: string
   }): string {
     const { agentId, nodeId, runId, prompt, cwd, contextArtifacts } = params
+    this.assertExecution(runId, nodeId)
 
     const agent = this.agents.get(agentId)
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
@@ -655,228 +789,107 @@ export class AgentService {
       )
     }
 
+    const recovery = params.resumeFromTurnId
+      ? this.recoverySource(runId, nodeId, params.resumeFromTurnId, agentId) : undefined
+
     // 构建完整 prompt
     const fullPrompt = this.buildContextualPrompt(agent, prompt, contextArtifacts)
 
     // Phase 1: StartAgentTurn（同步创建 Turn 记录）
     const turn = this.workflowEngine.startTurn(nodeId, runId, agentId, fullPrompt)
 
-    // 后台异步执行进程（不阻塞 HTTP 响应）
-    this.spawnAgentProcess(turn.id, agent, fullPrompt, nodeId, runId, cwd)
-
+    this.launchWorker(turn, { agent, prompt: fullPrompt, cwd, recovery, resumeFromTurnId: params.resumeFromTurnId })
     return turn.id
   }
 
-  /**
-   * 后台 spawn Agent 进程
-   */
-  private spawnAgentProcess(
-    turnId: string,
-    agent: AgentConfig,
-    prompt: string,
-    nodeId: string,
-    runId: string,
-    cwd?: string
-  ): void {
-    const { args, useStdin } = this.buildArgs(agent, prompt)
-
-    console.log(`[Agent] Starting turn ${turnId}: ${agent.command} ${args.join(' ').slice(0, 60)}...`)
-    console.log(`[Agent] CWD: ${cwd || process.cwd()}, useStdin: ${useStdin}`)
-
-    // 确保 PATH 包含常见的 CLI 安装路径
-    const extraPaths = [
-      '/opt/homebrew/bin',
-      '/usr/local/bin',
-      `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
-      `${process.env.HOME}/.local/bin`,
-    ].join(':')
-    const fullPath = `${extraPaths}:${process.env.PATH || ''}`
-
-    const proc = spawn(agent.command, args, {
-      cwd: cwd || process.cwd(),
-      env: {
-        ...process.env,
-        ...agent.env,
-        PATH: fullPath,
-        TERM: 'xterm-256color',  // 避免 "TERM is dumb" 错误
-      },
-      shell: false,  // ★ 关键修复：不通过 shell 执行，避免 prompt 被当命令解析
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-
-    // 如果需要通过 stdin 传递 prompt（codex exec 使用 `-` 从 stdin 读取）
-    if (useStdin && proc.stdin) {
-      proc.stdin.write(prompt)
-      proc.stdin.end()
-    }
-
-    this.activeProcesses.set(turnId, proc)
-
-    let hasOutput = false
-    let fullOutput = ''  // 收集完整输出用于解析 token
-
-    // ★ 超时保护（10 分钟）
-    const timeout = setTimeout(() => {
-      console.log(`[Agent] Turn ${turnId} timed out (10 min)`)
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, '\n\n⚠️ 执行超时（10分钟），已自动终止。\n')
-      proc.kill('SIGTERM')
-      setTimeout(() => {
-        if (proc.exitCode === null) proc.kill('SIGKILL')
-      }, 5000)
-    }, 10 * 60 * 1000)
-
-    // ★ A2A 进度汇报：每 15 秒向 manager 发送 reportProgress
-    const startTime = Date.now()
-    let lastProgressAt = 0
-    const PROGRESS_INTERVAL_MS = 15_000
-    const reportProgressThrottled = () => {
-      const now = Date.now()
-      if (!this.a2aProtocol || now - lastProgressAt < PROGRESS_INTERVAL_MS) return
-      lastProgressAt = now
-
-      const elapsedSec = Math.round((now - startTime) / 1000)
-      const outputLines = fullOutput.split('\n').length
-      // 使用输出行数 + 经过时间作为进度信号（无法预估总量，用相对指标）
-      this.a2aProtocol.reportProgress({
-        fromAgentId: agent.id,
-        toAgentId: 'autoflow-orchestrator',
-        runId,
-        nodeId,
-        progress: {
-          percentage: -1,  // -1 表示不确定进度（非百分比制）
-          message: `执行中: ${elapsedSec}s, ${outputLines} 行输出`,
-          details: { elapsedSec, outputLines, turnId },
-        },
-      })
-    }
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      hasOutput = true
-      const chunk = data.toString()
-      fullOutput += chunk
-      // ★ 流式推送到前端
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
-      // ★ 节流进度汇报
-      reportProgressThrottled()
-    })
-
-    proc.stderr?.on('data', (data: Buffer) => {
-      hasOutput = true
-      const chunk = data.toString()
-      fullOutput += chunk
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
-    })
-
-    proc.on('close', async (code) => {
-      clearTimeout(timeout)
-      this.activeProcesses.delete(turnId)
-
-      const wasCancelled = this.cancelledTurns.has(turnId)
-      this.cancelledTurns.delete(turnId)
-
-      console.log(`[Agent] Turn ${turnId} exited with code ${code}${wasCancelled ? ' (cancelled)' : ''}`)
-
-      // ★ 解析 Token 使用量（从 CLI 输出中提取）
-      const tokenUsage = this.parseTokenUsage(fullOutput, agent.type)
-      if (tokenUsage) {
-        console.log(`[Agent] Turn ${turnId} token usage: ${JSON.stringify(tokenUsage)}`)
+  private launchWorker(turn: AgentTurn, params: {
+    agent?: AgentConfig; script?: string; prompt: string; cwd?: string; recovery?: ProviderExecution; resumeFromTurnId?: string
+    fallback?: { agentId: string; prompt: string }
+  }): void {
+    const { runId, nodeId } = turn
+    try {
+      if (params.agent?.type === 'codex' || params.agent?.type === 'claude') {
+        turn.providerExecution = { provider: params.agent.type, resumedFromTurnId: params.resumeFromTurnId }
       }
-
-      // ★ 解析工具调用和文件修改（从 CLI 输出中提取）
-      const toolCalls = this.parseToolCalls(fullOutput)
-      const filesModified = this.parseFilesModified(fullOutput)
-
-      // ★ 产出物结构化解析：从 Agent 输出中提取代码块和文件引用
-      if (code === 0 && !wasCancelled) {
-        this.parseAndCreateArtifacts(fullOutput, runId, nodeId)
-      }
-
-      // ★ A2A 任务交付消息：通知 orchestrator 任务完成/失败
-      if (this.a2aProtocol) {
-        this.a2aProtocol.deliverTask({
-          fromAgentId: agent.id,
-          toAgentId: 'autoflow-orchestrator',
-          runId,
-          nodeId,
-          delivery: {
-            taskId: turnId,
-            summary: code === 0 && !wasCancelled
-              ? `Agent 成功完成 (${fullOutput.split('\n').length} 行输出)`
-              : `Agent 执行${wasCancelled ? '被取消' : '失败'} (exit=${code})`,
-            artifacts: this.workflowEngine.getNodeArtifacts(runId, nodeId),
-          },
-        })
-      }
-
-      // Phase 2: RecordAgentTurnResult
-      const result = wasCancelled ? 'failed' : (code === 0 ? 'succeeded' : 'failed')
-      this.workflowEngine.recordTurnResult(turnId, nodeId, result as any, undefined, tokenUsage, toolCalls, filesModified)
-
-      // Phase 3+4: Finalize
-      this.workflowEngine.finalizeTurn(turnId, nodeId)
-
-      // 如果失败且没有输出，额外推送一条错误信息
-      if (code !== 0 && !hasOutput) {
-        this.workflowEngine.appendTurnOutput(
-          turnId, nodeId,
-          wasCancelled
-            ? `\n⚠️ 用户已取消执行。\n`
-            : `\n❌ Agent 进程异常退出 (code=${code})。CLI: ${agent.command}\n`
-        )
-      }
-
-      // 通知节点完成/失败 — 通过自动提交节点决策（只提交一次）
-      try {
-        let decision: 'waiting_user_review' | 'completed' | 'failed'
-        if (wasCancelled) {
-          decision = 'failed'
-        } else if (code !== 0) {
-          decision = 'failed'
-        } else {
-          // ★ Phase 1: Adversarial 对抗审查（如果节点配置启用）
-          // 在 AutoFlow 评估之前执行，对抗结果将作为 AutoFlow 第 8 信号
-          await this.runAdversarialIfEnabled(runId, nodeId, turnId, fullOutput)
-
-          // ★ Phase 2: AutoFlow 决策点：执行验证 Turn + 评估是否可自动通过
-          // 使用异步版本以支持验证脚本执行（lint/test/LLM review）
-          decision = this.autoFlowEngine
-            ? await this.autoFlowEngine.evaluateAndDecideAsync(runId, nodeId)
-            : 'waiting_user_review'
+      const paths = ['/opt/homebrew/bin', '/usr/local/bin', `${process.env.HOME}/.local/bin`, process.env.PATH || ''].join(':')
+      const job: ExecutionJob = { turnId: turn.id, agent: params.agent, script: params.script, prompt: params.prompt,
+        cwd: params.cwd || process.cwd(), recovery: params.recovery,
+        workspace: this.workspaceJob(turn.id, runId, nodeId, turn.agentId, params.resumeFromTurnId),
+        environment: { ...executionEnvironment(params.agent?.type), ...params.agent?.env, PATH: paths, TERM: 'xterm-256color' },
+        timeoutMs: params.agent ? 10 * 60_000 : 5 * 60_000 }
+      let lastProgress = 0
+      const worker = new ExecutionWorkerClient(job, message => {
+        if (message.type === 'output') {
+          this.workflowEngine.appendTurnOutput(turn.id, nodeId, message.text)
+          if (this.a2aProtocol && Date.now() - lastProgress > 15_000) {
+            lastProgress = Date.now()
+            this.a2aProtocol.reportProgress({ fromAgentId: turn.agentId, toAgentId: 'autoflow-orchestrator', runId, nodeId,
+              progress: { percentage: -1, message: '执行中', details: { turnId: turn.id } } })
+          }
         }
-
-        await this.workflowEngine.submitNodeDecision(
-          runId,
-          nodeId,
-          decision,
-          wasCancelled ? '用户取消执行' : (code !== 0 ? `Agent 退出码: ${code}` : undefined)
-        )
-      } catch (e) {
-        console.error(`[Agent] Failed to submit node decision:`, (e as Error).message)
-      }
-    })
-
-    proc.on('error', (err) => {
-      clearTimeout(timeout)
-      this.activeProcesses.delete(turnId)
-
-      console.error(`[Agent] Turn ${turnId} spawn error:`, err.message)
-
-      this.workflowEngine.appendTurnOutput(
-        turnId, nodeId,
-        `\n❌ Agent 进程启动失败: ${err.message}\n请确认 "${agent.command}" 已正确安装。\n`
-      )
-
-      this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
-      this.workflowEngine.finalizeTurn(turnId, nodeId)
-    })
+        if (message.type === 'provider' && message.event.type === 'session' && turn.providerExecution) {
+          turn.providerExecution.sessionId = message.event.sessionId
+          void this.workflowEngine.persist()
+        }
+      }, () => this.workflowEngine.getRun(runId)?.status === 'running' && this.ownsTurn(turn))
+      this.activeProcesses.set(turn.id, worker)
+      const completion = worker.result.then(async result => {
+        this.activeProcesses.delete(turn.id)
+        await this.finishExecution(turn, result, params)
+      }).catch(error => this.failTurn(turn, (error as Error).message))
+        .catch(error => console.error('[Agent] Failed to persist execution outcome:', error))
+        .finally(() => { this.completions.delete(turn.id); this.invalidatedTurns.delete(turn.id) })
+      this.completions.set(turn.id, completion)
+    } catch (error) {
+      void this.failTurn(turn, (error as Error).message).catch(failure => console.error('[Agent] Failed to persist execution outcome:', failure))
+      throw error
+    }
   }
 
-  /**
-   * 如果节点配置了 adversarial 对抗审查，则触发 AdversarialTurnService
-   * 
-   * 执行时机：Agent 主 Turn 成功完成后、AutoFlow 评估之前
-   * 对抗结果会缓存到 AdversarialTurnService 中，AutoFlow 收集信号时自动查询
-   */
+  private async failTurn(turn: AgentTurn, error: string): Promise<void> {
+    this.workflowEngine.appendTurnOutput(turn.id, turn.nodeId, `\n执行失败: ${error}\n`)
+    if (turn.status === 'running') {
+      this.workflowEngine.recordTurnResult(turn.id, turn.nodeId, 'failed')
+      this.workflowEngine.finalizeTurn(turn.id, turn.nodeId)
+    }
+    if (this.ownsTurn(turn)) {
+      await this.workflowEngine.submitNodeDecision(turn.runId, turn.nodeId, 'failed', error)
+    }
+  }
+
+  private async finishExecution(turn: AgentTurn, result: ExecutionResult, params: {
+    agent?: AgentConfig; script?: string; prompt: string; fallback?: { agentId: string; prompt: string }
+  }): Promise<void> {
+    const { runId, nodeId } = turn
+    if (turn.status !== 'running' || this.workflowEngine.getNodeTurns(nodeId).at(-1)?.id !== turn.id) return
+    if (!this.ownsTurn(turn)) {
+      await this.failTurn(turn, 'Execution stopped by a node state transition')
+      return
+    }
+    if (result.error) this.workflowEngine.appendTurnOutput(turn.id, nodeId, `\n${result.error}\n`)
+    const custom = params.agent?.type === 'custom-cli'
+    const usage = custom ? this.parseTokenUsage(result.output, 'custom-cli') : result.tokenUsage
+    const tools = custom ? this.parseToolCalls(result.output) : result.toolCalls
+    const files = custom ? this.parseFilesModified(result.output) : result.filesModified
+    if (result.success && params.agent) this.parseAndCreateArtifacts(result.output, runId, nodeId)
+    this.workflowEngine.recordTurnResult(turn.id, nodeId, result.success ? 'succeeded' : 'failed', undefined, usage, tools, files)
+    this.workflowEngine.finalizeTurn(turn.id, nodeId)
+    if (params.fallback && result.allowFallback && !result.cancelled) {
+      this.startTurnAsync({ runId, nodeId, agentId: params.fallback.agentId,
+        prompt: `脚本失败，先检查现有修改，再修复任务。\n${result.output.slice(-2000)}\n${params.fallback.prompt}` })
+      return
+    }
+    if (this.a2aProtocol) this.a2aProtocol.deliverTask({ fromAgentId: turn.agentId, toAgentId: 'autoflow-orchestrator', runId, nodeId,
+      delivery: { taskId: turn.id, summary: result.success ? '执行完成，等待验证' : result.error || '执行失败', artifacts: this.workflowEngine.getNodeArtifacts(runId, nodeId) } })
+    let decision: 'failed' | 'completed' | 'waiting_user_review' = 'failed'
+    if (result.success) {
+      if (params.agent) await this.runAdversarialIfEnabled(runId, nodeId, turn.id, result.output)
+      decision = this.autoFlowEngine ? await this.autoFlowEngine.evaluateAndDecideAsync(runId, nodeId) : 'waiting_user_review'
+    }
+    if (!this.ownsTurn(turn)) return
+    await this.workflowEngine.submitNodeDecision(runId, nodeId, decision, result.error)
+  }
+
   private async runAdversarialIfEnabled(
     runId: string,
     nodeId: string,
@@ -889,6 +902,7 @@ export class AgentService {
     const run = this.workflowEngine.getRun(runId)
     const node = run?.nodes.find(n => n.id === nodeId)
     if (!node?.adversarial?.enabled) return
+    if (this.executionDependencies) throw new Error('隔离执行暂不支持旧版对抗子 Turn；请关闭该选项并使用独立 review 节点')
 
     console.log(`[Agent] Triggering adversarial review for node "${node.name}" (${nodeId})`)
     try {
@@ -904,21 +918,38 @@ export class AgentService {
    * 取消正在执行的 Turn
    * 注意：不立即删除 activeProcesses，让 close handler 统一处理
    */
-  cancelTurn(turnId: string): boolean {
-    const proc = this.activeProcesses.get(turnId)
-    if (!proc) return false
+  async shutdown(): Promise<void> {
+    this.shuttingDown = true
+    const workers = [...this.activeProcesses.values()]
+    for (const worker of workers) worker.cancel()
+    await Promise.all([...this.completions.values()])
+  }
 
-    console.log(`[Agent] Cancelling turn ${turnId}`)
-    // 标记为已取消，close handler 中会检查此标记
-    this.cancelledTurns.add(turnId)
-    proc.kill('SIGTERM')
-    // 5秒后强制 kill
-    setTimeout(() => {
-      if (proc.exitCode === null) {
-        proc.kill('SIGKILL')
+  private ownsTurn(turn: AgentTurn): boolean {
+    return !this.invalidatedTurns.has(turn.id) &&
+      this.workflowEngine.getRun(turn.runId)?.nodes.find(n => n.id === turn.nodeId)?.status === 'running' &&
+      this.workflowEngine.getNodeTurns(turn.nodeId).at(-1)?.id === turn.id
+  }
+
+  private async stopNodes(_runId: string, nodeIds: string[]): Promise<void> {
+    const turns = nodeIds.flatMap(id => this.workflowEngine.getNodeTurns(id))
+    for (const turn of turns) {
+      if (this.completions.has(turn.id)) this.invalidatedTurns.add(turn.id)
+      this.activeProcesses.get(turn.id)?.cancel()
+    }
+    await Promise.all(turns.map(turn => this.completions.get(turn.id)))
+    for (const turn of turns) {
+      if (turn.status === 'running') {
+        this.workflowEngine.recordTurnResult(turn.id, turn.nodeId, 'failed')
+        this.workflowEngine.finalizeTurn(turn.id, turn.nodeId)
       }
-    }, 5000)
+    }
+  }
 
+  cancelTurn(turnId: string): boolean {
+    const worker = this.activeProcesses.get(turnId)
+    if (!worker) return false
+    worker.cancel()
     return true
   }
 
@@ -975,6 +1006,7 @@ export class AgentService {
     cwd?: string
   }): string {
     const { nodeId, runId, script, cwd } = params
+    this.assertExecution(runId, nodeId)
 
     // 使用虚拟 Agent ID 标识 DET 执行
     const agentId = 'det-executor'
@@ -982,8 +1014,7 @@ export class AgentService {
     // 创建 Turn 记录
     const turn = this.workflowEngine.startTurn(nodeId, runId, agentId, `[DET] ${script}`)
 
-    // 异步执行脚本
-    this.spawnDETProcess(turn.id, script, nodeId, runId, cwd)
+    this.launchWorker(turn, { script, prompt: `[DET] ${script}`, cwd })
 
     return turn.id
   }
@@ -1002,199 +1033,15 @@ export class AgentService {
     cwd?: string
   }): string {
     const { nodeId, runId, script, agentId, prompt, cwd } = params
+    this.assertExecution(runId, nodeId)
 
     // 先以 DET 方式创建 Turn
     const detAgentId = 'hyb-executor'
     const turn = this.workflowEngine.startTurn(nodeId, runId, detAgentId, `[HYB] ${script}`)
 
-    // 异步执行：脚本成功则完成，失败则启动 LLM
-    this.spawnHYBProcess(turn.id, script, nodeId, runId, agentId, prompt, cwd)
+    this.launchWorker(turn, { script, prompt, cwd, fallback: { agentId, prompt } })
 
     return turn.id
-  }
-
-  /**
-   * DET 模式进程 spawn
-   */
-  private spawnDETProcess(
-    turnId: string,
-    script: string,
-    nodeId: string,
-    runId: string,
-    cwd?: string
-  ): void {
-    console.log(`[DET] Starting turn ${turnId}: ${script}`)
-
-    const extraPaths = [
-      '/opt/homebrew/bin',
-      '/usr/local/bin',
-      `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
-      `${process.env.HOME}/.local/bin`,
-    ].join(':')
-    const fullPath = `${extraPaths}:${process.env.PATH || ''}`
-
-    const proc = spawn('sh', ['-c', script], {
-      cwd: cwd || process.cwd(),
-      env: { ...process.env, PATH: fullPath },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-
-    this.activeProcesses.set(turnId, proc)
-
-    // 5 分钟超时（DET 脚本一般较快）
-    const timeout = setTimeout(() => {
-      console.log(`[DET] Turn ${turnId} timed out (5 min)`)
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, '\n⚠️ DET 脚本执行超时（5分钟），已终止。\n')
-      proc.kill('SIGTERM')
-      setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL') }, 5000)
-    }, 5 * 60 * 1000)
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, data.toString())
-    })
-
-    proc.stderr?.on('data', (data: Buffer) => {
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, data.toString())
-    })
-
-    proc.on('close', async (code) => {
-      clearTimeout(timeout)
-      this.activeProcesses.delete(turnId)
-
-      const wasCancelled = this.cancelledTurns.has(turnId)
-      this.cancelledTurns.delete(turnId)
-
-      console.log(`[DET] Turn ${turnId} exited with code ${code}${wasCancelled ? ' (cancelled)' : ''}`)
-
-      const result = wasCancelled ? 'failed' : (code === 0 ? 'succeeded' : 'failed')
-      this.workflowEngine.recordTurnResult(turnId, nodeId, result as any)
-      this.workflowEngine.finalizeTurn(turnId, nodeId)
-
-      // DET 模式：成功直接 completed（不需要人工审批），失败则标记 failed
-      try {
-        await this.workflowEngine.submitNodeDecision(
-          runId, nodeId,
-          wasCancelled ? 'failed' : (code === 0 ? 'completed' : 'failed'),
-          wasCancelled ? '用户取消执行' : (code !== 0 ? `DET 脚本退出码: ${code}` : undefined)
-        )
-      } catch (e) {
-        console.error(`[DET] Failed to submit node decision:`, (e as Error).message)
-      }
-    })
-
-    proc.on('error', (err) => {
-      clearTimeout(timeout)
-      this.activeProcesses.delete(turnId)
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, `\n❌ DET 脚本执行失败: ${err.message}\n`)
-      this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
-      this.workflowEngine.finalizeTurn(turnId, nodeId)
-    })
-  }
-
-  /**
-   * HYB 模式进程 spawn：先跑脚本，失败后回退到 LLM Agent
-   */
-  private spawnHYBProcess(
-    turnId: string,
-    script: string,
-    nodeId: string,
-    runId: string,
-    fallbackAgentId: string,
-    fallbackPrompt: string,
-    cwd?: string
-  ): void {
-    console.log(`[HYB] Starting script phase for turn ${turnId}: ${script}`)
-
-    const extraPaths = [
-      '/opt/homebrew/bin',
-      '/usr/local/bin',
-      `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
-      `${process.env.HOME}/.local/bin`,
-    ].join(':')
-    const fullPath = `${extraPaths}:${process.env.PATH || ''}`
-
-    const proc = spawn('sh', ['-c', script], {
-      cwd: cwd || process.cwd(),
-      env: { ...process.env, PATH: fullPath },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-
-    this.activeProcesses.set(turnId, proc)
-    let fullOutput = ''
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGTERM')
-      setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL') }, 5000)
-    }, 5 * 60 * 1000)
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      const chunk = data.toString()
-      fullOutput += chunk
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
-    })
-
-    proc.stderr?.on('data', (data: Buffer) => {
-      const chunk = data.toString()
-      fullOutput += chunk
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, chunk)
-    })
-
-    proc.on('close', async (code) => {
-      clearTimeout(timeout)
-      this.activeProcesses.delete(turnId)
-
-      if (code === 0) {
-        // 脚本成功 → 直接完成
-        console.log(`[HYB] Script succeeded for turn ${turnId}, marking completed`)
-        this.workflowEngine.recordTurnResult(turnId, nodeId, 'succeeded')
-        this.workflowEngine.finalizeTurn(turnId, nodeId)
-        try {
-          await this.workflowEngine.submitNodeDecision(runId, nodeId, 'completed')
-        } catch (e) {
-          console.error(`[HYB] Failed to submit node decision:`, (e as Error).message)
-        }
-      } else {
-        // 脚本失败 → 回退到 LLM Agent
-        console.log(`[HYB] Script failed (code=${code}) for turn ${turnId}, falling back to LLM Agent`)
-        this.workflowEngine.appendTurnOutput(turnId, nodeId, `\n\n⚠️ 脚本执行失败（退出码 ${code}），回退到 LLM Agent...\n\n`)
-        this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
-        this.workflowEngine.finalizeTurn(turnId, nodeId)
-
-        // 启动 LLM Agent Turn，将脚本输出作为上下文
-        const enrichedPrompt = `之前执行的脚本 \`${script}\` 失败了（退出码 ${code}）。\n\n脚本输出:\n\`\`\`\n${fullOutput.slice(-2000)}\n\`\`\`\n\n请分析失败原因并完成任务：\n${fallbackPrompt}`
-        try {
-          this.startTurnAsync({
-            agentId: fallbackAgentId,
-            nodeId,
-            runId,
-            prompt: enrichedPrompt,
-            cwd,
-          })
-        } catch (e) {
-          console.error(`[HYB] Failed to start LLM fallback:`, (e as Error).message)
-        }
-      }
-    })
-
-    proc.on('error', (err) => {
-      clearTimeout(timeout)
-      this.activeProcesses.delete(turnId)
-      // 脚本启动失败 → 直接回退到 LLM
-      this.workflowEngine.appendTurnOutput(turnId, nodeId, `\n❌ 脚本启动失败: ${err.message}，回退到 LLM Agent\n`)
-      this.workflowEngine.recordTurnResult(turnId, nodeId, 'failed')
-      this.workflowEngine.finalizeTurn(turnId, nodeId)
-      try {
-        this.startTurnAsync({
-          agentId: fallbackAgentId,
-          nodeId,
-          runId,
-          prompt: `脚本 \`${script}\` 启动失败: ${err.message}\n\n请直接完成任务：\n${fallbackPrompt}`,
-          cwd,
-        })
-      } catch (e) {
-        console.error(`[HYB] Failed to start LLM fallback:`, (e as Error).message)
-      }
-    })
   }
 
   // ═══════════════ 上下文构建 ═══════════════
@@ -1632,7 +1479,7 @@ export class AgentService {
     if (/[/\\]/.test(name) || /\.\w{1,10}$/.test(name)) {
       // 但排除看起来像代码的（如 const x = require('./file')）
       if (/^(const|let|var|import|export|function|class|if|for|while)\s/.test(name)) return false
-      if (/[=(){}\[\];]/.test(name)) return false
+      if (/[=(){}[\];]/.test(name)) return false
       return true
     }
     // 像 "filename.ext" 的格式
@@ -1665,40 +1512,4 @@ export class AgentService {
     return 'code'
   }
 
-  private buildArgs(agent: AgentConfig, prompt: string): { args: string[]; useStdin: boolean } {
-    switch (agent.type) {
-      case 'codex':
-        // codex exec 非交互模式，通过 stdin 传递 prompt（用 `-` 表示从 stdin 读取）
-        // --skip-git-repo-check 避免要求 git 仓库
-        // macOS 15 Sequoia 上 sandbox-exec 全局不可用（Operation not permitted），
-        // 因此使用 danger-full-access 跳过系统 sandbox。
-        // 安全保障由 AgentFlow 的节点审批机制 + cwd 限定来提供。
-        {
-          const args = [
-            'exec', '-',
-            '--skip-git-repo-check',
-            '--sandbox', 'danger-full-access',
-          ]
-          // 如果 Agent 指定了模型，通过 --model 传递（覆盖全局 config.toml 配置）
-          if (agent.model) {
-            args.push('--model', agent.model)
-          }
-          return { args, useStdin: true }
-        }
-      case 'claude':
-        // claude CLI: claude -p "prompt" --no-input [--model xxx]
-        // prompt 直接作为参数传递（claude 不需要 shell 转义，因为 shell: false）
-        {
-          const args = ['-p', prompt, '--no-input']
-          if (agent.model) {
-            args.push('--model', agent.model)
-          }
-          return { args, useStdin: false }
-        }
-      case 'custom-cli':
-        return { args: [prompt], useStdin: false }
-      default:
-        return { args: [prompt], useStdin: false }
-    }
-  }
 }

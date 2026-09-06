@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import type { RepoIsolationService } from './repo-isolation.js'
 import type { GitService } from './git.js'
 import type { AuthService } from './auth.js'
@@ -104,6 +104,19 @@ export class ArtifactMergeService {
     private gitService: GitService
   ) {}
 
+  private deliveryVerifier?: (turnId: string, runId: string, nodeId: string) => boolean
+
+  setDeliveryVerifier(verifier: (turnId: string, runId: string, nodeId: string) => boolean): void {
+    this.deliveryVerifier = verifier
+  }
+
+  private assertDelivery(review: DiffReview): void {
+    this.repoIsolation.executions.assertSnapshot(review.turnId, review.headCommit)
+    if (!this.deliveryVerifier?.(review.turnId, review.runId, review.nodeId)) {
+      throw new Error('Delivery requires approval and passing verification of the current turn')
+    }
+  }
+
   /** 注入 AuthService（延迟注入避免循环依赖） */
   injectAuth(authService: AuthService): void {
     this.authService = authService
@@ -127,29 +140,15 @@ export class ArtifactMergeService {
 
     const cwd = worktreeMount.mountPath
 
-    // 检查是否有未提交的变更，如果有则自动 commit
-    const status = this.gitService.getStatus(cwd)
-    if (!status.isClean) {
-      try {
-        execSync('git add -A', { cwd, encoding: 'utf-8', stdio: 'pipe' })
-        execSync('git commit -m "Agent work output" --allow-empty', {
-          cwd, encoding: 'utf-8', stdio: 'pipe',
-        })
-      } catch {
-        // commit 失败不阻塞（可能没有实际变更）
-      }
-    }
-
-    // 获取基准分支和工作分支
-    const workBranch = this.gitService.getCurrentBranch(cwd)
-    const baseBranch = this.detectBaseBranch(cwd)
-    const baseCommit = this.getBaseCommit(cwd, baseBranch, workBranch)
-    const headCommit = this.getHeadCommit(cwd)
+    const snapshot = this.repoIsolation.executions.assertSnapshot(params.turnId)
+    if (snapshot.runId !== params.runId || snapshot.nodeId !== params.nodeId) throw new Error('Workspace ownership mismatch')
+    const workBranch = snapshot.repoMounts[0].branch!
+    const { baseBranch, baseCommit, headCommit } = snapshot.execution
 
     // 生成 diff
-    const rawDiff = this.gitService.getDiffBetween(cwd, baseCommit, headCommit)
+    const rawDiff = this.gitService.getDiffBetween(cwd, baseCommit, headCommit!)
     const diffSummary = this.gitService.generateDiffSummary(rawDiff)
-    const changedFiles = this.gitService.getChangedFiles(cwd, baseCommit, headCommit)
+    const changedFiles = this.gitService.getChangedFiles(cwd, baseCommit, headCommit!)
 
     // 解析文件状态
     const files: DiffFile[] = changedFiles.map(f => ({
@@ -169,7 +168,7 @@ export class ArtifactMergeService {
       baseBranch,
       workBranch,
       baseCommit,
-      headCommit,
+      headCommit: headCommit!,
       files,
       fileDiffs,
       summary: {
@@ -217,44 +216,23 @@ export class ArtifactMergeService {
       return { success: false, strategy, filesAffected: 0, error: 'No worktree mount found' }
     }
 
-    // 找到主仓库路径（通过 repoIsolation 获取原始 repo）
-    const repo = this.repoIsolation.getRepo(workspace.runId, worktreeMount.repoId)
-    if (!repo) {
-      return { success: false, strategy, filesAffected: 0, error: 'Repository not found in pool' }
-    }
-
-    const mainCwd = repo.localPath
-
     try {
-      let mergeCommit: string
-
-      switch (strategy) {
-        case 'squash': {
-          execSync(`git merge --squash "${review.workBranch}"`, {
-            cwd: mainCwd, encoding: 'utf-8', stdio: 'pipe',
-          })
-          execSync(`git commit -m "Merge agent work: ${review.nodeId}" --allow-empty`, {
-            cwd: mainCwd, encoding: 'utf-8', stdio: 'pipe',
-          })
-          mergeCommit = this.getHeadCommit(mainCwd)
-          break
-        }
-        case 'rebase': {
-          execSync(`git rebase "${review.workBranch}"`, {
-            cwd: mainCwd, encoding: 'utf-8', stdio: 'pipe',
-          })
-          mergeCommit = this.getHeadCommit(mainCwd)
-          break
-        }
-        case 'merge':
-        default: {
-          execSync(`git merge --no-ff "${review.workBranch}" -m "Merge agent work: ${review.nodeId}"`, {
-            cwd: mainCwd, encoding: 'utf-8', stdio: 'pipe',
-          })
-          mergeCommit = this.getHeadCommit(mainCwd)
-          break
-        }
+      this.assertDelivery(review)
+      const snapshot = this.repoIsolation.executions.assertSnapshot(turnId, review.headCommit)
+      const mainCwd = snapshot.execution.repository
+      const git = (args: string[]) => this.repoIsolation.executions.git(mainCwd, args)
+      if (!['merge', 'squash'].includes(strategy)) throw new Error('Rebase delivery is unsupported; use merge or squash')
+      if (git(['status', '--porcelain', '--untracked-files=normal'])) throw new Error('Project has uncommitted changes')
+      if (git(['branch', '--show-current']) !== review.baseBranch || git(['rev-parse', 'HEAD']) !== review.baseCommit) {
+        throw new Error('Target branch changed since the run baseline; integrate and verify in a new run')
       }
+      if (strategy === 'squash') {
+        git(['merge', '--squash', review.headCommit])
+        git(['commit', '--allow-empty', '-m', `Merge agent work: ${review.nodeId}`])
+      } else {
+        git(['merge', '--no-ff', review.headCommit, '-m', `Merge agent work: ${review.nodeId}`])
+      }
+      const mergeCommit = this.getHeadCommit(mainCwd)
 
       return {
         success: true,
@@ -281,35 +259,7 @@ export class ArtifactMergeService {
       return { success: false, error: 'No review found for this turn' }
     }
 
-    const workspace = this.repoIsolation.getWorkspace(turnId)
-    if (!workspace) {
-      // workspace 可能已经清理过了
-      this.reviews.delete(turnId)
-      return { success: true }
-    }
-
-    const worktreeMount = workspace.repoMounts.find(m => m.mode === 'worktree')
-    if (!worktreeMount) {
-      this.reviews.delete(turnId)
-      return { success: true }
-    }
-
-    const repo = this.repoIsolation.getRepo(workspace.runId, worktreeMount.repoId)
-    if (repo) {
-      try {
-        // 删除 worktree
-        execSync(`git worktree remove "${worktreeMount.mountPath}" --force`, {
-          cwd: repo.localPath, encoding: 'utf-8', stdio: 'pipe',
-        })
-        // 删除分支
-        execSync(`git branch -D "${review.workBranch}" 2>/dev/null || true`, {
-          cwd: repo.localPath, encoding: 'utf-8', stdio: 'pipe',
-        })
-      } catch {
-        // 清理失败不阻塞
-      }
-    }
-
+    // A rejected review must not delete the code needed by retries or downstream attempts.
     this.reviews.delete(turnId)
     return { success: true }
   }
@@ -329,7 +279,7 @@ export class ArtifactMergeService {
    * Push 工作分支到远端并创建 GitHub Pull Request
    * 
    * 流程：
-   *   1. 确认工作分支有 commit（prepareDiffReview 阶段已自动 commit）
+   *   1. 确认当前 Turn 已审批且代码快照仍通过验证
    *   2. git push origin <workBranch>
    *   3. 通过 GitHub API 创建 Pull Request
    *   4. 返回 PR URL 供前端展示
@@ -342,6 +292,10 @@ export class ArtifactMergeService {
     const review = this.reviews.get(turnId)
     if (!review) {
       return { success: false, error: 'No review found for this turn' }
+    }
+
+    try { this.assertDelivery(review) } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
 
     if (!this.authService) {
@@ -377,24 +331,11 @@ export class ArtifactMergeService {
 
     // Step 1: Push 工作分支到远端
     try {
-      execSync(`git push origin "${headBranch}"`, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        timeout: 60_000,
+      execFileSync('git', ['push', 'origin', `${review.headCommit}:refs/heads/${headBranch}`], {
+        cwd, encoding: 'utf-8', stdio: 'pipe', timeout: 60_000,
       })
-    } catch (e) {
-      // 如果分支已存在于远端，尝试 force push（worktree 场景下可能需要）
-      try {
-        execSync(`git push origin "${headBranch}" --force-with-lease`, {
-          cwd,
-          encoding: 'utf-8',
-          stdio: 'pipe',
-          timeout: 60_000,
-        })
-      } catch (e2) {
-        return { success: false, error: `Failed to push branch: ${(e2 as Error).message}` }
-      }
+    } catch (error) {
+      return { success: false, error: `Failed to push branch: ${(error as Error).message}` }
     }
 
     // Step 2: 通过 GitHub API 创建 PR
@@ -558,35 +499,6 @@ export class ArtifactMergeService {
       '*This PR was automatically created by [AgentFlow](https://github.com/XiaoPeng1112/agent-flow).*',
     ]
     return lines.join('\n')
-  }
-
-  private detectBaseBranch(cwd: string): string {
-    try {
-      // 尝试常见的主分支名
-      const candidates = ['main', 'master', 'develop']
-      for (const name of candidates) {
-        try {
-          execSync(`git rev-parse --verify "${name}"`, { cwd, encoding: 'utf-8', stdio: 'pipe' })
-          return name
-        } catch { /* 继续尝试 */ }
-      }
-    } catch { /* fallback */ }
-    return 'main'
-  }
-
-  private getBaseCommit(cwd: string, baseBranch: string, workBranch: string): string {
-    try {
-      return execSync(`git merge-base "${baseBranch}" "${workBranch}"`, {
-        cwd, encoding: 'utf-8', stdio: 'pipe',
-      }).trim()
-    } catch {
-      // 找不到共同祖先，用 baseBranch HEAD
-      try {
-        return execSync(`git rev-parse "${baseBranch}"`, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim()
-      } catch {
-        return 'HEAD~1'
-      }
-    }
   }
 
   private getHeadCommit(cwd: string): string {

@@ -38,17 +38,15 @@ export function createValidationRouter(deps: {
 
     for (const node of run.nodes) {
       const result = validationTurnService.getValidationResult(runId, node.id)
-      if (result) {
-        results.push({
+      results.push({
           nodeId: node.id,
           nodeName: node.name,
           nodeType: node.type,
-          result,
+          result: result || null,
         })
-      }
     }
 
-    const totalValidated = results.length
+    const totalValidated = results.filter(r => r.result !== null).length
     const passed = results.filter(r => r.result?.passed).length
     const failed = results.filter(r => r.result && !r.result.passed).length
     const avgScore = totalValidated > 0

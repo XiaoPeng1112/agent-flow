@@ -1,16 +1,69 @@
-import { Router } from 'express'
+import { Router, type Response } from 'express'
+import { isAbsolute, relative, resolve, sep } from 'path'
 import type { AgentService } from '../services/agent.js'
 import type { WorkflowEngine } from '../services/workflow-engine.js'
 import type { DynamicAgentFactory } from '../services/dynamic-agent-factory.js'
+import type { ProjectService } from '../services/project.js'
+
+class ExecutionRequestError extends Error {}
+
 export function createAgentsRouter(deps: {
   agentService: AgentService
   workflowEngine: WorkflowEngine
   dynamicAgentFactory: DynamicAgentFactory
+  projectService: ProjectService
 }): Router {
   const router = Router()
-  const { agentService, workflowEngine, dynamicAgentFactory } = deps
+  const { agentService, workflowEngine, dynamicAgentFactory, projectService } = deps
+
+  const resolveExecutionTarget = (
+    runId: string,
+    nodeId: string,
+    requestedCwd?: string,
+    useScriptCwd = false
+  ) => {
+    const run = workflowEngine.getRun(runId)
+    if (!run) throw new ExecutionRequestError(`Run not found: ${runId}`)
+
+    const node = run.nodes.find(item => item.id === nodeId)
+    if (!node) throw new ExecutionRequestError(`Node not found in run ${runId}: ${nodeId}`)
+
+    const project = projectService.getProject(run.projectId)
+    if (!project?.path) throw new ExecutionRequestError(`Project path not found: ${run.projectId}`)
+
+    const projectRoot = resolve(project.path)
+    const configuredCwd = resolve(projectRoot, useScriptCwd && node.scriptCwd ? node.scriptCwd : '.')
+    const pathFromProject = relative(projectRoot, configuredCwd)
+    if (pathFromProject === '..' || pathFromProject.startsWith(`..${sep}`) || isAbsolute(pathFromProject)) {
+      throw new ExecutionRequestError('Configured working directory is outside the project')
+    }
+    if (requestedCwd && resolve(requestedCwd) !== configuredCwd) {
+      throw new ExecutionRequestError('Requested working directory does not match the configured project path')
+    }
+
+    return { run, node, cwd: configuredCwd }
+  }
+
+  const sendExecutionError = (res: Response, err: unknown) => {
+    const status = err instanceof ExecutionRequestError ? 400 : 500
+    res.status(status).json({ success: false, error: (err as Error).message })
+  }
 
   // ═══════════════ Agent API ═══════════════
+
+  router.get('/models/codex', async (req, res) => {
+    const catalog = await agentService.modelCatalog.get(req.query.refresh === 'true')
+    res.json({ success: true, data: catalog })
+  })
+
+  router.put('/:id/model', (req, res) => {
+    try {
+      const agent = agentService.setAgentModel(req.params.id, req.body?.model)
+      res.json({ success: true, data: { agent } })
+    } catch (error) {
+      res.status(400).json({ success: false, error: (error as Error).message })
+    }
+  })
 
   /** 获取可用 Agent 列表 */
   router.get('/', (_req, res) => {
@@ -74,6 +127,7 @@ export function createAgentsRouter(deps: {
       return
     }
     try {
+      const target = resolveExecutionTarget(runId, nodeId, cwd)
       // 同步检测 CLI 可用性 — 快速失败
       const agent = agentService.getAgent(agentId)
       if (!agent) {
@@ -82,10 +136,35 @@ export function createAgentsRouter(deps: {
       }
 
       // 异步启动执行（不 await，立即返回）
-      const turnId = agentService.startTurnAsync({ agentId, nodeId, runId, prompt, cwd, contextArtifacts })
+      const turnId = agentService.startTurnAsync({ agentId, nodeId, runId, prompt, cwd: target.cwd, contextArtifacts })
       res.json({ success: true, data: { turnId } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendExecutionError(res, err)
+    }
+  })
+
+  router.post('/resume-turn', async (req, res) => {
+    const { runId, nodeId, turnId, prompt } = req.body || {}
+    if (![runId, nodeId, turnId, prompt].every(value => typeof value === 'string' && value.trim())) {
+      res.status(400).json({ success: false, error: 'runId, nodeId, turnId and prompt are required' })
+      return
+    }
+    try {
+      resolveExecutionTarget(runId, nodeId)
+      const resumedTurnId = await agentService.resumeProviderTurn({ runId, nodeId, turnId, prompt })
+      res.json({ success: true, data: { turnId: resumedTurnId } })
+    } catch (error) {
+      res.status(409).json({ success: false, error: (error as Error).message })
+    }
+  })
+
+  router.get('/events/:runId/:nodeId/:turnId', (req, res) => {
+    try {
+      const { runId, nodeId, turnId } = req.params
+      const page = agentService.getProviderEvents(runId, nodeId, turnId, Number(req.query.after || 0))
+      res.json({ success: true, data: page })
+    } catch (error) {
+      res.status(400).json({ success: false, error: (error as Error).message })
     }
   })
 
@@ -97,15 +176,30 @@ export function createAgentsRouter(deps: {
       return
     }
     try {
+      const target = resolveExecutionTarget(runId, nodeId, cwd, true)
+      if (target.node.status !== 'running') {
+        throw new ExecutionRequestError(`Node ${nodeId} is not running`)
+      }
+      if (target.node.executionMode !== 'det' && target.node.executionMode !== 'hyb') {
+        throw new ExecutionRequestError(`Node ${nodeId} is not configured for DET/HYB execution`)
+      }
+      if (!target.node.script || script !== target.node.script) {
+        throw new ExecutionRequestError('Requested script does not match the node configuration')
+      }
+      if (executionMode && executionMode !== target.node.executionMode) {
+        throw new ExecutionRequestError('Requested execution mode does not match the node configuration')
+      }
+
       let turnId: string
-      if (executionMode === 'hyb' && agentId && prompt) {
-        turnId = agentService.executeHYB({ nodeId, runId, script, agentId, prompt, cwd })
+      if (target.node.executionMode === 'hyb') {
+        if (!agentId || !prompt) throw new ExecutionRequestError('agentId and prompt are required for HYB execution')
+        turnId = agentService.executeHYB({ nodeId, runId, script: target.node.script, agentId, prompt, cwd: target.cwd })
       } else {
-        turnId = agentService.executeDET({ nodeId, runId, script, cwd })
+        turnId = agentService.executeDET({ nodeId, runId, script: target.node.script, cwd: target.cwd })
       }
       res.json({ success: true, data: { turnId } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendExecutionError(res, err)
     }
   })
 
@@ -120,10 +214,11 @@ export function createAgentsRouter(deps: {
   router.post('/answer', (req, res) => {
     const { nodeId, runId, agentId, originalQuestion, answer, cwd } = req.body
     try {
-      const turnId = agentService.answerQuestion({ nodeId, runId, agentId, originalQuestion, answer, cwd })
+      const target = resolveExecutionTarget(runId, nodeId, cwd)
+      const turnId = agentService.answerQuestion({ nodeId, runId, agentId, originalQuestion, answer, cwd: target.cwd })
       res.json({ success: true, data: { turnId } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendExecutionError(res, err)
     }
   })
 
@@ -158,20 +253,21 @@ export function createAgentsRouter(deps: {
       for (const node of nodesToExecute) {
         // 先将节点状态从 ready → running，然后再启动 Agent
         await workflowEngine.startNode(runId, node.id)
+        const target = resolveExecutionTarget(runId, node.id, cwd)
         const prompt = node.prompt || node.description
         const turnId = agentService.startTurnAsync({
           agentId: defaultAgent,
           nodeId: node.id,
           runId,
           prompt,
-          cwd,
+          cwd: target.cwd,
         })
         startedTurns.push({ nodeId: node.id, turnId })
       }
 
       res.json({ success: true, data: { startedTurns, totalReady: readyNodes.length } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendExecutionError(res, err)
     }
   })
 
@@ -232,6 +328,7 @@ export function createAgentsRouter(deps: {
         res.status(404).json({ success: false, error: `Node not found: ${nodeId}` })
         return
       }
+      const target = resolveExecutionTarget(runId, nodeId, cwd)
 
       // 1. 创建动态实例（内部已 await Context DB 四层装配）
       const instance = await dynamicAgentFactory.createInstance(node, run, preferredAgentId)
@@ -248,7 +345,7 @@ export function createAgentsRouter(deps: {
         nodeId,
         runId,
         prompt: fullPrompt,
-        cwd,
+        cwd: target.cwd,
       })
 
       res.json({
@@ -256,7 +353,7 @@ export function createAgentsRouter(deps: {
         data: { turnId, instanceId: instance.id, instanceName: instance.name },
       })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendExecutionError(res, err)
     }
   })
 

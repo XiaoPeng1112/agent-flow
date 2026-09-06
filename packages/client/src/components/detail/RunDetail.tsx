@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Button, Tag, Card, Select, Input, Space, Tooltip, Popconfirm, App, Alert } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -31,24 +31,24 @@ import {
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAppStore } from '../../store/appStore'
 import { runApi, nodeApi, agentApi, projectApi } from '../../api'
-import { AgentTreePanel } from './AgentTreePanel'
-import { CheckpointPanel } from './CheckpointPanel'
-import { ContextDBPanel } from './ContextDBPanel'
-import { A2APanel } from './A2APanel'
-import { DiffReviewPanel } from './DiffReviewPanel'
-import { MetricsPanel } from './MetricsPanel'
-import { AutoFlowPanel } from './AutoFlowPanel'
-import { WeeklyDigestPanel } from './WeeklyDigestPanel'
-import { L1RulePanel } from './L1RulePanel'
-import { ValidationTurnPanel } from './ValidationTurnPanel'
-import { MergeConflictPanel } from './MergeConflictPanel'
-import { FeedbackAggregatePanel } from './FeedbackAggregatePanel'
-import { SubTurnPanel } from './SubTurnPanel'
 import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab, SkillInfo, Artifact } from '../../types'
+
+const CodeHighlighter = lazy(() => import('./CodeHighlighter'))
+const AgentTreePanel = lazy(() => import('./AgentTreePanel').then(module => ({ default: module.AgentTreePanel })))
+const CheckpointPanel = lazy(() => import('./CheckpointPanel').then(module => ({ default: module.CheckpointPanel })))
+const ContextDBPanel = lazy(() => import('./ContextDBPanel').then(module => ({ default: module.ContextDBPanel })))
+const A2APanel = lazy(() => import('./A2APanel').then(module => ({ default: module.A2APanel })))
+const DiffReviewPanel = lazy(() => import('./DiffReviewPanel').then(module => ({ default: module.DiffReviewPanel })))
+const MetricsPanel = lazy(() => import('./MetricsPanel').then(module => ({ default: module.MetricsPanel })))
+const AutoFlowPanel = lazy(() => import('./AutoFlowPanel').then(module => ({ default: module.AutoFlowPanel })))
+const WeeklyDigestPanel = lazy(() => import('./WeeklyDigestPanel').then(module => ({ default: module.WeeklyDigestPanel })))
+const L1RulePanel = lazy(() => import('./L1RulePanel').then(module => ({ default: module.L1RulePanel })))
+const ValidationTurnPanel = lazy(() => import('./ValidationTurnPanel').then(module => ({ default: module.ValidationTurnPanel })))
+const MergeConflictPanel = lazy(() => import('./MergeConflictPanel').then(module => ({ default: module.MergeConflictPanel })))
+const FeedbackAggregatePanel = lazy(() => import('./FeedbackAggregatePanel').then(module => ({ default: module.FeedbackAggregatePanel })))
+const SubTurnPanel = lazy(() => import('./SubTurnPanel').then(module => ({ default: module.SubTurnPanel })))
 
 interface Props {
   run: Run
@@ -411,6 +411,7 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
       </div>
 
       {/* 内容区 */}
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-[12px] text-gray-400">加载中...</div>}>
       {runDetailTab === 'diff-review' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <DiffReviewPanel run={run} />
@@ -501,6 +502,7 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
           )}
         </div>
       )}
+      </Suspense>
     </div>
   )
 }
@@ -965,6 +967,19 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
     }
   }
 
+  const handleResumeSession = async () => {
+    setLoading(true)
+    try {
+      const { turns } = await agentApi.getNodeTurns(node.id)
+      const previous = turns.at(-1)
+      if (!previous?.providerExecution?.sessionId) throw new Error('上次尝试没有可恢复的会话，请重置后重新执行')
+      await agentApi.resumeTurn({ runId: run.id, nodeId: node.id, turnId: previous.id,
+        prompt: userInput.trim() || '继续完成上次中断的任务。先检查现有修改和已执行操作，避免重复外部副作用。' })
+      onUpdate({ ...node, status: 'running', error: undefined })
+      message.success('已在原工作区恢复会话')
+    } catch (error: any) { message.error(error.message) } finally { setLoading(false) }
+  }
+
   // ★ 新增: 强制重置节点（running/failed → ready）
   const handleForceReset = async () => {
     try {
@@ -1002,6 +1017,7 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
     try {
       const res = await nodeApi.reject(run.id, node.id, feedback)
       onUpdate(res.node)
+      setUserInput(res.node.userInput || '')
       message.warning('已打回重做')
       appendTaskLog(`[${node.name}] 已打回: ${feedback}`, 'warning')
     } catch (err: any) {
@@ -1259,6 +1275,12 @@ function NodeDetailPanel({ node, run, agents, activeTurns, onUpdate, appendTaskL
           </Popconfirm>
         )}
 
+        {node.status === 'failed' && node.executionMode !== 'det' && (
+          <Button onClick={handleResumeSession} loading={loading} disabled={isDemo || run.status !== 'running'} block>
+            恢复上次会话
+          </Button>
+        )}
+
         {/* ★ failed 状态: 强制重置 + 回滚 */}
         {node.status === 'failed' && (
           <Button
@@ -1345,14 +1367,15 @@ function ArtifactItem({ artifact }: { artifact: Artifact }) {
         <div className="px-3 pb-3 border-t border-white/50">
           <div className="mt-2 max-h-[200px] overflow-auto rounded bg-gray-900 text-[11px]">
             {artifact.category === 'code' ? (
-              <SyntaxHighlighter
-                language={artifact.format === 'typescript' ? 'tsx' : artifact.format || 'text'}
-                style={oneDark}
-                customStyle={{ margin: 0, padding: '10px 12px', fontSize: '11px', background: 'transparent' }}
-                wrapLongLines
-              >
-                {artifact.content || ''}
-              </SyntaxHighlighter>
+              <Suspense fallback={<pre className="m-0 p-3 text-gray-200 whitespace-pre-wrap">{artifact.content}</pre>}>
+                <CodeHighlighter
+                  language={artifact.format === 'typescript' ? 'tsx' : artifact.format || 'text'}
+                  customStyle={{ margin: 0, padding: '10px 12px', fontSize: '11px', background: 'transparent' }}
+                  wrapLongLines
+                >
+                  {artifact.content || ''}
+                </CodeHighlighter>
+              </Suspense>
             ) : (
               <div className="p-3 text-gray-200 whitespace-pre-wrap leading-relaxed">
                 {(artifact.content || '').slice(0, 1000)}
@@ -1505,14 +1528,15 @@ function AgentResultPreview({ nodeId }: { nodeId: string }) {
                             复制
                           </button>
                         </div>
-                        <SyntaxHighlighter
-                          style={oneDark}
-                          language={match[1]}
-                          PreTag="div"
-                          customStyle={{ margin: 0, borderRadius: 0, fontSize: '11px' }}
-                        >
-                          {codeString}
-                        </SyntaxHighlighter>
+                        <Suspense fallback={<pre className="m-0 p-3 bg-gray-900 text-gray-100">{codeString}</pre>}>
+                          <CodeHighlighter
+                            language={match[1]}
+                            preTag="div"
+                            customStyle={{ margin: 0, borderRadius: 0, fontSize: '11px' }}
+                          >
+                            {codeString}
+                          </CodeHighlighter>
+                        </Suspense>
                       </div>
                     )
                   }

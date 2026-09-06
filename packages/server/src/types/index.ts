@@ -99,6 +99,11 @@ export type TaskNodeStatus =
   | 'skipped'
 
 export interface TaskNode {
+  /** First eligible turn index after an explicit rollback. Earlier code is historical only. */
+  attemptStartIndex?: number
+  approvalFeedback?: Array<{ content: string; createdAt: number }>
+  /** 旧版数据库未保存节点契约，禁止自动放行。 */
+  requiresContractReview?: boolean
   id: string
   runId: string
   name: string
@@ -325,6 +330,7 @@ export type AgentTurnStatus = 'idle' | 'running' | 'paused' | 'completed' | 'err
 export type TurnResult = 'succeeded' | 'failed' | 'paused_for_question'
 
 export interface AgentTurn {
+  providerExecution?: { provider: 'codex' | 'claude'; sessionId?: string; resumedFromTurnId?: string }
   id: string
   nodeId: string
   runId: string

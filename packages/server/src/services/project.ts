@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { createHash } from 'crypto'
 import type { ProjectData, SkillConfig, ProjectContext } from '../types/index.js'
 import { SkillService } from './skill.js'
 import type { ContextDBService } from './context-db.js'
@@ -17,11 +18,13 @@ export class ProjectService {
   private storagePath: string
   private skillService: SkillService
   private contextDBService?: ContextDBService
+  private dataRoot: string
 
-  constructor(skillService: SkillService) {
+  constructor(skillService: SkillService, dataRoot?: string) {
     this.skillService = skillService
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
-    this.storagePath = join(home, '.agent-flow', 'projects.json')
+    this.dataRoot = dataRoot || join(home, '.agent-flow')
+    this.storagePath = join(this.dataRoot, 'projects.json')
   }
 
   /** 注入 ContextDBService（延迟注入避免循环依赖） */
@@ -225,6 +228,7 @@ export class ProjectService {
     if (!project) throw new Error('Project not found')
 
     const searchPaths = [
+      this.getSkillsDir(projectId)!,
       // 项目级沉淀目录（Agent 自动沉淀的 Skills 存放于此）
       join(project.path, '.agent-flow', 'skills'),
       // 项目级手动配置的 Skills
@@ -243,6 +247,6 @@ export class ProjectService {
   getSkillsDir(projectId: string): string | null {
     const project = this.getProject(projectId)
     if (!project) return null
-    return join(project.path, '.agent-flow', 'skills')
+    return join(this.dataRoot, 'project-skills', createHash('sha256').update(projectId).digest('hex'))
   }
 }

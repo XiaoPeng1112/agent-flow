@@ -9,6 +9,7 @@ import { RunManager } from './run-manager.js'
 import { DAGScheduler } from './dag-scheduler.js'
 import { TurnManager } from './turn-manager.js'
 import type { ContextDBService } from './context-db.js'
+import type { RunTombstone } from './sync-record.js'
 
 type EventHandler = (message: WsMessage) => void
 
@@ -23,12 +24,33 @@ type EventHandler = (message: WsMessage) => void
  * 外部调用方无需任何改动。
  */
 export class WorkflowEngine {
+  private stoppingRuns = new Set<string>()
+  private executionStoppers = new Set<(runId: string, nodeIds: string[]) => Promise<void>>()
+
+  onExecutionStop(stop: (runId: string, nodeIds: string[]) => Promise<void>): void {
+    this.executionStoppers.add(stop)
+  }
+
+  isTransitioning(runId: string): boolean { return this.stoppingRuns.has(runId) }
+
+  private async stopForMutation<T>(runId: string, nodeIds: string[], mutate: () => Promise<T>): Promise<T> {
+    if (this.stoppingRuns.has(runId)) throw new Error('Run state transition is in progress')
+    this.stoppingRuns.add(runId)
+    try {
+      await Promise.all([...this.executionStoppers].map(stop => stop(runId, nodeIds)))
+      return await mutate()
+    } finally {
+      this.stoppingRuns.delete(runId)
+      const run = this.getRun(runId)
+      if (run) this.emit('run:status_changed', { runId, status: run.status, run })
+    }
+  }
   private runManager: RunManager
   private dagScheduler: DAGScheduler
   private turnManager: TurnManager
 
-  constructor() {
-    this.runManager = new RunManager()
+  constructor(dbPath?: string) {
+    this.runManager = new RunManager(dbPath)
     this.dagScheduler = new DAGScheduler()
     this.turnManager = new TurnManager()
 
@@ -62,6 +84,18 @@ export class WorkflowEngine {
         getAllTurnsMap: () => this.turnManager.getAllTurnsMap(),
       },
     })
+  }
+
+  setCompletionVerifier(verifier: Parameters<RunManager['setCompletionVerifier']>[0]): void {
+    this.runManager.setCompletionVerifier(verifier)
+  }
+
+  setExitVerifier(verifier: Parameters<DAGScheduler['setExitVerifier']>[0]): void {
+    this.dagScheduler.setExitVerifier(verifier)
+  }
+
+  evaluateExitConditions(run: Run, node: TaskNode): { passed: boolean; failedReason?: string } {
+    return this.dagScheduler.evaluateExitConditions(run, node)
   }
 
   // ═══════════════ 初始化 ═══════════════
@@ -112,8 +146,10 @@ export class WorkflowEngine {
     return this.runManager.getRun(runId)
   }
 
-  async deleteRun(runId: string): Promise<boolean> {
-    return this.runManager.deleteRun(runId)
+  getRunTombstones(): RunTombstone[] { return this.runManager.getRunTombstones() }
+
+  async deleteRun(runId: string, tombstone?: RunTombstone): Promise<boolean> {
+    return this.stopForMutation(runId, this.getRun(runId)?.nodes.map(n => n.id) || [], () => this.runManager.deleteRun(runId, tombstone))
   }
 
   async importRun(runData: Run, turnsData?: Record<string, AgentTurn[]>): Promise<void> {
@@ -130,7 +166,13 @@ export class WorkflowEngine {
 
   // ═══════════════ TaskNode 状态机（委托 RunManager） ═══════════════
 
+  async claimRecoveryNode(runId: string, nodeId: string): Promise<TaskNode> {
+    if (this.isTransitioning(runId)) throw new Error('Run state transition is in progress')
+    return this.runManager.claimRecoveryNode(runId, nodeId)
+  }
+
   async startNode(runId: string, nodeId: string): Promise<TaskNode> {
+    if (this.isTransitioning(runId)) throw new Error('Run state transition is in progress')
     return this.runManager.startNode(runId, nodeId)
   }
 
@@ -152,23 +194,31 @@ export class WorkflowEngine {
   }
 
   async skipNode(runId: string, nodeId: string): Promise<TaskNode> {
-    return this.runManager.skipNode(runId, nodeId)
+    return this.stopForMutation(runId, [nodeId], () => this.runManager.skipNode(runId, nodeId))
   }
 
   async forceResetNode(runId: string, nodeId: string): Promise<TaskNode> {
-    return this.runManager.forceResetNode(runId, nodeId)
+    return this.stopForMutation(runId, [nodeId], () => this.runManager.forceResetNode(runId, nodeId))
   }
 
   async rollbackNode(runId: string, nodeId: string): Promise<void> {
-    return this.runManager.rollbackNode(runId, nodeId)
+    const run = this.getRun(runId)
+    const ids = run ? [nodeId, ...this.dagScheduler.getDownstreamNodes(run, nodeId).map(n => n.id)] : [nodeId]
+    return this.stopForMutation(runId, ids, () => this.runManager.rollbackNode(runId, nodeId))
   }
 
   async restoreFromCheckpoint(runId: string, nodeStates: Array<{ nodeId: string; status: TaskNodeStatus }>): Promise<void> {
-    return this.runManager.restoreFromCheckpoint(runId, nodeStates)
+    return this.stopForMutation(runId, nodeStates.map(n => n.nodeId), () => this.runManager.restoreFromCheckpoint(runId, nodeStates))
   }
 
   getReadyNodes(runId: string): TaskNode[] {
     return this.runManager.getReadyNodes(runId)
+  }
+
+  getCodePredecessors(runId: string, nodeId: string): string[] {
+    const run = this.getRun(runId)
+    if (!run) throw new Error('Run not found')
+    return this.dagScheduler.getCodePredecessors(run, nodeId)
   }
 
   getRunConfig(runId: string): import('../types/index.js').RunConfig | undefined {

@@ -68,8 +68,9 @@ export function ValidationTurnPanel({ run }: Props) {
       // 重新获取汇总
       const summaryRes = await validationApi.getRunSummary(run.id)
       setSummary(summaryRes.summary)
-    } catch {
-      // 静默
+      setResults(summaryRes.results.map(row => row.nodeId === nodeId ? { ...row, result: res.result } : row))
+    } catch (err: any) {
+      setError(err.message || '触发验证失败，请重试')
     } finally {
       setTriggeringNode(null)
     }
@@ -86,7 +87,7 @@ export function ValidationTurnPanel({ run }: Props) {
   if (error) {
     return (
       <div className="p-6">
-        <Alert type="warning" message="验证模块未启用" description={error} showIcon />
+        <Alert type="warning" message="验证请求失败" description={error} showIcon action={<Button onClick={fetchData}>重试</Button>} />
       </div>
     )
   }
@@ -243,7 +244,7 @@ function NodeResultsSection({
 
                 {/* 策略 Tag */}
                 <Tag color={config.color} className="!text-[10px] !m-0">
-                  {config.icon} {config.label}
+                  {config.icon} {item.result ? config.label : '未验证或证据过期'}
                 </Tag>
 
                 {/* 分数 */}

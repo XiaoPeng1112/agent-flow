@@ -1,6 +1,15 @@
 import { readFile, writeFile, mkdir, readdir, unlink } from 'fs/promises'
-import { join } from 'path'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ContextLayer } from '../types/index.js'
+
+const CONTEXT_LEVELS = new Set<ContextLayer['level']>(['SYS', 'L0', 'L1', 'L2'])
+
+export class ContextPathError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ContextPathError'
+  }
+}
 
 /**
  * ContextDBService — 四层精准上下文数据库
@@ -34,9 +43,46 @@ import type { ContextLayer } from '../types/index.js'
 export class ContextDBService {
   private basePath: string
 
-  constructor() {
+  constructor(basePath?: string) {
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
-    this.basePath = join(home, '.agent-flow', 'context-db')
+    this.basePath = resolve(basePath || join(home, '.agent-flow', 'context-db'))
+  }
+
+  private assertSafeSegment(value: string, label: string): void {
+    if (
+      !value ||
+      value === '.' ||
+      value === '..' ||
+      value.includes('/') ||
+      value.includes('\\') ||
+      value.includes('\0') ||
+      isAbsolute(value)
+    ) {
+      throw new ContextPathError(`Invalid ${label}: path segments are not allowed`)
+    }
+  }
+
+  private resolveContextDir(level: ContextLayer['level'], scopeId: string): string {
+    if (!CONTEXT_LEVELS.has(level)) {
+      throw new ContextPathError(`Invalid context level: ${String(level)}`)
+    }
+    if (level === 'SYS') {
+      if (scopeId !== 'global') throw new ContextPathError('SYS scope must be "global"')
+    } else {
+      this.assertSafeSegment(scopeId, 'scopeId')
+    }
+
+    const dir = resolve(this.basePath, level, ...(level === 'SYS' ? [] : [scopeId]))
+    const pathFromBase = relative(this.basePath, dir)
+    if (pathFromBase === '..' || pathFromBase.startsWith(`..${sep}`) || isAbsolute(pathFromBase)) {
+      throw new ContextPathError('Context path escapes the context database')
+    }
+    return dir
+  }
+
+  private resolveContextFile(level: ContextLayer['level'], scopeId: string, filename: string): string {
+    this.assertSafeSegment(filename, 'filename')
+    return resolve(this.resolveContextDir(level, scopeId), filename)
   }
 
   /**
@@ -267,12 +313,10 @@ export class ContextDBService {
     filename: string,        // 文件名（如 "architecture.md"）
     content: string
   ): Promise<{ path: string }> {
-    const dir = level === 'SYS'
-      ? join(this.basePath, 'SYS')
-      : join(this.basePath, level, scopeId)
+    const dir = this.resolveContextDir(level, scopeId)
+    const filePath = this.resolveContextFile(level, scopeId, filename)
     
     await mkdir(dir, { recursive: true })
-    const filePath = join(dir, filename)
     await writeFile(filePath, content, 'utf-8')
     
     return { path: filePath }
@@ -286,11 +330,9 @@ export class ContextDBService {
     scopeId: string,
     filename: string
   ): Promise<string | null> {
+    const filePath = this.resolveContextFile(level, scopeId, filename)
     try {
-      const dir = level === 'SYS'
-        ? join(this.basePath, 'SYS')
-        : join(this.basePath, level, scopeId)
-      const content = await readFile(join(dir, filename), 'utf-8')
+      const content = await readFile(filePath, 'utf-8')
       return content
     } catch {
       return null
@@ -304,11 +346,8 @@ export class ContextDBService {
     level: ContextLayer['level'],
     scopeId: string
   ): Promise<Array<{ filename: string; level: ContextLayer['level']; scopeId: string; size: number }>> {
+    const dir = this.resolveContextDir(level, scopeId)
     try {
-      const dir = level === 'SYS'
-        ? join(this.basePath, 'SYS')
-        : join(this.basePath, level, scopeId)
-      
       const files = await readdir(dir, { withFileTypes: true })
       const result: Array<{ filename: string; level: ContextLayer['level']; scopeId: string; size: number }> = []
       
@@ -340,6 +379,7 @@ export class ContextDBService {
   async listL2FilesByRunId(
     runId: string
   ): Promise<Array<{ filename: string; level: 'L2'; scopeId: string; size: number; nodeName: string }>> {
+    this.assertSafeSegment(runId, 'runId')
     try {
       const l2Dir = join(this.basePath, 'L2')
       const allDirs = await readdir(l2Dir, { withFileTypes: true })
@@ -385,11 +425,9 @@ export class ContextDBService {
     scopeId: string,
     filename: string
   ): Promise<boolean> {
+    const filePath = this.resolveContextFile(level, scopeId, filename)
     try {
-      const dir = level === 'SYS'
-        ? join(this.basePath, 'SYS')
-        : join(this.basePath, level, scopeId)
-      await unlink(join(dir, filename))
+      await unlink(filePath)
       return true
     } catch {
       return false

@@ -65,7 +65,7 @@ interface DiffReview {
   createdAt: number
 }
 
-type MergeStrategy = 'merge' | 'squash' | 'rebase'
+type MergeStrategy = 'merge' | 'squash'
 
 const fileStatusConfig = {
   added: { icon: <FileAddOutlined />, color: '#10b981', label: 'Added', bgColor: '#ecfdf5' },
@@ -143,7 +143,7 @@ export function DiffReviewPanel({ run }: Props) {
         setReviews(prev => prev.filter(r => r.turnId !== selectedReview.turnId))
         setSelectedReview(null)
       } else {
-        message.error('合入失败')
+        message.error(res.error || '合入失败')
       }
     } catch (err: any) {
       message.error(`合入失败: ${err.message}`)
@@ -164,6 +164,8 @@ export function DiffReviewPanel({ run }: Props) {
       if (res.success) {
         setPrResult({ prUrl: res.prUrl, prNumber: res.prNumber })
         message.success(`PR #${res.prNumber} 创建成功！`)
+      } else {
+        message.error(res.error || '创建 PR 失败')
       }
     } catch (err: any) {
       message.error(`创建 PR 失败: ${err.message}`)
@@ -180,7 +182,7 @@ export function DiffReviewPanel({ run }: Props) {
         selectedReview.nodeId,
         selectedReview.turnId
       )
-      message.success('已丢弃工作分支')
+      message.success('已关闭本次审查，代码保留供重试')
       setReviews(prev => prev.filter(r => r.turnId !== selectedReview.turnId))
       setSelectedReview(null)
     } catch (err: any) {
@@ -259,7 +261,6 @@ export function DiffReviewPanel({ run }: Props) {
                   options={[
                     { value: 'squash', label: 'Squash Merge' },
                     { value: 'merge', label: 'Merge Commit' },
-                    { value: 'rebase', label: 'Rebase' },
                   ]}
                   className="w-[140px]"
                 />
@@ -269,9 +270,9 @@ export function DiffReviewPanel({ run }: Props) {
                   icon={<MergeCellsOutlined />}
                   onClick={handleMerge}
                   loading={merging}
-                  disabled={!selectedReview}
+                  disabled={!selectedReview || run.nodes.find(n => n.id === selectedReview.nodeId)?.status !== 'completed'}
                 >
-                  Approve & Merge
+                  合入已批准代码
                 </Button>
               </>
             ) : (
@@ -295,7 +296,7 @@ export function DiffReviewPanel({ run }: Props) {
                     icon={<PullRequestOutlined />}
                     onClick={handleCreatePR}
                     loading={creatingPR}
-                    disabled={!selectedReview}
+                    disabled={!selectedReview || run.nodes.find(n => n.id === selectedReview.nodeId)?.status !== 'completed'}
                   >
                     创建 PR
                   </Button>
@@ -309,7 +310,7 @@ export function DiffReviewPanel({ run }: Props) {
               onClick={handleDiscard}
               disabled={!selectedReview}
             >
-              Discard
+              关闭审查
             </Button>
           </div>
         </div>

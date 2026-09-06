@@ -1,3 +1,4 @@
+import { ReplayCursor } from './replay-cursor'
 /**
  * AgentFlow API Client
  * 与后端 REST API 对接
@@ -6,6 +7,7 @@
 import { getDemoApiResponse, shouldUseDemoMode } from '../demo/mockData'
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+const API_TOKEN = import.meta.env.VITE_AGENT_FLOW_API_TOKEN as string | undefined
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (shouldUseDemoMode()) {
@@ -16,6 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(API_TOKEN ? { 'X-Agent-Flow-Token': API_TOKEN } : {}),
       ...options?.headers,
     },
   })
@@ -206,6 +209,9 @@ export const nodeApi = {
 // ═══════════════ Agent API ═══════════════
 
 export const agentApi = {
+  getModels: (refresh = false) => request<{ models: Array<{ id: string; name: string; discovered?: boolean }>; source: 'cli' | 'builtin'; fetchedAt?: number; warning?: string }>(`/agents/models/codex?refresh=${refresh}`),
+  setModel: (id: string, model: string) => request<{ agent: import('../types').AgentConfig }>(`/agents/${encodeURIComponent(id)}/model`, { method: 'PUT', body: JSON.stringify({ model }) }),
+
   list: () => request<{ agents: any[] }>('/agents'),
 
   /** 获取 Agent 列表含 CLI 可用性状态 */
@@ -228,6 +234,13 @@ export const agentApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  resumeTurn: (data: { runId: string; nodeId: string; turnId: string; prompt: string }) =>
+    request<{ turnId: string }>('/agents/resume-turn', { method: 'POST', body: JSON.stringify(data) }),
+
+  getProviderEvents: (runId: string, nodeId: string, turnId: string, after = 0) =>
+    request<{ events: Array<{ sequence: number; timestamp: number; event: { type: string; [key: string]: unknown } }>; nextCursor: number; hasMore: boolean }>(
+      `/agents/events/${runId}/${nodeId}/${turnId}?after=${after}`),
 
   /** 执行 DET/HYB 模式 */
   executeDET: (data: {
@@ -308,7 +321,7 @@ export const diffReviewApi = {
 
   /** 合入工作分支 */
   merge: (runId: string, nodeId: string, turnId: string, strategy?: string) =>
-    request<{ success: boolean; mergeCommit?: string; filesAffected: number }>(`/artifacts/merge/${runId}/${nodeId}`, {
+    request<{ success: boolean; error?: string; mergeCommit?: string; filesAffected: number }>(`/artifacts/merge/${runId}/${nodeId}`, {
       method: 'POST',
       body: JSON.stringify({ turnId, strategy }),
     }),
@@ -322,7 +335,7 @@ export const diffReviewApi = {
 
   /** 创建 PR（PR 模式） */
   createPR: (runId: string, nodeId: string, params: { turnId: string; title?: string; body?: string; draft?: boolean }) =>
-    request<{ success: boolean; prUrl: string; prNumber: number; owner: string; repo: string }>(`/artifacts/create-pr/${runId}/${nodeId}`, {
+    request<{ success: boolean; error?: string; prUrl: string; prNumber: number; owner: string; repo: string }>(`/artifacts/create-pr/${runId}/${nodeId}`, {
       method: 'POST',
       body: JSON.stringify(params),
     }),
@@ -1062,7 +1075,10 @@ export function createWebSocket(onMessage: (msg: any) => void): ManagedWebSocket
     }
   }
 
-  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws'
+  const configuredWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws'
+  const wsUrl = new URL(configuredWsUrl)
+  if (API_TOKEN) wsUrl.searchParams.set('token', API_TOKEN)
+  const cursor = new ReplayCursor()
   let disposed = false
   let ws: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -1075,24 +1091,28 @@ export function createWebSocket(onMessage: (msg: any) => void): ManagedWebSocket
 
   function connect() {
     if (disposed) return
-    ws = new WebSocket(wsUrl)
+    const socket = new WebSocket(wsUrl)
+    ws = socket
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+      if (disposed || ws !== socket) return
+      socket.send(JSON.stringify(cursor.request()))
       // 连接成功，重置重试计数
       retryCount = 0
     }
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (disposed || ws !== socket) return
       try {
         const msg = JSON.parse(event.data)
-        onMessage(msg)
+        if (cursor.receive(msg, () => onMessage(msg))) socket.send(JSON.stringify(cursor.request()))
       } catch (err) {
         console.error('[WS] Parse error:', err)
       }
     }
 
-    ws.onclose = () => {
-      if (disposed) return
+    socket.onclose = () => {
+      if (disposed || ws !== socket) return
       if (retryCount >= MAX_RETRIES) {
         console.error(`[WS] Max retries (${MAX_RETRIES}) reached, giving up.`)
         return
@@ -1103,7 +1123,7 @@ export function createWebSocket(onMessage: (msg: any) => void): ManagedWebSocket
       reconnectTimer = setTimeout(connect, delay)
     }
 
-    ws.onerror = () => {
+    socket.onerror = () => {
       // onerror 后一般会触发 onclose，这里不需要额外处理
     }
   }

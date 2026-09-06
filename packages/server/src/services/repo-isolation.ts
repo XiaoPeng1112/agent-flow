@@ -1,5 +1,6 @@
+import { ExecutionWorkspaceStore } from './execution-workspace.js'
 import { randomUUID } from 'crypto'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import { mkdir, rm, symlink, stat } from 'fs/promises'
 import { join } from 'path'
 import type {
@@ -25,9 +26,12 @@ export class RepoIsolationService {
   private workspaces: Map<string, AgentWorkspace> = new Map() // turnId → workspace
   private basePath: string
 
-  constructor() {
+  readonly executions: ExecutionWorkspaceStore
+
+  constructor(basePath?: string) {
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
-    this.basePath = join(home, '.agent-flow', 'workspaces')
+    this.basePath = basePath || join(home, '.agent-flow', 'workspaces')
+    this.executions = new ExecutionWorkspaceStore(join(this.basePath, 'execution'))
   }
 
   // ═══════════════ 仓库池管理 ═══════════════
@@ -50,6 +54,7 @@ export class RepoIsolationService {
     url: string
     branch?: string
   }): Promise<RepoEntry> {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(params.name)) throw new Error('Invalid repository name')
     let pool = this.pools.get(runId)
     if (!pool) {
       pool = await this.createPool(runId)
@@ -78,9 +83,11 @@ export class RepoIsolationService {
     // 远程仓库 clone
     await mkdir(localPath, { recursive: true })
     try {
-      const branchArg = params.branch ? `--branch ${params.branch}` : ''
-      execSync(
-        `git clone ${branchArg} --single-branch "${params.url}" "${localPath}"`,
+      const args = ['clone', '--single-branch']
+      if (params.branch) args.push('--branch', params.branch)
+      args.push('--', params.url, localPath)
+      execFileSync(
+        'git', args,
         { encoding: 'utf-8', stdio: 'pipe', timeout: 120_000 }
       )
     } catch (e) {
@@ -181,7 +188,7 @@ export class RepoIsolationService {
    * 获取 Agent 工作空间
    */
   getWorkspace(turnId: string): AgentWorkspace | undefined {
-    return this.workspaces.get(turnId)
+    return this.executions.get(turnId) || this.workspaces.get(turnId)
   }
 
   /**
@@ -256,7 +263,7 @@ export class RepoIsolationService {
    * 列出所有活跃工作空间
    */
   getActiveWorkspaces(): AgentWorkspace[] {
-    return Array.from(this.workspaces.values())
+    return [...this.workspaces.values(), ...this.executions.list()]
   }
 
   // ═══════════════ Merge Conflict 检测 ═══════════════
@@ -470,7 +477,7 @@ export class RepoIsolationService {
    * 通过 nodeId 查找该节点最后一个 Turn 的工作空间
    */
   private findWorkspaceByNode(runId: string, nodeId: string): AgentWorkspace | undefined {
-    for (const ws of this.workspaces.values()) {
+    for (const ws of this.getActiveWorkspaces().sort((a, b) => b.createdAt - a.createdAt)) {
       if (ws.runId === runId && ws.nodeId === nodeId) return ws
     }
     return undefined
@@ -529,22 +536,9 @@ export class RepoIsolationService {
     switch (mode) {
       case 'worktree': {
         const branchName = branch || `agent-work-${randomUUID().slice(0, 6)}`
-        try {
-          // 先创建分支（如果不存在）
-          try {
-            execSync(`git branch "${branchName}" HEAD 2>/dev/null || true`, {
-              cwd: repo.localPath, encoding: 'utf-8', stdio: 'pipe',
-            })
-          } catch { /* branch may already exist */ }
-
-          execSync(`git worktree add "${mountPath}" "${branchName}"`, {
-            cwd: repo.localPath, encoding: 'utf-8', stdio: 'pipe',
-          })
-        } catch (e) {
-          // worktree 失败回退到 symlink
-          console.warn(`[RepoIsolation] worktree failed, fallback to symlink: ${(e as Error).message}`)
-          await symlink(repo.localPath, mountPath)
-        }
+        execFileSync('git', ['worktree', 'add', '-b', branchName, mountPath, 'HEAD'], {
+          cwd: repo.localPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000,
+        })
         break
       }
       case 'symlink': {

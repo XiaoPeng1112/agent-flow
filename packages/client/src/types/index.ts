@@ -50,6 +50,8 @@ export type NodeType =
 export type AgentRole = 'planner' | 'manager' | 'executor'
 
 export interface TaskNode {
+  attemptStartIndex?: number
+  approvalFeedback?: Array<{ content: string; createdAt: number }>
   id: string
   runId: string
   name: string
@@ -76,6 +78,7 @@ export type AgentTurnStatus = 'idle' | 'running' | 'paused' | 'completed' | 'err
 export type TurnResult = 'succeeded' | 'failed' | 'paused_for_question'
 
 export interface AgentTurn {
+  providerExecution?: { provider: 'codex' | 'claude'; sessionId?: string; resumedFromTurnId?: string }
   id: string
   nodeId: string
   runId: string

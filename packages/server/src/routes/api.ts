@@ -118,6 +118,7 @@ export function createApiRouter(deps: {
     agentService: deps.agentService,
     workflowEngine: deps.workflowEngine,
     dynamicAgentFactory: deps.dynamicAgentFactory,
+    projectService: deps.projectService,
   }))
 
   const filesRouter = createFilesRouter({

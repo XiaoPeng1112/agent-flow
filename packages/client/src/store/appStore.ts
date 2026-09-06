@@ -31,6 +31,8 @@ interface AppState {
 
   // ─── Run 管理（核心状态机） ───
   runs: Run[]
+  runStateVersion: number
+  mergeProjectRuns: (projectId: string, runs: Run[], requestedVersion: number) => boolean
   runDetailTab: RunDetailTab
 
   // ─── Agent ───
@@ -85,6 +87,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ─── 初始状态 ───
   projects: [],
   runs: [],
+  runStateVersion: 0,
   runDetailTab: 'dag',
   agents: [],
   activeTurns: [],
@@ -108,16 +111,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // ─── Run 操作 ───
-  setRuns: (runs) => set({ runs }),
+  setRuns: (runs) => set({ runs, runStateVersion: get().runStateVersion + 1 }),
 
-  addRun: (run) => set({ runs: [...get().runs, run] }),
+  mergeProjectRuns: (projectId, runs, requestedVersion) => {
+    if (get().runStateVersion !== requestedVersion) return false
+    set({ runs: [...get().runs.filter(run => run.projectId !== projectId), ...runs.filter(run => run.projectId === projectId)],
+      runStateVersion: get().runStateVersion + 1 })
+    return true
+  },
+
+  addRun: (run) => set({ runs: [...get().runs.filter(r => r.id !== run.id), run], runStateVersion: get().runStateVersion + 1 }),
 
   updateRun: (run) => {
-    set({ runs: get().runs.map((r) => (r.id === run.id ? run : r)) })
+    set({ runs: get().runs.map((r) => (r.id === run.id ? run : r)), runStateVersion: get().runStateVersion + 1 })
   },
 
   removeRun: (id) => {
-    set({ runs: get().runs.filter((r) => r.id !== id) })
+    set({ runs: get().runs.filter((r) => r.id !== id), runStateVersion: get().runStateVersion + 1 })
   },
 
   setRunDetailTab: (tab) => set({ runDetailTab: tab }),
@@ -125,6 +135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ─── Node 操作 ───
   updateNode: (runId, updatedNode) => {
     set({
+      runStateVersion: get().runStateVersion + 1,
       runs: get().runs.map((run) => {
         if (run.id !== runId) return run
         return {
@@ -138,7 +149,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ─── Agent 操作 ───
   setAgents: (agents) => set({ agents }),
 
-  addActiveTurn: (turn) => set({ activeTurns: [...get().activeTurns, turn] }),
+  addActiveTurn: (turn) => set({ activeTurns: [...get().activeTurns.filter(t => t.id !== turn.id), turn] }),
 
   updateActiveTurn: (turnId, updates) => {
     set({
@@ -182,7 +193,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { type, payload } = msg
 
     switch (type) {
+      case 'sync:snapshot': {
+        if (!Array.isArray(payload?.runs) || !Array.isArray(payload?.activeTurns)) throw new Error('Invalid synchronized state')
+        set({ runs: payload.runs, activeTurns: payload.activeTurns, runStateVersion: get().runStateVersion + 1 })
+        break
+      }
+      case 'run:deleted': {
+        set({ runs: get().runs.filter(run => run.id !== payload.runId),
+          runStateVersion: get().runStateVersion + 1,
+          activeTurns: get().activeTurns.filter(turn => turn.runId !== payload.runId) })
+        break
+      }
       case 'run:status_changed': {
+        if (payload.run) get().addRun(payload.run)
         const run = get().runs.find((r) => r.id === payload.runId)
         if (run) {
           get().updateRun({ ...run, status: payload.status })
@@ -210,7 +233,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (run) {
           const node = run.nodes.find((n) => n.id === nodeId)
           if (node) {
-            get().updateNode(runId, { ...node, status })
+            get().updateNode(runId, payload.node || { ...node, status })
           }
         }
         break

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { mkdirSync, existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join, dirname } from 'path'
+import type { RunTombstone } from './sync-record.js'
 import type {
   Run, TaskNode, DAGEdge, AgentTurn,
   Artifact, InboxItem,
@@ -50,13 +51,20 @@ export class StorageSQLite {
     // 关闭外键约束检查 — 数据完整性由应用层保证，避免 orphan turn 等历史数据触发约束错误
     this.db.pragma('foreign_keys = OFF')
 
-    this.initSchema()
+    try {
+      this.initSchema()
+      this.migrateSchema()
+    } catch (error) {
+      this.db.close()
+      throw error
+    }
   }
 
   // ═══════════════ Schema 初始化 ═══════════════
 
   private initSchema(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS run_tombstones (run_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS runs (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -178,17 +186,33 @@ export class StorageSQLite {
     }
   }
 
+  private migrateSchema(): void {
+    const version = (this.db.prepare('SELECT MAX(version) AS version FROM schema_version').get() as { version: number }).version
+    if (version >= 2) return
+    // VACUUM INTO includes committed WAL data, unlike copying only the database file.
+    const hasData = (this.db.prepare('SELECT COUNT(*) AS count FROM runs').get() as { count: number }).count > 0
+    if (hasData && this.db.name !== ':memory:') {
+      this.db.prepare('VACUUM INTO ?').run(`${this.db.name}.pre-v2-${Date.now()}.bak`)
+    }
+    this.db.transaction(() => {
+      for (const table of ['runs', 'nodes', 'turns']) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN metadata_json TEXT`)
+      }
+      this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(2, Date.now())
+    })()
+  }
+
   // ═══════════════ Run CRUD ═══════════════
 
   saveRun(run: Run): void {
     const upsertRun = this.db.prepare(`
-      INSERT OR REPLACE INTO runs (id, project_id, template_id, name, status, created_at, started_at, completed_at, config_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO runs (id, project_id, template_id, name, status, created_at, started_at, completed_at, config_json, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const upsertNode = this.db.prepare(`
-      INSERT OR REPLACE INTO nodes (id, run_id, name, type, description, status, agent_role, skill_ids_json, prompt, "order", execution_mode, script, script_cwd, started_at, completed_at, error, user_input, context_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO nodes (id, run_id, name, type, description, status, agent_role, skill_ids_json, prompt, "order", execution_mode, script, script_cwd, started_at, completed_at, error, user_input, context_json, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const deleteEdges = this.db.prepare('DELETE FROM edges WHERE run_id = ?')
@@ -201,6 +225,7 @@ export class StorageSQLite {
       INSERT OR REPLACE INTO artifacts (id, node_id, title, category, format, content, file_path, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
+    const deleteArtifacts = this.db.prepare('DELETE FROM artifacts WHERE node_id = ?')
 
     const transaction = this.db.transaction(() => {
       upsertRun.run(
@@ -212,7 +237,8 @@ export class StorageSQLite {
         run.createdAt,
         run.startedAt || null,
         run.completedAt || null,
-        run.config ? JSON.stringify(run.config) : null
+        run.config ? JSON.stringify(run.config) : null,
+        JSON.stringify({ description: run.description })
       )
 
       for (const node of run.nodes) {
@@ -221,7 +247,7 @@ export class StorageSQLite {
           run.id,
           node.name,
           node.type,
-          node.description || null,
+          node.description ?? null,
           node.status,
           node.agentRole || null,
           node.skillIds ? JSON.stringify(node.skillIds) : null,
@@ -234,10 +260,16 @@ export class StorageSQLite {
           node.completedAt || null,
           node.error || null,
           node.userInput || null,
-          node.context ? JSON.stringify(node.context) : null
+          node.context ? JSON.stringify(node.context) : null,
+          JSON.stringify(Object.fromEntries(Object.entries(node).filter(([key]) => ![
+            'id', 'runId', 'name', 'type', 'description', 'status', 'agentRole', 'skillIds',
+            'prompt', 'order', 'executionMode', 'script', 'scriptCwd', 'startedAt',
+            'completedAt', 'error', 'userInput', 'context', 'artifacts',
+          ].includes(key))))
         )
 
         // 保存节点的 artifacts
+        deleteArtifacts.run(node.id)
         for (const art of node.artifacts) {
           upsertArtifact.run(
             art.id,
@@ -283,7 +315,7 @@ export class StorageSQLite {
     return rows.map(row => this.assembleRun(row))
   }
 
-  deleteRun(runId: string): boolean {
+  deleteRun(runId: string, tombstone?: RunTombstone): boolean {
     const deleteArtifacts = this.db.prepare(`
       DELETE FROM artifacts
       WHERE node_id IN (SELECT id FROM nodes WHERE run_id = ?)
@@ -294,6 +326,7 @@ export class StorageSQLite {
     const deleteRun = this.db.prepare('DELETE FROM runs WHERE id = ?')
 
     const transaction = this.db.transaction(() => {
+      if (tombstone) this.db.prepare('INSERT OR REPLACE INTO run_tombstones (run_id, payload_json) VALUES (?, ?)').run(runId, JSON.stringify(tombstone))
       deleteArtifacts.run(runId)
       deleteTurns.run(runId)
       deleteEdges.run(runId)
@@ -305,11 +338,24 @@ export class StorageSQLite {
     return result.changes > 0
   }
 
+  getRunTombstones(): RunTombstone[] {
+    return (this.db.prepare('SELECT payload_json FROM run_tombstones').all() as Array<{ payload_json: string }>).map(row => JSON.parse(row.payload_json))
+  }
+
+  replaceRun(run: Run, turns: Record<string, AgentTurn[]>): void {
+    this.db.transaction(() => {
+      this.deleteRun(run.id)
+      this.saveRun(run)
+      this.saveTurns(Object.values(turns).flat())
+    })()
+  }
+
   private assembleRun(row: any): Run {
     const nodes = this.getNodes(row.id)
     const edges = this.getEdges(row.id)
 
     return {
+      ...JSON.parse(row.metadata_json || '{}'),
       id: row.id,
       projectId: row.project_id,
       templateId: row.template_id,
@@ -332,11 +378,12 @@ export class StorageSQLite {
     return rows.map(row => {
       const artifacts = this.getArtifacts(row.id)
       return {
+        ...JSON.parse(row.metadata_json || '{"requiresContractReview":true}'),
         id: row.id,
         runId: row.run_id,
         name: row.name,
         type: row.type,
-        description: row.description || undefined,
+        description: row.description ?? '',
         status: row.status,
         agentRole: row.agent_role || undefined,
         skillIds: row.skill_ids_json ? JSON.parse(row.skill_ids_json) : undefined,
@@ -388,8 +435,8 @@ export class StorageSQLite {
 
   saveTurn(turn: AgentTurn): void {
     this.db.prepare(`
-      INSERT OR REPLACE INTO turns (id, node_id, run_id, agent_id, turn_index, status, result, prompt, output, question, started_at, completed_at, token_input, token_output, token_total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO turns (id, node_id, run_id, agent_id, turn_index, status, result, prompt, output, question, started_at, completed_at, token_input, token_output, token_total, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       turn.id,
       turn.nodeId,
@@ -403,16 +450,17 @@ export class StorageSQLite {
       turn.question || null,
       turn.startedAt,
       turn.completedAt || null,
-      turn.tokenUsage?.input || null,
-      turn.tokenUsage?.output || null,
-      turn.tokenUsage?.total || null,
+      turn.tokenUsage?.input ?? null,
+      turn.tokenUsage?.output ?? null,
+      turn.tokenUsage?.total ?? null,
+      JSON.stringify({ toolCalls: turn.toolCalls, filesModified: turn.filesModified, providerExecution: turn.providerExecution }),
     )
   }
 
   saveTurns(turns: AgentTurn[]): void {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO turns (id, node_id, run_id, agent_id, turn_index, status, result, prompt, output, question, started_at, completed_at, token_input, token_output, token_total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO turns (id, node_id, run_id, agent_id, turn_index, status, result, prompt, output, question, started_at, completed_at, token_input, token_output, token_total, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     const transaction = this.db.transaction(() => {
       for (const turn of turns) {
@@ -421,9 +469,10 @@ export class StorageSQLite {
           turn.turnIndex, turn.status, turn.result || null,
           turn.prompt, turn.output, turn.question || null,
           turn.startedAt, turn.completedAt || null,
-          turn.tokenUsage?.input || null,
-          turn.tokenUsage?.output || null,
-          turn.tokenUsage?.total || null,
+          turn.tokenUsage?.input ?? null,
+          turn.tokenUsage?.output ?? null,
+          turn.tokenUsage?.total ?? null,
+      JSON.stringify({ toolCalls: turn.toolCalls, filesModified: turn.filesModified, providerExecution: turn.providerExecution }),
         )
       }
     })
@@ -468,6 +517,7 @@ export class StorageSQLite {
 
   private rowToTurn(row: any): AgentTurn {
     return {
+      ...JSON.parse(row.metadata_json || '{}'),
       id: row.id,
       nodeId: row.node_id,
       runId: row.run_id,
@@ -480,7 +530,7 @@ export class StorageSQLite {
       question: row.question || undefined,
       startedAt: row.started_at,
       completedAt: row.completed_at || undefined,
-      tokenUsage: row.token_total ? {
+      tokenUsage: row.token_total != null ? {
         input: row.token_input || 0,
         output: row.token_output || 0,
         total: row.token_total,

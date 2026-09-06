@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir, readdir, stat } from 'fs/promises'
 import { join, relative } from 'path'
+import { isTombstone, recordRevision, type RunSyncRecord } from './sync-record.js'
 import type { AuthService } from './auth.js'
 import { ProjectService } from './project.js'
 import type { WorkflowEngine } from './workflow-engine.js'
@@ -9,6 +10,7 @@ import type { TemplateService } from './template.js'
  * 同步配置
  */
 export interface SyncConfig {
+  runBases?: Record<string, { local: string; remote: string }>
   /** 远端 GitHub 私有仓库全名（如 user/agent-flow-data） */
   repoFullName: string
   /** 是否启用自动同步（项目变更时自动 push） */
@@ -153,7 +155,7 @@ export class SyncService {
       lastSyncAt: this.config?.lastSyncAt || null,
       lastCommitSha: this.config?.lastCommitSha || null,
       authenticated: this.authService.isAuthenticated(),
-      dirty: this.localDataVersion > this.lastSyncVersion,
+      dirty: this.localDataVersion > this.lastSyncVersion || this.hasRunChanges(),
       userPrefix: user ? `users/${user.login}` : null,
     }
   }
@@ -311,6 +313,7 @@ export class SyncService {
     const syncTargetVersion = this.localDataVersion
 
     try {
+      const runPlan = await this.planRunPush(token, repo)
       // 1. 推送 projects.json（用户级）
       const projects = this.projectService.getProjects()
       await this.putFile(token, repo, this.userPath('projects.json'), JSON.stringify(projects, null, 2))
@@ -321,23 +324,15 @@ export class SyncService {
       await this.putFile(token, repo, this.userPath('templates.json'), JSON.stringify(templates, null, 2))
       filesUpdated++
 
-      // 3. 推送 runs（用户级，每个 Run 一个文件，包含关联的 turns）
+      // Publish only records whose remote revision still matches the acknowledged base.
       const runs = this.workflowEngine.getRuns()
-      for (const run of runs) {
-        const runDetail = this.workflowEngine.getRun(run.id)
-        if (runDetail) {
-          const runTurns = this.workflowEngine.getRunTurns(run.id)
-          const runPayload = {
-            ...runDetail,
-            _turns: runTurns,  // 附带 turns 数据一起同步
-          }
-          await this.putFile(token, repo, this.userPath(`runs/${run.id}.json`), JSON.stringify(runPayload, null, 2))
+      for (const item of runPlan) {
+        if (item.write) {
+          await this.putRunRecord(token, repo, item.record, item.sha)
           filesUpdated++
         }
+        this.acknowledge(item.record.id, item.record, item.remote || item.record)
       }
-
-      // 4. 清理远端已删除的 Runs（用户级）
-      await this.cleanupDeletedRuns(token, repo, runs.map(r => r.id))
 
       // 5. 推送 Context DB 文件（用户级）
       const contextFilesCount = await this.pushContextDb(token, repo, projects)
@@ -375,6 +370,12 @@ export class SyncService {
 
   /** 从远端 GitHub 仓库拉取当前用户的数据并合并到本地 */
   async pull(): Promise<{ success: boolean; filesRead: number; conflicts: string[]; unmappedProjects?: Array<{ id: string; name: string; path: string; gitRemote?: string }> }> {
+    const queued = this.pushQueue.then(() => this.performPull(), () => this.performPull())
+    this.pushQueue = queued.then(() => undefined, () => undefined)
+    return queued
+  }
+
+  private async performPull() {
     if (!this.config) throw new Error('Sync not configured')
     const token = this.authService.getAccessToken()
     if (!token) throw new Error('Not authenticated with GitHub')
@@ -395,16 +396,25 @@ export class SyncService {
         }
         return { success: true, filesRead: 0, conflicts }
       }
-      const manifest = JSON.parse(manifestRaw)
+      JSON.parse(manifestRaw)
       filesRead++
 
-      // 2. LWW 冲突检测：远端同步时间 vs 本地同步时间
-      const remoteSyncedAt = manifest.syncedAt || 0
-      const localSyncedAt = this.config.lastSyncAt || 0
-
-      // 如果本地比远端更新，且有未推送的变更，标记冲突
-      if (localSyncedAt > remoteSyncedAt && this.localDataVersion > this.lastSyncVersion) {
-        conflicts.push('Local data is newer than remote. Use force-pull to overwrite local data.')
+      const remoteRecords: RunSyncRecord[] = []
+      for (const file of await this.listDir(token, repo, this.userPath('runs'))) {
+        if (!file.name.endsWith('.json')) continue
+        const id = file.name.slice(0, -5)
+        const remote = await this.readRunRecord(token, repo, id)
+        if (remote) remoteRecords.push(remote.record)
+      }
+      // Preflight every run before importing projects or changing local data.
+      const plan = remoteRecords.map(record => ({ record, localRevision: recordRevision(this.localRecord(record.id)), action: this.pullAction(record) }))
+      for (const item of plan) if (item.action === 'conflict') conflicts.push(`Run ${item.record.id}: local and remote changes conflict; both copies were preserved`)
+      if (conflicts.length) return { success: false, filesRead, conflicts, unmappedProjects: undefined }
+      for (const item of plan) {
+        if (recordRevision(this.localRecord(item.record.id)) !== item.localRevision) throw new Error('Local run changed during pull; retry synchronization')
+        if (item.action === 'apply') await this.applyRunRecord(item.record)
+        if (item.action !== 'keep') this.acknowledge(item.record.id, this.localRecord(item.record.id)!, item.record)
+        filesRead++
       }
 
       // 3. 拉取 projects.json（用户级）
@@ -424,31 +434,7 @@ export class SyncService {
         filesRead++
       }
 
-      // 5. 拉取 runs/（用户级）— 包含删除远端已移除的 Run
-      const runFiles = await this.listDir(token, repo, this.userPath('runs'))
-      const remoteRunIds = new Set<string>()
-      for (const file of runFiles) {
-        if (file.name.endsWith('.json')) {
-          const runRaw = await this.getFile(token, repo, this.userPath(`runs/${file.name}`))
-          if (runRaw) {
-            const remoteRun = JSON.parse(runRaw)
-            remoteRunIds.add(remoteRun.id)
-            await this.mergeRun(remoteRun)
-            filesRead++
-          }
-        }
-      }
-
-      // 5b. 删除远端已不存在的本地 Run（同步删除）
-      if (remoteRunIds.size > 0) {
-        const localRuns = this.workflowEngine.getRuns()
-        for (const localRun of localRuns) {
-          if (!remoteRunIds.has(localRun.id)) {
-            console.log(`[Sync] Deleting local run ${localRun.id} (removed on remote)`)
-            await this.workflowEngine.deleteRun(localRun.id)
-          }
-        }
-      }
+      // Absence is never deletion. Only explicit tombstones above can delete a run.
 
       // 6. 拉取 context-db/（用户级）
       const contextFilesRead = await this.pullContextDb(token, repo)
@@ -460,7 +446,6 @@ export class SyncService {
 
       // 8. 更新本地同步状态
       this.config.lastSyncAt = Date.now()
-      this.lastSyncVersion = this.localDataVersion
       await this.saveConfig()
 
       // 如果有未映射的项目，提示用户先在系统中添加对应项目
@@ -586,25 +571,109 @@ export class SyncService {
     }
   }
 
-  /** 合并单个 Run */
-  private async mergeRun(remoteRun: any): Promise<void> {
-    // 提取 _turns 数据（push 时附带的 turns 序列化字段）
-    const turnsData = remoteRun._turns || undefined
-    // 从 run 对象中移除 _turns，避免污染 Run 数据结构
-    const { _turns, ...runData } = remoteRun
+  private localRecord(id: string): RunSyncRecord | null {
+    const deleted = this.workflowEngine.getRunTombstones?.().find(item => item.id === id)
+    if (deleted) return structuredClone(deleted)
+    const run = this.workflowEngine.getRun(id)
+    return run ? JSON.parse(JSON.stringify({ ...run, _turns: this.workflowEngine.getRunTurns(id) })) : null
+  }
 
-    const localRun = this.workflowEngine.getRun(runData.id)
-    if (!localRun) {
-      // 远端有、本地没有 → 导入（含 turns）
-      await this.workflowEngine.importRun(runData, turnsData)
+  private localRecords(): RunSyncRecord[] {
+    return [...this.workflowEngine.getRuns().map(run => this.localRecord(run.id)!), ...(this.workflowEngine.getRunTombstones?.() || [])]
+  }
+
+  private base(id: string) { return this.config?.runBases?.[this.userPath(`runs/${id}.json`)] }
+
+  private acknowledge(id: string, local: RunSyncRecord, remote: RunSyncRecord): void {
+    this.config!.runBases ||= {}
+    this.config!.runBases[this.userPath(`runs/${id}.json`)] = { local: recordRevision(local)!, remote: recordRevision(remote)! }
+  }
+
+  private hasRunChanges(): boolean {
+    if (!this.config) return false
+    return this.localRecords().some(record => recordRevision(record) !== this.base(record.id)?.local)
+  }
+
+  private async readRunRecord(token: string, repo: string, id: string): Promise<{ record: RunSyncRecord; sha: string } | null> {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error('Invalid synchronized run identifier')
+    const response = await fetch(`https://api.github.com/repos/${repo}/contents/${this.userPath(`runs/${id}.json`)}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`Failed to read run ${id}: ${response.status}`)
+    const file = await response.json() as GitHubFileContent
+    if (!file.sha || !file.content || file.encoding !== 'base64') throw new Error(`Invalid run content: ${id}`)
+    const record = JSON.parse(Buffer.from(file.content, 'base64').toString('utf8')) as RunSyncRecord
+    if (record.id !== id) throw new Error('Synchronized run ownership mismatch')
+    if (isTombstone(record)) {
+      if (!Number.isFinite(record.deletedAt)) throw new Error('Invalid deletion record')
     } else {
-      // 都有 → 比较最后活跃时间，取更新的
-      const remoteTime = runData.completedAt || runData.startedAt || runData.createdAt || 0
-      const localTime = localRun.completedAt || localRun.startedAt || localRun.createdAt || 0
-      if (remoteTime > localTime) {
-        await this.workflowEngine.importRun(runData, turnsData)
+      if (!Array.isArray(record.nodes) || !Array.isArray(record.edges)) throw new Error('Invalid synchronized run')
+      record._turns ||= {}
+      if (record.nodes.some(node => node.runId !== id) || Object.entries(record._turns).some(([nodeId, turns]) =>
+        !record.nodes.some(node => node.id === nodeId) || !Array.isArray(turns) || turns.some(turn => turn.runId !== id || turn.nodeId !== nodeId))) {
+        throw new Error('Synchronized node/turn ownership mismatch')
       }
     }
+    return { record, sha: file.sha }
+  }
+
+  private async putRunRecord(token: string, repo: string, record: RunSyncRecord, sha?: string): Promise<void> {
+    const path = this.userPath(`runs/${record.id}.json`)
+    const response = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: `sync: update ${path}`, sha,
+        content: Buffer.from(JSON.stringify({ ...record, _revision: recordRevision(record) })).toString('base64') }),
+    })
+    // Do not refresh SHA and overwrite another device after a concurrent update.
+    if (!response.ok) throw new Error(`Run ${record.id} push rejected (${response.status}); pull and resolve conflicts before retrying`)
+  }
+
+  private async planRunPush(token: string, repo: string) {
+    const plan: Array<{ record: RunSyncRecord; remote?: RunSyncRecord; sha?: string; write: boolean }> = []
+    for (const record of this.localRecords()) {
+      const remote = await this.readRunRecord(token, repo, record.id)
+      const localRevision = recordRevision(record)
+      const remoteRevision = recordRevision(remote?.record || null)
+      const base = this.base(record.id)
+      if (localRevision === remoteRevision) {
+        plan.push({ record, remote: remote!.record, write: false })
+      } else if (base && localRevision === base.local) {
+        // Remote-only changes are left untouched for pull; do not acknowledge unseen revisions.
+        continue
+      } else if ((!remote && !base) || (base && remoteRevision === base.remote)) {
+        plan.push({ record, sha: remote?.sha, write: true })
+      } else {
+        throw new Error(`Run ${record.id}: local and remote changes conflict; both copies were preserved`)
+      }
+    }
+    return plan
+  }
+
+  private pullAction(remote: RunSyncRecord): 'apply' | 'same' | 'keep' | 'conflict' {
+    const local = this.localRecord(remote.id)
+    if (!local) return 'apply'
+    const localRevision = recordRevision(local)
+    const remoteRevision = recordRevision(remote)
+    const base = this.base(remote.id)
+    if (localRevision === remoteRevision) return 'same'
+    if (base && remoteRevision === base.remote) return 'keep'
+    if (base && localRevision === base.local && !this.workflowEngine.getRun(remote.id)?.nodes.some(node => node.status === 'running')) return 'apply'
+    return 'conflict'
+  }
+
+  private async applyRunRecord(record: RunSyncRecord): Promise<void> {
+    if (isTombstone(record)) { await this.workflowEngine.deleteRun(record.id, record); return }
+    const { _turns, _revision, ...run } = structuredClone(record)
+    // A remote process/session is not a local executable lease. Imported active runs require an explicit resume.
+    if (run.status === 'running' || run.nodes.some(node => node.status === 'running')) run.status = 'paused'
+    for (const node of run.nodes) {
+      if (node.status === 'running') { node.status = 'failed'; node.error = 'Imported execution has no local process; confirm its outcome before retrying' }
+    }
+    for (const turn of Object.values(_turns).flat()) {
+      if (turn.status === 'running' || turn.status === 'paused') { turn.status = 'error'; turn.result = 'failed'; turn.completedAt = Date.now() }
+    }
+    await this.workflowEngine.importRun(run, _turns)
   }
 
   // ════════════════════════════════════════
@@ -788,21 +857,6 @@ export class SyncService {
           'Each user reads/writes only their own `users/{login}/` directory via the app.',
           'Shared resources in `shared/` are accessible to all collaborators.',
         ].join('\n'))
-      }
-    }
-  }
-
-  /** 清理远端已被本地删除的 Run 文件（用户级路径） */
-  private async cleanupDeletedRuns(token: string, repo: string, localRunIds: string[]): Promise<void> {
-    const remoteFiles = await this.listDir(token, repo, this.userPath('runs'))
-    const localIdSet = new Set(localRunIds)
-
-    for (const file of remoteFiles) {
-      if (file.name.endsWith('.json')) {
-        const runId = file.name.replace('.json', '')
-        if (!localIdSet.has(runId)) {
-          await this.deleteFile(token, repo, this.userPath(`runs/${file.name}`))
-        }
       }
     }
   }
@@ -1171,7 +1225,7 @@ export class SyncService {
   /** 自动同步触发（如果启用了 autoSync 且有未推送变更） */
   async autoSyncIfNeeded(): Promise<void> {
     if (!this.config?.autoSync) return
-    if (this.localDataVersion <= this.lastSyncVersion) return
+    if (this.localDataVersion <= this.lastSyncVersion && !this.hasRunChanges()) return
     if (!this.authService.isAuthenticated()) return
 
     try {

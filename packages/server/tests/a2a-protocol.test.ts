@@ -14,7 +14,7 @@ describe('A2AProtocolService', () => {
   let engine: WorkflowEngine
 
   beforeEach(async () => {
-    engine = new WorkflowEngine()
+    engine = new WorkflowEngine(':memory:')
     await engine.load()
     a2a = new A2AProtocolService(engine)
   })

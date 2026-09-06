@@ -1,3 +1,4 @@
+import { loadProjectRuns } from '../../api/load-project-runs'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Card, Empty, Progress, Tag, Modal, Form, Input, Select, Space, App, Popconfirm, Dropdown, Alert } from 'antd'
@@ -32,7 +33,7 @@ const statusConfig: Record<string, { color: string; icon: React.ReactNode; label
 export function RunsPanel({ project }: Props) {
   const navigate = useNavigate()
   const runs = useAppStore((s) => s.runs)
-  const setRuns = useAppStore((s) => s.setRuns)
+  const mergeProjectRuns = useAppStore((s) => s.mergeProjectRuns)
   const addRun = useAppStore((s) => s.addRun)
   const removeRun = useAppStore((s) => s.removeRun)
   const templates = useAppStore((s) => s.templates)
@@ -40,10 +41,12 @@ export function RunsPanel({ project }: Props) {
   const { message } = App.useApp()
 
   useEffect(() => {
-    runApi.list(project.id)
-      .then((res) => setRuns(res.runs))
+    let disposed = false
+    loadProjectRuns(() => runApi.list(project.id), () => useAppStore.getState().runStateVersion,
+      (runs, version) => mergeProjectRuns(project.id, runs, version), () => disposed)
       .catch(console.error)
-  }, [project.id])
+    return () => { disposed = true }
+  }, [project.id, mergeProjectRuns])
 
   const projectRuns = runs.filter((r) => r.projectId === project.id)
 

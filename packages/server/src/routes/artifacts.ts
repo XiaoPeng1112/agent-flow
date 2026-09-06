@@ -41,9 +41,14 @@ export function createArtifactsRouter(deps: {
 
   /** 获取节点的 Diff Review 列表 */
   router.get('/diff-review/:runId/:nodeId', (req, res) => {
-    const { nodeId } = req.params
+    const { runId, nodeId } = req.params
     try {
-      const reviews = artifactMergeService.getNodeReviews(nodeId)
+      const node = workflowEngine.getRun(runId)?.nodes.find(n => n.id === nodeId)
+      const turn = workflowEngine.getNodeTurns(nodeId).at(-1)
+      if (node && turn && ['wait_user_review', 'completed'].includes(node.status)) {
+        artifactMergeService.prepareDiffReview({ runId, nodeId, turnId: turn.id })
+      }
+      const reviews = artifactMergeService.getNodeReviews(nodeId).filter(review => review.runId === runId)
       res.json({ success: true, data: { reviews } })
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message })
@@ -74,6 +79,11 @@ export function createArtifactsRouter(deps: {
       return
     }
     try {
+      const review = artifactMergeService.getReview(turnId)
+      if (!review || review.runId !== req.params.runId || review.nodeId !== req.params.nodeId) {
+        res.status(409).json({ success: false, error: 'Review does not belong to this node; reload the current diff' })
+        return
+      }
       const result = artifactMergeService.mergeBranch(turnId, strategy || 'squash')
       res.json({ success: true, data: result })
     } catch (err) {
@@ -89,6 +99,11 @@ export function createArtifactsRouter(deps: {
       return
     }
     try {
+      const review = artifactMergeService.getReview(turnId)
+      if (!review || review.runId !== req.params.runId || review.nodeId !== req.params.nodeId) {
+        res.status(409).json({ success: false, error: 'Review does not belong to this node; reload the current diff' })
+        return
+      }
       const result = await artifactMergeService.pushAndCreatePR(turnId, { title, body, baseBranch })
       res.json({ success: true, data: result })
     } catch (err) {
@@ -194,6 +209,11 @@ export function createArtifactsRouter(deps: {
       return
     }
     try {
+      const review = artifactMergeService.getReview(turnId)
+      if (!review || review.runId !== req.params.runId || review.nodeId !== req.params.nodeId) {
+        res.status(409).json({ success: false, error: 'Review does not belong to this node; reload the current diff' })
+        return
+      }
       const result = artifactMergeService.discardBranch(turnId)
       res.json({ success: true, data: result })
     } catch (err) {

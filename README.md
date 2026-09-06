@@ -98,7 +98,15 @@ yarn test:coverage
 yarn deploy
 ```
 
-后端运行在本地 `localhost:3001`，前端通过浏览器直接连接本地后端。
+GitHub Pages 只托管前端；后端运行在本地 `localhost:3001`，CLI 也在本机执行。后端不可用时，页面进入只读 Demo 模式。
+
+从 Pages 页面连接本地后端时，在后端 `.env` 中显式允许该来源，再重启后端：
+
+```dotenv
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://xiaopeng1112.github.io
+```
+
+浏览器可能需要授予页面访问本地网络的权限。不要把个人 API 令牌或模型密钥编译进公开的 Pages 产物；需要令牌保护时，使用本地前端。模型选择位于 Agent 管理，默认可跟随本机 CLI，并可刷新模型列表。
 
 ## 文档
 

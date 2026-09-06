@@ -1,5 +1,10 @@
-import { Router } from 'express'
-import type { ContextDBService } from '../services/context-db.js'
+import { Router, type Response } from 'express'
+import { ContextPathError, type ContextDBService } from '../services/context-db.js'
+
+function sendContextError(res: Response, err: unknown): void {
+  const status = err instanceof ContextPathError ? 400 : 500
+  res.status(status).json({ success: false, error: (err as Error).message })
+}
 
 export function createContextRouter(deps: {
   contextDBService: ContextDBService
@@ -15,7 +20,7 @@ export function createContextRouter(deps: {
       const stats = await contextDBService.getStats()
       res.json({ success: true, data: stats })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendContextError(res, err)
     }
   })
 
@@ -26,7 +31,7 @@ export function createContextRouter(deps: {
       const files = await contextDBService.listL2FilesByRunId(runId)
       res.json({ success: true, data: { files } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendContextError(res, err)
     }
   })
 
@@ -37,7 +42,7 @@ export function createContextRouter(deps: {
       const files = await contextDBService.listContextFiles(level as any, scopeId)
       res.json({ success: true, data: { files } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendContextError(res, err)
     }
   })
 
@@ -52,7 +57,7 @@ export function createContextRouter(deps: {
       }
       res.json({ success: true, data: { content, level, scopeId, filename } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendContextError(res, err)
     }
   })
 
@@ -68,7 +73,7 @@ export function createContextRouter(deps: {
       const result = await contextDBService.upsertContext(level as any, scopeId, filename, content)
       res.json({ success: true, data: result })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendContextError(res, err)
     }
   })
 
@@ -79,7 +84,7 @@ export function createContextRouter(deps: {
       const deleted = await contextDBService.deleteContext(level as any, scopeId, filename)
       res.json({ success: true, data: { deleted } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendContextError(res, err)
     }
   })
 
@@ -91,7 +96,7 @@ export function createContextRouter(deps: {
       const formatted = contextDBService.formatAssembledContext(layers)
       res.json({ success: true, data: { layers, formatted, totalLayers: layers.length } })
     } catch (err) {
-      res.status(500).json({ success: false, error: (err as Error).message })
+      sendContextError(res, err)
     }
   })
 

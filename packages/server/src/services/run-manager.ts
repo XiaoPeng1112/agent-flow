@@ -6,8 +6,10 @@ import type {
   AgentTurn, Artifact, WorkflowTemplate,
   InboxItem, WsMessage,
 } from '../types/index.js'
+import { ContractValidatorService } from './contract-validator.js'
 import { StorageSQLite } from './storage-sqlite.js'
 import type { ContextDBService } from './context-db.js'
+import type { RunTombstone } from './sync-record.js'
 
 type EventHandler = (message: WsMessage) => void
 
@@ -50,8 +52,11 @@ export class RunManager {
   /** 外部注入的 ContextDBService（用于 L2 种子文件生成） */
   private contextDBService?: ContextDBService
 
-  constructor() {
-    this.storage = new StorageSQLite()
+  private readonly legacyImportEnabled: boolean
+
+  constructor(dbPath?: string) {
+    this.legacyImportEnabled = dbPath === undefined
+    this.storage = new StorageSQLite(dbPath)
   }
 
   /**
@@ -76,7 +81,7 @@ export class RunManager {
     // 首次启动：检测是否有旧版 JSON 数据需要迁移
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
     const legacyPath = join(home, '.agent-flow', 'runs', 'index.json')
-    if (existsSync(legacyPath)) {
+    if (this.legacyImportEnabled && existsSync(legacyPath)) {
       const stats = this.storage.getStats()
       if (stats.runs === 0) {
         console.log('[RunManager] Detected legacy JSON data, migrating to SQLite...')
@@ -106,10 +111,12 @@ export class RunManager {
   private async resetOrphanRunningNodes(): Promise<void> {
     let resetCount = 0
     for (const run of this.runs.values()) {
-      if (run.status !== 'running') continue
+      if (run.status !== 'running' && run.status !== 'paused') continue
       for (const node of run.nodes) {
         if (node.status === 'running') {
-          node.status = 'pending'
+          node.status = 'failed'
+          node.error = '服务器重启，执行状态未知；确认外部副作用后重新执行'
+          run.status = 'paused'
           const nodeTurns = this.turnManager.getTurns(node.id)
           for (const turn of nodeTurns) {
             if (turn.status === 'running') {
@@ -144,6 +151,10 @@ export class RunManager {
   }
 
   emit(type: WsMessage['type'], payload: unknown): void {
+    if (type === 'run:node_updated') {
+      const data = payload as { runId: string; nodeId: string }
+      payload = { ...data, node: this.runs.get(data.runId)?.nodes.find(n => n.id === data.nodeId) }
+    }
     const msg: WsMessage = { type, payload, timestamp: Date.now() }
     for (const handler of this.eventHandlers) {
       handler(msg)
@@ -180,6 +191,7 @@ export class RunManager {
     const edges: DAGEdge[] = template.edges.map((e) => ({
       source: `${runId}_${e.source}`,
       target: `${runId}_${e.target}`,
+      condition: e.condition,
     }))
 
     const run: Run = {
@@ -196,6 +208,7 @@ export class RunManager {
     this.runs.set(runId, run)
     this.dagScheduler.computeReadyNodes(run)
     await this.persist()
+    this.emit('run:status_changed', { runId, status: run.status, run })
 
     // 为每个节点生成 L2 种子文件（根据节点模板信息动态生成对应内容）
     if (this.contextDBService) {
@@ -267,16 +280,18 @@ export class RunManager {
     return this.runs.get(runId)
   }
 
-  async deleteRun(runId: string): Promise<boolean> {
+  getRunTombstones(): RunTombstone[] { return this.storage.getRunTombstones() }
+
+  async deleteRun(runId: string, tombstone: RunTombstone = { id: runId, _deleted: true, deletedAt: Date.now() }): Promise<boolean> {
     const run = this.runs.get(runId)
-    if (!run) return false
+    if (!run) { this.storage.deleteRun(runId, tombstone); return false }
 
     for (const node of run.nodes) {
       this.turnManager.deleteTurns(node.id)
     }
 
     this.runs.delete(runId)
-    this.storage.deleteRun(runId)
+    this.storage.deleteRun(runId, tombstone)
 
     this.emit('run:deleted', { runId })
     await this.persist()
@@ -284,6 +299,9 @@ export class RunManager {
   }
 
   async importRun(runData: Run, turnsData?: Record<string, AgentTurn[]>): Promise<void> {
+    if (this.getRunTombstones().some(t => t.id === runData.id)) throw new Error('Run was deleted locally; resolve the synchronization conflict before restoring it')
+    this.storage.replaceRun(runData, turnsData || {})
+    for (const node of this.runs.get(runData.id)?.nodes || []) this.turnManager.deleteTurns(node.id)
     this.runs.set(runData.id, runData)
     if (turnsData) {
       for (const [nodeId, nodeTurns] of Object.entries(turnsData)) {
@@ -291,6 +309,7 @@ export class RunManager {
       }
     }
     await this.persist()
+    this.emit('run:status_changed', { runId: runData.id, status: runData.status, run: runData })
   }
 
   getRunTurns(runId: string): Record<string, AgentTurn[]> {
@@ -306,7 +325,40 @@ export class RunManager {
     return result
   }
 
+  private completionVerifier?: (run: Run, node: TaskNode) => { passed: boolean; failedReason?: string }
+
+  setCompletionVerifier(verifier: NonNullable<RunManager['completionVerifier']>): void {
+    this.completionVerifier = verifier
+  }
+
+  private checkCompletion(run: Run, node: TaskNode): { passed: boolean; failedReason?: string } {
+    const exit = this.dagScheduler.evaluateExitConditions(run, node)
+    if (!exit.passed) return exit
+    if (node.outputContracts?.length) {
+      const contract = new ContractValidatorService().validateNode(node, node.outputContracts)
+      if (contract.results.some(result => result.required && !result.satisfied)) {
+        return { passed: false, failedReason: '必需产出物契约未通过' }
+      }
+    }
+    return this.completionVerifier?.(run, node) ?? { passed: true }
+  }
+
   // ═══════════════ Node 状态机 ═══════════════
+
+  async claimRecoveryNode(runId: string, nodeId: string): Promise<TaskNode> {
+    const run = this.getRun(runId)
+    const node = run?.nodes.find(n => n.id === nodeId)
+    if (!run || run.status !== 'running' || node?.status !== 'failed') throw new Error('Resume the run first; recovery requires a failed node')
+    if (run.nodes.filter(n => n.status === 'running').length >= (run.config?.maxParallel ?? 5)) throw new Error('Run parallel execution limit reached')
+    // No ready event or await between checking and claiming: automatic dispatch cannot steal recovery.
+    node.status = 'running'
+    node.error = undefined
+    node.completedAt = undefined
+    node.startedAt = Date.now()
+    this.emit('run:node_updated', { runId, nodeId, status: node.status })
+    await this.persist()
+    return node
+  }
 
   async startNode(runId: string, nodeId: string): Promise<TaskNode> {
     const run = this.getRun(runId)
@@ -315,6 +367,10 @@ export class RunManager {
     const node = run.nodes.find((n) => n.id === nodeId)
     if (!node) throw new Error(`Node not found: ${nodeId}`)
     if (node.status !== 'ready') throw new Error(`Node ${nodeId} is not ready (current: ${node.status})`)
+    if (run.status !== 'running' && run.status !== 'created') throw new Error('Run is not accepting new execution')
+    if (run.nodes.filter(item => item.status === 'running').length >= (run.config?.maxParallel ?? 5)) {
+      throw new Error('Run parallel execution limit reached')
+    }
 
     node.status = 'running'
     node.startedAt = Date.now()
@@ -348,16 +404,14 @@ export class RunManager {
         node.reviewEnteredAt = Date.now()
         break
       case 'completed': {
-        // 准出条件验证：如果定义了 exitConditions，必须全部满足才能标记为 completed
-        if (node.exitConditions && node.exitConditions.length > 0) {
-          const exitResult = this.dagScheduler.evaluateExitConditions(run, node)
-          if (!exitResult.passed) {
-            // 准出条件不满足：不标记为完成，而是保持 running 并记录警告
-            node.error = `准出条件未满足: ${exitResult.failedReason}`
-            this.emit('run:node_updated', { runId, nodeId, status: node.status, warning: exitResult.failedReason })
-            await this.persist()
-            return node
-          }
+        const verification = this.checkCompletion(run, node)
+        if (!verification.passed) {
+          node.status = 'wait_user_review'
+          node.reviewEnteredAt = Date.now()
+          node.error = `准出检查未通过: ${verification.failedReason}`
+          this.emit('run:node_updated', { runId, nodeId, status: node.status, warning: verification.failedReason })
+          await this.persist()
+          return node
         }
         node.status = 'completed'
         node.completedAt = Date.now()
@@ -369,6 +423,7 @@ export class RunManager {
         node.status = 'failed'
         node.error = error
         node.completedAt = Date.now()
+        this.dagScheduler.computeReadyNodes(run)
         break
     }
 
@@ -385,16 +440,11 @@ export class RunManager {
     if (!node) throw new Error(`Node not found: ${nodeId}`)
     if (node.status !== 'wait_user_review') throw new Error(`Node ${nodeId} is not waiting for review`)
 
+    const verification = this.checkCompletion(run, node)
+    if (!verification.passed) throw new Error(`无法批准: ${verification.failedReason}`)
+
     if (feedback && feedback.trim()) {
-      node.artifacts.push({
-        id: `feedback-${Date.now()}`,
-        nodeId,
-        title: '用户修改意见',
-        category: 'document',
-        format: 'markdown',
-        content: feedback.trim(),
-        createdAt: Date.now(),
-      })
+      node.approvalFeedback = [...(node.approvalFeedback || []), { content: feedback.trim(), createdAt: Date.now() }]
     }
 
     node.status = 'completed'
@@ -416,7 +466,10 @@ export class RunManager {
     if (!node) throw new Error(`Node not found: ${nodeId}`)
     if (node.status !== 'wait_user_review') throw new Error(`Node ${nodeId} is not waiting for review`)
 
-    node.status = 'running'
+    node.status = 'ready'
+    node.startedAt = undefined
+    node.completedAt = undefined
+    node.error = undefined
     node.rejectCount = (node.rejectCount || 0) + 1
     if (feedback) {
       node.userInput = feedback
@@ -478,6 +531,8 @@ export class RunManager {
     node.completedAt = undefined
     node.error = undefined
     node.artifacts = []
+    node.approvalFeedback = []
+    node.attemptStartIndex = this.turnManager.getTurns(node.id).length
 
     const downstream = this.dagScheduler.getDownstreamNodes(run, nodeId)
     for (const dn of downstream) {
@@ -486,12 +541,15 @@ export class RunManager {
       dn.completedAt = undefined
       dn.error = undefined
       dn.artifacts = []
+      dn.approvalFeedback = []
+      dn.attemptStartIndex = this.turnManager.getTurns(dn.id).length
     }
 
     this.dagScheduler.computeReadyNodes(run)
 
     if (run.status === 'completed' || run.status === 'failed') {
       run.status = 'running'
+      run.completedAt = undefined
     }
 
     this.emit('run:status_changed', { runId, status: run.status })
@@ -538,6 +596,9 @@ export class RunManager {
   }
 
   async updateRunConfig(runId: string, config: import('../types/index.js').RunConfig): Promise<void> {
+    if (config.maxParallel !== undefined && (!Number.isInteger(config.maxParallel) || config.maxParallel < 1 || config.maxParallel > 32)) {
+      throw new Error('maxParallel must be an integer between 1 and 32')
+    }
     const run = this.getRun(runId)
     if (!run) throw new Error(`Run not found: ${runId}`)
 

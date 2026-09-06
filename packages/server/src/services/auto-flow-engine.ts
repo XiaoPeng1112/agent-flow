@@ -165,14 +165,23 @@ export class AutoFlowEngine {
     // 如果 ValidationTurnService 可用，先执行验证
     if (this.validationTurnService) {
       try {
-        await this.validationTurnService.validate(runId, nodeId)
+        const result = await this.validationTurnService.validate(runId, nodeId)
+        if (!result.passed || result.strategy === 'skipped') return this.requireReview(runId, nodeId, result.summary)
       } catch (err) {
-        console.warn(`[AutoFlow] Validation failed for run=${runId} node=${nodeId}, continuing with evaluation:`, (err as Error).message)
+        return this.requireReview(runId, nodeId, `验证异常: ${(err as Error).message}`)
       }
     }
 
     // 验证完成后（结果已缓存在 ValidationTurnService 中），执行同步评估
     return this.evaluateAndDecide(runId, nodeId)
+  }
+
+  private requireReview(runId: string, nodeId: string, reason: string): 'waiting_user_review' {
+    this.recordEvaluation(runId, nodeId, { confidence: 0, threshold: 100,
+      signals: this.collectSignalsSafe(runId, nodeId), decision: 'require_review', reasoning: reason })
+    this.consecutiveAutoApproveCount.set(runId, 0)
+    this.emitSafetyBlocked(runId, nodeId, reason)
+    return 'waiting_user_review'
   }
 
   /**
@@ -330,7 +339,14 @@ export class AutoFlowEngine {
   private checkSafetyMechanisms(runId: string, nodeId: string): string | null {
     const run = this.workflowEngine.getRun(runId)
     const node = run?.nodes.find(n => n.id === nodeId)
-    if (!run || !node) return null
+    if (!run || !node) return '节点或 Run 不存在'
+    if (node.requiresContractReview) return '旧版节点缺少持久化契约，请人工审核或使用当前模板重新创建任务'
+    const validation = this.validationTurnService?.getValidationResult(runId, nodeId)
+    if (!validation || !validation.passed || validation.strategy === 'skipped') return '缺少当前执行的通过验证'
+    if (this.getContractSatisfaction(runId, nodeId) < 1) return '必需产出物契约未通过'
+    if (this.getExitConditionsScore(runId, nodeId) < 1) return '必需准出条件未通过'
+    const nodeKey = `${run.templateId}:${node.order}`
+    if ((this.coldStartCounters.get(nodeKey) || 0) < AutoFlowEngine.COLD_START_RUNS) return '冷启动阶段需要人工审核'
 
     const runConfig = this.workflowEngine.getRunConfig(runId)
     const autoFlow = runConfig?.autoFlow || DEFAULT_CONFIG
@@ -526,33 +542,7 @@ export class AutoFlowEngine {
     const node = run?.nodes.find(n => n.id === nodeId)
     if (!node?.exitConditions?.length) return 1.0
 
-    // 通过检查最后一个 Turn 的输出来预判准出条件
-    const turns = this.workflowEngine.getNodeTurns(nodeId)
-    const lastTurn = [...turns].reverse().find(t => t.status === 'completed')
-    if (!lastTurn?.output) return 0.0
-
-    let passedCount = 0
-    for (const cond of node.exitConditions) {
-      switch (cond.type) {
-        case 'output_contains':
-          if (cond.value && lastTurn.output.includes(cond.value)) passedCount++
-          break
-        case 'lint_pass': {
-          const hasLintError = lastTurn.output.includes('lint error') || lastTurn.output.includes('eslint')
-          if (!hasLintError) passedCount++
-          break
-        }
-        case 'test_pass': {
-          const hasTestFail = lastTurn.output.includes('FAIL') || lastTurn.output.includes('test failed')
-          if (!hasTestFail) passedCount++
-          break
-        }
-        default:
-          passedCount++ // expression 等预留类型默认通过
-      }
-    }
-
-    return passedCount / node.exitConditions.length
+    return this.workflowEngine.evaluateExitConditions(run!, node).passed ? 1 : 0
   }
 
   /**
@@ -759,7 +749,7 @@ export class AutoFlowEngine {
         confidence += signals.adversarialScore! * adjustedAdversarialWeight
       }
 
-      return Math.round(confidence * 100)
+      return Math.max(0, Math.min(100, Math.round(confidence * 100)))
     }
 
     // 无额外信号时，使用学习后的 6 信号权重（总和 = 1.0）
@@ -771,7 +761,7 @@ export class AutoFlowEngine {
       signals.executionStability * learnedWeights.executionStability +
       signals.mergeConflictFree * learnedWeights.mergeConflictFree
 
-    return Math.round(confidence * 100)
+    return Math.max(0, Math.min(100, Math.round(confidence * 100)))
   }
 
   // ═══════════════ 决策解释 ═══════════════
@@ -1302,7 +1292,7 @@ export class AutoFlowEngine {
     // 冷启动检查：如果该类节点完成次数 < N，强制高阈值（= 不自动通过）
     const completionCount = this.coldStartCounters.get(nodeKey) || 0
     if (completionCount < AutoFlowEngine.COLD_START_RUNS) {
-      return 100 // 不可能达到的阈值 → 强制进入 review
+      return 100 // 冷启动由 checkSafetyMechanisms 显式阻断
     }
 
     const record = this.adaptiveAdjustments.get(nodeKey)

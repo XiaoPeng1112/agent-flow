@@ -177,7 +177,7 @@ export function createRunsRouter(deps: {
     }
   })
 
-  /** 用户打回节点（wait_user_review → running） */
+  /** 用户打回节点（wait_user_review → ready） */
   router.post('/:runId/nodes/:nodeId/reject', async (req, res) => {
     const { feedback } = req.body
     try {

@@ -1,6 +1,13 @@
-import { execSync } from 'child_process'
+import { executionEnvironment } from './execution-environment.js'
+import { execFileSync } from 'child_process'
+import { randomUUID } from 'crypto'
+import { ExecutionWorkerClient } from './execution-worker-client.js'
+import { workspaceFingerprint } from './workspace-fingerprint.js'
+import { realpathSync } from 'fs'
+import { resolve, relative, isAbsolute, sep } from 'path'
+import type { ProjectService } from './project.js'
 import type {
-  TaskNode, Run,
+  TaskNode, Run, ExitCondition,
 } from '../types/index.js'
 import type { WorkflowEngine } from './workflow-engine.js'
 import type { ContractValidatorService } from './contract-validator.js'
@@ -23,7 +30,7 @@ import type { DynamicAgentFactory } from './dynamic-agent-factory.js'
 //
 // 设计原则：
 // - 验证是可选的（由 AutoFlowConfig.validation 控制）
-// - 验证结果不直接决定节点状态，而是作为信心信号影响 AutoFlow 决策
+// - 必需检查全部通过才允许完成；分数仅保留为诊断信息
 // - 验证脚本有严格超时限制，不阻塞主流程
 // - LLM 验证 Turn 是异步的，通过回调通知结果
 // ═══════════════════════════════════════════════════
@@ -46,6 +53,10 @@ export interface ValidationConfig {
 
 /** 验证结果 */
 export interface ValidationResult {
+  turnId?: string
+  configuration?: string
+  cwd?: string
+  workspaceFingerprint?: string
   /** 验证是否通过 */
   passed: boolean
   /** 验证策略 */
@@ -95,11 +106,15 @@ const CODE_NODE_TYPES = new Set(['implement', 'test', 'review'])
 const DOC_NODE_TYPES = new Set(['specify', 'design', 'deliver'])
 
 export class ValidationTurnService {
+  private scriptWorkers = new Map<string, Set<ExecutionWorkerClient>>()
+  private cancelledValidations = new Set<string>()
+  private pendingValidations = new Map<string, Promise<ValidationResult>>()
   private workflowEngine!: WorkflowEngine
   private contractValidator!: ContractValidatorService
   private _feedbackCollector!: FeedbackCollector
   private robustnessService!: RobustnessService
   private repoIsolation?: RepoIsolationService
+  private projectService?: ProjectService
   private agentService?: AgentService
   private dynamicAgentFactory?: DynamicAgentFactory
 
@@ -121,6 +136,7 @@ export class ValidationTurnService {
     feedbackCollector: FeedbackCollector
     robustnessService: RobustnessService
     repoIsolation?: RepoIsolationService
+    projectService?: ProjectService
     agentService?: AgentService
     dynamicAgentFactory?: DynamicAgentFactory
   }): void {
@@ -129,8 +145,19 @@ export class ValidationTurnService {
     this._feedbackCollector = deps.feedbackCollector
     this.robustnessService = deps.robustnessService
     this.repoIsolation = deps.repoIsolation
+    this.projectService = deps.projectService
     this.agentService = deps.agentService
     this.dynamicAgentFactory = deps.dynamicAgentFactory
+    deps.workflowEngine.onExecutionStop?.(async (runId, nodeIds) => {
+      const keys = nodeIds.map(nodeId => `${runId}:${nodeId}`)
+      for (const key of keys) {
+        this.validationResults.delete(key)
+        this.cancelledValidations.add(key)
+        for (const worker of this.scriptWorkers.get(key) || []) worker.cancel()
+      }
+      await Promise.all(keys.map(key => this.pendingValidations.get(key)))
+      for (const key of keys) this.cancelledValidations.delete(key)
+    })
   }
 
   // ═══════════════ 核心验证入口 ═══════════════
@@ -148,8 +175,19 @@ export class ValidationTurnService {
    * 
    * @returns ValidationResult — 包含综合分数和各项细节
    */
-  async validate(runId: string, nodeId: string): Promise<ValidationResult> {
+  validate(runId: string, nodeId: string): Promise<ValidationResult> {
+    const key = `${runId}:${nodeId}`
+    if (this.workflowEngine.isTransitioning?.(runId)) return Promise.resolve(this.buildSkippedResult('节点状态变更中', Date.now()))
+    const existing = this.pendingValidations.get(key)
+    if (existing) return existing
+    const pending = this.performValidation(runId, nodeId).finally(() => this.pendingValidations.delete(key))
+    this.pendingValidations.set(key, pending)
+    return pending
+  }
+
+  private async performValidation(runId: string, nodeId: string): Promise<ValidationResult> {
     const startTime = Date.now()
+    this.validationResults.delete(`${runId}:${nodeId}`)
 
     try {
       const run = this.workflowEngine.getRun(runId)
@@ -169,6 +207,10 @@ export class ValidationTurnService {
         return this.buildSkippedResult(`节点类型 ${node.type} 跳过验证`, startTime)
       }
 
+      const executionCwd = this.resolveWorkingDirectory(run, node)
+      const beforeFingerprint = executionCwd ? workspaceFingerprint(executionCwd) : undefined
+      const initialTurnId = this.workflowEngine.getNodeTurns(nodeId).at(-1)?.id
+      const initialConfiguration = this.configurationKey(run, node)
       // 根据节点类型选择验证策略
       const details: ValidationDetail[] = []
 
@@ -197,7 +239,18 @@ export class ValidationTurnService {
       // 综合计算
       const result = this.computeCompositeResult(details, startTime)
 
+      result.turnId = initialTurnId
+      result.configuration = initialConfiguration
+      result.cwd = executionCwd
+      result.workspaceFingerprint = beforeFingerprint
+      if (executionCwd && beforeFingerprint !== workspaceFingerprint(executionCwd)) {
+        result.passed = false
+        result.summary = '验证期间代码发生变化，请重新验证'
+      }
       // 缓存结果
+      if (this.cancelledValidations.has(`${runId}:${nodeId}`)) {
+        return this.buildSkippedResult('验证已取消', startTime)
+      }
       this.cacheResult(runId, nodeId, result)
 
       // 验证失败时记录反馈（供自适应学习使用）
@@ -225,7 +278,20 @@ export class ValidationTurnService {
    * 获取验证结果（供 AutoFlowEngine 查询）
    */
   getValidationResult(runId: string, nodeId: string): ValidationResult | undefined {
-    return this.validationResults.get(`${runId}:${nodeId}`)
+    const result = this.validationResults.get(`${runId}:${nodeId}`)
+    const run = this.workflowEngine.getRun(runId)
+    const node = run?.nodes.find(item => item.id === nodeId)
+    if (!result || !run || !node || !result.turnId) return undefined
+    const turn = this.workflowEngine.getNodeTurns(nodeId).at(-1)
+    if (turn?.id !== result.turnId || turn.status !== 'completed') return undefined
+    if (result.configuration !== this.configurationKey(run, node)) return undefined
+    if (result.cwd) {
+      try {
+        if (this.resolveWorkingDirectory(run, node) !== result.cwd ||
+            workspaceFingerprint(result.cwd) !== result.workspaceFingerprint) return undefined
+      } catch { return undefined }
+    }
+    return result
   }
 
   /**
@@ -235,9 +301,20 @@ export class ValidationTurnService {
    * @returns 0.0 - 1.0，无结果时返回 undefined（不影响信心分计算）
    */
   getValidationScore(runId: string, nodeId: string): number | undefined {
-    const result = this.validationResults.get(`${runId}:${nodeId}`)
+    const result = this.getValidationResult(runId, nodeId)
     if (!result || result.strategy === 'skipped') return undefined
     return result.score
+  }
+
+  private configurationKey(run: Run, node: TaskNode): string {
+    return JSON.stringify({ config: this.getValidationConfig(run), contracts: node.outputContracts,
+      conditions: node.exitConditions, artifacts: node.artifacts, scriptCwd: node.scriptCwd })
+  }
+
+  hasPassingCheck(runId: string, nodeId: string, condition: ExitCondition): boolean {
+    const result = this.getValidationResult(runId, nodeId)
+    const name = condition.type === 'lint_pass' ? 'Lint' : 'Test'
+    return !!result?.details.some(detail => detail.name === name && detail.passed)
   }
 
   // ═══════════════ Contract 校验 ═══════════════
@@ -322,8 +399,8 @@ export class ValidationTurnService {
     if (!cwd) {
       details.push({
         name: 'ValidationScript',
-        passed: true,
-        score: 0.5,
+        passed: false,
+        score: 0,
         output: '无法确定工作目录，跳过脚本验证',
       })
       return details
@@ -333,7 +410,8 @@ export class ValidationTurnService {
     const scripts = this.collectValidationScripts(node, config)
 
     for (const script of scripts) {
-      const result = this.executeScript(script.command, cwd, timeout)
+      if (this.cancelledValidations.has(`${run.id}:${node.id}`)) break
+      const result = await this.executeScript(script.command, cwd, timeout, `${run.id}:${node.id}`)
 
       const passed = result.exitCode === 0 && !result.timedOut
       let score: number
@@ -373,7 +451,7 @@ export class ValidationTurnService {
       const configScript = config.scripts[node.type] || config.scripts[node.name]
       if (configScript) {
         scripts.push({ name: `Config:${node.type}`, command: configScript })
-        return scripts  // 配置脚本覆盖所有默认行为
+        // 必需的准出检查仍需单独运行，不能被通用脚本覆盖。
       }
     }
 
@@ -384,13 +462,13 @@ export class ValidationTurnService {
           case 'lint_pass':
             scripts.push({
               name: 'Lint',
-              command: cond.value || 'npm run lint --silent 2>&1 || true',
+              command: cond.value || 'npm run lint --silent',
             })
             break
           case 'test_pass':
             scripts.push({
               name: 'Test',
-              command: cond.value || 'npm test --silent 2>&1 || true',
+              command: cond.value || 'npm test --silent',
             })
             break
         }
@@ -402,7 +480,7 @@ export class ValidationTurnService {
       // 尝试检测项目类型并推断验证命令
       scripts.push({
         name: 'TypeCheck',
-        command: 'npx tsc --noEmit 2>&1 || true',
+        command: 'npm exec --no -- tsc --noEmit',
       })
     }
 
@@ -410,50 +488,26 @@ export class ValidationTurnService {
   }
 
   /**
-   * 执行单个脚本（同步，带超时）
+   * 执行单个脚本（异步，带超时）
    */
-  private executeScript(command: string, cwd: string, timeout: number): ScriptExecResult {
+  private async executeScript(command: string, cwd: string, timeout: number, key: string): Promise<ScriptExecResult> {
     const startTime = Date.now()
-
+    let diagnostics = ''
+    const worker = new ExecutionWorkerClient({ turnId: `validation-${randomUUID()}`, prompt: '', script: command,
+      cwd, timeoutMs: timeout, environment: { ...executionEnvironment(), CI: 'true', FORCE_COLOR: '0' } }, message => {
+      if (message.type === 'output') diagnostics = (diagnostics + message.text).slice(-2000)
+    }, () => !this.cancelledValidations.has(key))
+    const workers = this.scriptWorkers.get(key) || new Set<ExecutionWorkerClient>()
+    workers.add(worker)
+    this.scriptWorkers.set(key, workers)
     try {
-      const stdout = execSync(command, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout,
-        env: {
-          ...process.env,
-          PATH: [
-            '/opt/homebrew/bin',
-            '/usr/local/bin',
-            `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
-            `${process.env.HOME}/.local/bin`,
-            process.env.PATH || '',
-          ].join(':'),
-          // 禁止交互式提示
-          CI: 'true',
-          FORCE_COLOR: '0',
-        },
-      })
-
-      return {
-        exitCode: 0,
-        stdout: stdout || '',
-        stderr: '',
-        timedOut: false,
-        duration: Date.now() - startTime,
-      }
-    } catch (err: unknown) {
-      const execErr = err as { status?: number; stdout?: string; stderr?: string; killed?: boolean }
-      const timedOut = execErr.killed === true
-
-      return {
-        exitCode: execErr.status || 1,
-        stdout: (execErr.stdout as string) || '',
-        stderr: (execErr.stderr as string) || '',
-        timedOut,
-        duration: Date.now() - startTime,
-      }
+      const result = await worker.result
+      return { exitCode: result.success ? 0 : result.code || 1,
+        stdout: result.output, stderr: `${diagnostics}\n${result.error || ''}`,
+        timedOut: result.error?.includes('timed out') === true, duration: Date.now() - startTime }
+    } finally {
+      workers.delete(worker)
+      if (!workers.size) this.scriptWorkers.delete(key)
     }
   }
 
@@ -574,9 +628,9 @@ export class ValidationTurnService {
       if (!reviewerAgent) {
         return {
           name: 'LLM Review',
-          passed: true,
-          score: 0.5,
-          output: '无可用的 Reviewer Agent，跳过 LLM 验证',
+          passed: false,
+          score: 0,
+          output: '无可用的 Reviewer Agent，无法执行所需 LLM 验证',
           duration: Date.now() - startTime,
         }
       }
@@ -674,35 +728,18 @@ export class ValidationTurnService {
   ): Promise<string> {
     const timeout = 30_000  // 30 秒超时
 
-    // 使用 Agent CLI 同步执行（简化版本，不走 spawn 流式）
-    const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const command = `echo '${escapedPrompt}' | ${agent.command} --print 2>/dev/null || echo '${escapedPrompt}' | ${agent.command} 2>/dev/null`
+    const run = this.workflowEngine.getRun(_node.runId)
+    const cwd = run && this.resolveWorkingDirectory(run, _node)
+    if (!cwd) throw new Error('Reviewer execution directory is unavailable')
+    const config = this.agentService?.getAgent(agent.id)
+    if (!config || !['codex', 'claude'].includes(config.type)) throw new Error('Unsupported reviewer provider')
+    const args = config.type === 'codex'
+      ? ['exec', '--sandbox', 'read-only', '-'] : ['--print', '--tools', '']
+    return execFileSync(agent.command, args, { cwd, input: prompt, encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'], timeout, maxBuffer: 2 * 1024 * 1024,
+      env: executionEnvironment(config.type),
+    })
 
-    try {
-      const output = execSync(command, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout,
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          PATH: [
-            '/opt/homebrew/bin',
-            '/usr/local/bin',
-            `${process.env.HOME}/.nvm/versions/node/v20.19.2/bin`,
-            process.env.PATH || '',
-          ].join(':'),
-        },
-      })
-      return output || ''
-    } catch (err) {
-      // 超时或执行失败，返回空结果
-      const execErr = err as { stdout?: string; killed?: boolean }
-      if (execErr.killed) {
-        throw new Error('LLM Review Agent 执行超时 (30s)')
-      }
-      return (execErr.stdout as string) || ''
-    }
   }
 
   /**
@@ -892,7 +929,7 @@ export class ValidationTurnService {
     const score = totalWeight > 0 ? weightedScore / totalWeight : 0.5
 
     // 判断是否通过：分数 >= 0.6 且无致命失败
-    const hasFatalFailure = details.some(d => d.score === 0.0 && d.name !== 'OutputQuality')
+    const hasFatalFailure = details.some(d => !d.passed)
     const passed = score >= 0.6 && !hasFatalFailure
 
     // 确定策略标签
@@ -927,14 +964,11 @@ export class ValidationTurnService {
    */
   private getValidationConfig(run: Run): ValidationConfig {
     const autoFlow = run.config?.autoFlow
-    if (!autoFlow?.enabled) {
-      return { ...DEFAULT_VALIDATION_CONFIG, enabled: false }
-    }
 
     // 从 AutoFlowConfig 中提取验证相关配置
     // 目前 ValidationConfig 字段在 AutoFlowConfig 中尚未定义，使用默认值
     // 未来可在 AutoFlowConfig 中增加 validation 字段
-    const validationOverride = (autoFlow as any).validation as Partial<ValidationConfig> | undefined
+    const validationOverride = (autoFlow as any)?.validation as Partial<ValidationConfig> | undefined
 
     return {
       ...DEFAULT_VALIDATION_CONFIG,
@@ -958,17 +992,23 @@ export class ValidationTurnService {
    * 解析节点工作目录
    */
   private resolveWorkingDirectory(run: Run, node: TaskNode): string | undefined {
-    // 优先从 RepoIsolation 获取
     if (this.repoIsolation) {
-      const workspace = this.repoIsolation.getActiveWorkspaces()
-        .find(ws => ws.runId === run.id && ws.nodeId === node.id)
-      if (workspace && workspace.repoMounts.length > 0) {
-        return workspace.repoMounts[0].mountPath
-      }
+      const turn = this.workflowEngine?.getNodeTurns(node.id).at(-1)
+      if (!turn) throw new Error('No execution turn to verify')
+      const workspace = this.repoIsolation.executions.assertSnapshot(turn.id)
+      if (workspace.runId !== run.id || workspace.nodeId !== node.id) throw new Error('Workspace ownership mismatch')
+      return workspace.execution.cwd
     }
 
-    // 兜底：使用节点的 scriptCwd 或 cwd
-    return node.scriptCwd || undefined
+    const project = this.projectService?.getProject(run.projectId)
+    if (!project?.path) return undefined
+    const root = realpathSync(project.path)
+    const cwd = realpathSync(resolve(root, node.scriptCwd || '.'))
+    const rel = relative(root, cwd)
+    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      throw new Error('验证目录超出项目范围')
+    }
+    return cwd
   }
 
   /**
@@ -976,7 +1016,7 @@ export class ValidationTurnService {
    */
   private buildSkippedResult(reason: string, startTime: number): ValidationResult {
     return {
-      passed: true,
+      passed: false,
       strategy: 'skipped',
       score: 0.5,  // 跳过时给中性分，不影响 AutoFlow 决策
       details: [],

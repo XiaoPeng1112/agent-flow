@@ -46,53 +46,66 @@ export class DAGScheduler {
    */
   computeReadyNodes(run: Run): void {
     if (run.status === 'paused') return
-
-    for (const node of run.nodes) {
-      if (node.status !== 'pending') continue
-
-      const incomingEdges = run.edges.filter((e) => e.target === node.id)
-
-      if (incomingEdges.length === 0) {
-        // 无前置依赖，直接 ready
-        node.status = 'ready'
-        this.emitter('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
-      } else {
-        // 过滤满足条件的边
-        const activeEdges = incomingEdges.filter(edge => this.evaluateEdgeCondition(run, edge))
-
-        if (activeEdges.length === 0 && incomingEdges.some(e => e.condition)) {
-          // 所有边都有条件但都不满足 → 跳过该节点
+    // Iterate after skips so template array order cannot strand an inactive branch.
+    let skipped: boolean
+    do {
+      skipped = false
+      for (const node of run.nodes) {
+        if (node.status !== 'pending') continue
+        const incoming = run.edges.filter(edge => edge.target === node.id)
+        const states = incoming.map(edge => this.evaluateEdgeCondition(run, edge))
+        if (states.some(state => state === undefined)) continue
+        const active = incoming.filter((_, i) => states[i] === true)
+        if (incoming.length > 0 && active.length === 0) {
           node.status = 'skipped'
-          this.emitter('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
-          continue
-        }
-
-        // 检查所有有效前置节点是否已完成
-        const edgesToCheck = activeEdges.length > 0 ? activeEdges : incomingEdges
-        const allPredecessorsCompleted = edgesToCheck.every((edge) => {
-          const sourceNode = run.nodes.find((n) => n.id === edge.source)
-          return sourceNode?.status === 'completed' || sourceNode?.status === 'skipped'
-        })
-        if (allPredecessorsCompleted) {
-          // 检查 entryConditions（如果定义了，必须全部满足才能进入 ready）
-          if (node.entryConditions && node.entryConditions.length > 0) {
-            const entryResult = this.evaluateEntryConditions(run, node)
-            if (!entryResult.passed) {
-              // 条件不满足：跳过该节点，记录原因
-              node.status = 'skipped'
-              node.error = `准入条件未满足: ${entryResult.failedReason}`
-              this.emitter('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
-              continue
-            }
+          skipped = true
+        } else {
+          const satisfied = active.every(edge => {
+            const source = run.nodes.find(item => item.id === edge.source)
+            return source?.status === 'completed' || source?.status === 'skipped'
+              || (source?.status === 'failed' && edge.condition?.type === 'status' && edge.condition.value === 'failed')
+          })
+          if (!satisfied) continue
+          const entry = this.evaluateEntryConditions(run, node)
+          if (!entry.passed) {
+            node.status = 'failed'
+            node.error = `准入条件未满足: ${entry.failedReason}`
+          } else {
+            node.status = 'ready'
+            if (active.length) node.context = this.buildNodeContext(run, node, active)
           }
-
-          node.status = 'ready'
-          // Context Chaining
-          node.context = this.buildNodeContext(run, node, edgesToCheck)
-          this.emitter('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
         }
+        this.emitter('run:node_updated', { runId: run.id, nodeId: node.id, status: node.status })
+      }
+    } while (skipped)
+  }
+
+  private exitVerifier?: (run: Run, node: TaskNode, condition: ExitCondition) => boolean
+
+  /** Skipped nodes forward only their active dependency paths, never inactive branch code. */
+  getCodePredecessors(run: Run, nodeId: string): string[] {
+    const result = new Set<string>()
+    const visited = new Set<string>()
+    const visit = (id: string): void => {
+      if (visited.has(id)) return
+      visited.add(id)
+      for (const edge of run.edges.filter(e => e.target === id)) {
+        const active = this.evaluateEdgeCondition(run, edge)
+        if (active === false) continue
+        const source = run.nodes.find(n => n.id === edge.source)
+        if (!source || active === undefined || !['completed', 'skipped', 'failed'].includes(source.status)) {
+          throw new Error('Code predecessor is not finalized')
+        }
+        if (source.status === 'completed') result.add(source.id)
+        if (source.status === 'skipped') visit(source.id)
       }
     }
+    visit(nodeId)
+    return [...result]
+  }
+
+  setExitVerifier(verifier: (run: Run, node: TaskNode, condition: ExitCondition) => boolean): void {
+    this.exitVerifier = verifier
   }
 
   // ═══════════════ 准入/准出条件评估 ═══════════════
@@ -152,12 +165,8 @@ export class DAGScheduler {
         return { passed: true }
       }
 
-      case 'expression':
-        // 预留：可扩展为自定义表达式求值
-        return { passed: true }
-
       default:
-        return { passed: true }
+        return { passed: false, reason: `不支持的准入条件: ${cond.type}` }
     }
   }
 
@@ -185,40 +194,19 @@ export class DAGScheduler {
         // 检查最后一个 Turn 的输出是否包含指定关键字
         const nodeTurns = this.turnManager.getTurns(node.id)
         const lastTurn = [...nodeTurns].reverse().find(t => t.status === 'completed')
-        if (!lastTurn?.output?.includes(cond.value)) {
+        if (!cond.value || !lastTurn?.output?.includes(cond.value)) {
           return { passed: false, reason: `节点输出中未包含 "${cond.value}"` }
         }
         return { passed: true }
       }
 
-      case 'lint_pass': {
-        // 检查 output 中是否有 lint 通过标记（约定性检查）
-        const nodeTurns = this.turnManager.getTurns(node.id)
-        const lastTurn = [...nodeTurns].reverse().find(t => t.status === 'completed')
-        const hasLintIssue = lastTurn?.output?.includes('lint error') || lastTurn?.output?.includes('eslint')
-        if (hasLintIssue) {
-          return { passed: false, reason: `存在 lint 错误` }
-        }
-        return { passed: true }
-      }
-
-      case 'test_pass': {
-        // 检查 output 中是否有 test 通过标记
-        const nodeTurns = this.turnManager.getTurns(node.id)
-        const lastTurn = [...nodeTurns].reverse().find(t => t.status === 'completed')
-        const hasTestFail = lastTurn?.output?.includes('FAIL') || lastTurn?.output?.includes('test failed')
-        if (hasTestFail) {
-          return { passed: false, reason: `存在测试失败` }
-        }
-        return { passed: true }
-      }
-
-      case 'expression':
-        // 预留扩展
-        return { passed: true }
-
+      case 'lint_pass':
+      case 'test_pass':
+        return this.exitVerifier?.(_run, node, cond)
+          ? { passed: true }
+          : { passed: false, reason: `缺少当前执行的通过证据: ${cond.type}` }
       default:
-        return { passed: true }
+        return { passed: false, reason: `不支持的准出条件: ${cond.type}` }
     }
   }
 
@@ -227,11 +215,12 @@ export class DAGScheduler {
   /**
    * 评估边条件是否满足
    */
-  private evaluateEdgeCondition(run: Run, edge: DAGEdge): boolean {
+  private evaluateEdgeCondition(run: Run, edge: DAGEdge): boolean | undefined {
     if (!edge.condition) return true
 
     const sourceNode = run.nodes.find(n => n.id === edge.source)
-    if (!sourceNode) return false
+    if (!sourceNode) return undefined
+    if (!['completed', 'failed', 'skipped'].includes(sourceNode.status)) return undefined
 
     switch (edge.condition.type) {
       case 'status':
@@ -243,11 +232,8 @@ export class DAGScheduler {
         return lastTurn?.output?.includes(edge.condition.value) ?? false
       }
 
-      case 'expression':
-        return true
-
       default:
-        return true
+        return undefined
     }
   }
 
@@ -278,7 +264,10 @@ export class DAGScheduler {
         nodeName: sourceNode.name,
         nodeType: sourceNode.type,
         summary,
-        artifacts: sourceNode.artifacts || [],
+        artifacts: [...(sourceNode.artifacts || []), ...(sourceNode.approvalFeedback || []).map((feedback, index) => ({
+          id: `approval-${sourceNode.id}-${index}`, nodeId: sourceNode.id, title: '用户批准意见',
+          category: 'document' as const, format: 'markdown', content: feedback.content, createdAt: feedback.createdAt,
+        }))],
       })
     }
 

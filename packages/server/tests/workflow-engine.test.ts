@@ -117,6 +117,22 @@ describe('WorkflowEngine', () => {
   })
 
   describe('startNode', () => {
+    it('enforces capacity for manual and automatic claims at the same state transition', async () => {
+      const template = { ...mockTemplate, edges: [] }
+      const run = await engine.createRun('proj_1', template)
+      await engine.updateRunConfig(run.id, { maxParallel: 1 })
+      await engine.startNode(run.id, run.nodes[0].id)
+      await expect(engine.startNode(run.id, run.nodes[1].id)).rejects.toThrow('parallel execution limit')
+      await engine.submitNodeDecision(run.id, run.nodes[0].id, 'waiting_user_review')
+      await expect(engine.startNode(run.id, run.nodes[1].id)).resolves.toMatchObject({ status: 'running' })
+    })
+
+    it('rejects invalid concurrency limits', async () => {
+      const run = await engine.createRun('proj_1', mockTemplate)
+      for (const limit of [0, -1, 1.5, Infinity, 1000]) {
+        await expect(engine.updateRunConfig(run.id, { maxParallel: limit })).rejects.toThrow('maxParallel')
+      }
+    })
     it('should transition ready node to running', async () => {
       const run = await engine.createRun('proj_1', mockTemplate)
       const readyNode = run.nodes.find(n => n.status === 'ready')!
@@ -144,6 +160,17 @@ describe('WorkflowEngine', () => {
   })
 
   describe('submitNodeDecision', () => {
+    it('moves finished execution to review when mandatory checks are missing', async () => {
+      const run = await engine.createRun('proj_1', mockTemplate)
+      const node = run.nodes[0]
+      node.exitConditions = [{ type: 'test_pass', value: 'npm test' }]
+      await engine.startNode(run.id, node.id)
+      await engine.submitNodeDecision(run.id, node.id, 'completed')
+      expect(node.status).toBe('wait_user_review')
+      await expect(engine.approveNode(run.id, node.id)).rejects.toThrow('无法批准')
+      engine.setExitVerifier(() => true)
+      await expect(engine.approveNode(run.id, node.id)).resolves.toMatchObject({ status: 'completed' })
+    })
     it('should mark node as wait_user_review', async () => {
       const run = await engine.createRun('proj_1', mockTemplate)
       const readyNode = run.nodes.find(n => n.status === 'ready')!
@@ -194,7 +221,7 @@ describe('WorkflowEngine', () => {
       await engine.submitNodeDecision(run.id, node.id, 'waiting_user_review')
 
       const rejected = await engine.rejectNode(run.id, node.id, 'Needs more work')
-      expect(rejected.status).toBe('running')
+      expect(rejected.status).toBe('ready')
       expect(rejected.userInput).toBe('Needs more work')
     })
   })

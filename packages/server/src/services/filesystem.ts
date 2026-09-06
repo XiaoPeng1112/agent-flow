@@ -1,6 +1,6 @@
 import { watch } from 'chokidar'
 import { readFile, readdir, stat, writeFile } from 'fs/promises'
-import { join, relative, resolve, normalize } from 'path'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 import { createTwoFilesPatch } from 'diff'
 import type { FileChange } from '../types/index.js'
 
@@ -25,13 +25,18 @@ export class FileSystemService {
    * 路径安全校验：确保解析后的绝对路径在允许的根目录内
    * 防止 ../ 等路径穿越攻击
    */
-  private assertPathSafe(targetPath: string): string {
-    const resolved = resolve(normalize(targetPath))
+  resolveSafePath(targetPath: string): string {
+    const resolved = resolve(targetPath)
     // 如果未配置 allowedRoots，则不限制（向后兼容）
     if (this.allowedRoots.length === 0) return resolved
-    const isAllowed = this.allowedRoots.some(root => 
-      resolved === root || resolved.startsWith(root + '/')
-    )
+    const isAllowed = this.allowedRoots.some(root => {
+      const pathFromRoot = relative(root, resolved)
+      return pathFromRoot === '' || (
+        pathFromRoot !== '..' &&
+        !pathFromRoot.startsWith(`..${sep}`) &&
+        !isAbsolute(pathFromRoot)
+      )
+    })
     if (!isAllowed) {
       throw new Error(`Access denied: path "${targetPath}" is outside allowed directories`)
     }
@@ -40,19 +45,19 @@ export class FileSystemService {
 
   /** 读取文件内容 */
   async readFile(filePath: string): Promise<string> {
-    const safePath = this.assertPathSafe(filePath)
+    const safePath = this.resolveSafePath(filePath)
     return readFile(safePath, 'utf-8')
   }
 
   /** 写入文件 */
   async writeFile(filePath: string, content: string): Promise<void> {
-    const safePath = this.assertPathSafe(filePath)
+    const safePath = this.resolveSafePath(filePath)
     await writeFile(safePath, content, 'utf-8')
   }
 
   /** 列出目录内容 */
   async listDir(dirPath: string): Promise<Array<{ name: string; isDir: boolean; path: string }>> {
-    const safePath = this.assertPathSafe(dirPath)
+    const safePath = this.resolveSafePath(dirPath)
     const entries = await readdir(safePath, { withFileTypes: true })
     return entries
       .filter((e) => !e.name.startsWith('.') && e.name !== 'node_modules')
@@ -69,7 +74,7 @@ export class FileSystemService {
 
   /** 获取文件状态 */
   async getFileStat(filePath: string) {
-    const safePath = this.assertPathSafe(filePath)
+    const safePath = this.resolveSafePath(filePath)
     const s = await stat(safePath)
     return {
       size: s.size,
@@ -87,12 +92,13 @@ export class FileSystemService {
 
   /** 快照文件（用于后续 diff 计算） */
   async snapshotFile(filePath: string): Promise<void> {
+    const safePath = this.resolveSafePath(filePath)
     try {
-      const content = await readFile(filePath, 'utf-8')
-      this.fileSnapshots.set(filePath, content)
+      const content = await readFile(safePath, 'utf-8')
+      this.fileSnapshots.set(safePath, content)
     } catch {
       // 文件不存在则记录空
-      this.fileSnapshots.set(filePath, '')
+      this.fileSnapshots.set(safePath, '')
     }
   }
 
@@ -101,28 +107,31 @@ export class FileSystemService {
     dirPath: string,
     onChange: (change: FileChange) => void
   ): void {
-    if (this.watchers.has(dirPath)) return
+    const safePath = this.resolveSafePath(dirPath)
+    if (this.watchers.has(safePath)) return
 
-    const watcher = watch(dirPath, {
+    const watcher = watch(safePath, {
       ignored: /(^|[/\\])\.|node_modules|\.git|dist/,
       persistent: true,
       ignoreInitial: true,
+      followSymlinks: false,
     })
 
     watcher
       .on('add', (path) => {
-        onChange({ path: relative(dirPath, path), type: 'add' })
+        onChange({ path: relative(safePath, path), type: 'add' })
       })
       .on('change', async (path) => {
-        const content = await readFile(path, 'utf-8').catch(() => '')
-        const diff = await this.computeDiff(path, content)
-        onChange({ path: relative(dirPath, path), type: 'change', content, diff })
+        const safeChangedPath = this.resolveSafePath(path)
+        const content = await readFile(safeChangedPath, 'utf-8').catch(() => '')
+        const diff = await this.computeDiff(safeChangedPath, content)
+        onChange({ path: relative(safePath, safeChangedPath), type: 'change', content, diff })
       })
       .on('unlink', (path) => {
-        onChange({ path: relative(dirPath, path), type: 'unlink' })
+        onChange({ path: relative(safePath, path), type: 'unlink' })
       })
 
-    this.watchers.set(dirPath, watcher)
+    this.watchers.set(safePath, watcher)
   }
 
   /** 停止监听 */

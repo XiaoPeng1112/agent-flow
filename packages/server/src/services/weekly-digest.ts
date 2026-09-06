@@ -928,7 +928,6 @@ export class WeeklyDigest {
   // ═══════════════ 通用工具方法 ═══════════════
 
   private getAllCachedMetrics(): RunMetrics[] {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cache = (this.metricsCollector as any).runMetricsCache as Map<string, RunMetrics> | undefined
     return cache ? Array.from(cache.values()) : []
   }

@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 
 /**
  * Git 集成服务
@@ -6,12 +6,19 @@ import { execSync } from 'child_process'
  * 用于 Agent 产出物的 Code Review 和版本追踪
  */
 export class GitService {
+  private resolveCommit(cwd: string, ref: string): string {
+    if (typeof ref !== 'string' || !ref || ref.includes('\0')) throw new Error('Invalid Git reference')
+    return execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], {
+      cwd, encoding: 'utf-8', stdio: 'pipe', timeout: 5000,
+    }).trim()
+  }
+
   /**
    * 检查目录是否是 Git 仓库
    */
   isGitRepo(cwd: string): boolean {
     try {
-      execSync('git rev-parse --is-inside-work-tree', { cwd, encoding: 'utf-8', stdio: 'pipe' })
+      execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf-8', stdio: 'pipe' })
       return true
     } catch {
       return false
@@ -23,7 +30,7 @@ export class GitService {
    */
   getCurrentBranch(cwd: string): string {
     try {
-      return execSync('git branch --show-current', { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim()
+      return execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim()
     } catch {
       return 'unknown'
     }
@@ -34,8 +41,8 @@ export class GitService {
    */
   getRecentCommits(cwd: string, count = 10): Array<{ hash: string; message: string; author: string; date: string }> {
     try {
-      const output = execSync(
-        `git log --oneline --format="%H|%s|%an|%ai" -${count}`,
+      const output = execFileSync(
+        'git', ['log', '--oneline', '--format=%H|%s|%an|%ai', `-${Math.min(1000, Math.max(1, Math.trunc(count) || 10))}`],
         { cwd, encoding: 'utf-8', stdio: 'pipe' }
       ).trim()
       
@@ -55,7 +62,7 @@ export class GitService {
    */
   getWorkingDiff(cwd: string): string {
     try {
-      return execSync('git diff', { cwd, encoding: 'utf-8', stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 })
+      return execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv'], { cwd, encoding: 'utf-8', stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 })
     } catch {
       return ''
     }
@@ -66,7 +73,7 @@ export class GitService {
    */
   getStagedDiff(cwd: string): string {
     try {
-      return execSync('git diff --cached', { cwd, encoding: 'utf-8', stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 })
+      return execFileSync('git', ['diff', '--cached', '--no-ext-diff', '--no-textconv'], { cwd, encoding: 'utf-8', stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 })
     } catch {
       return ''
     }
@@ -77,7 +84,7 @@ export class GitService {
    */
   getDiffBetween(cwd: string, from: string, to = 'HEAD'): string {
     try {
-      return execSync(`git diff ${from}..${to}`, { cwd, encoding: 'utf-8', stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 })
+      return execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', `${this.resolveCommit(cwd, from)}..${this.resolveCommit(cwd, to)}`, '--'], { cwd, encoding: 'utf-8', stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 })
     } catch (e) {
       throw new Error(`Failed to get diff: ${(e as Error).message}`)
     }
@@ -88,11 +95,10 @@ export class GitService {
    */
   getChangedFiles(cwd: string, from?: string, to = 'HEAD'): Array<{ file: string; additions: number; deletions: number }> {
     try {
-      const cmd = from
-        ? `git diff --numstat ${from}..${to}`
-        : 'git diff --numstat'
-      
-      const output = execSync(cmd, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim()
+      const args = ['diff', '--numstat', '--no-ext-diff', '--no-textconv']
+      if (from) args.push(`${this.resolveCommit(cwd, from)}..${this.resolveCommit(cwd, to)}`)
+      args.push('--')
+      const output = execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim()
       if (!output) return []
 
       return output.split('\n').map(line => {
@@ -120,7 +126,7 @@ export class GitService {
   } {
     try {
       const branch = this.getCurrentBranch(cwd)
-      const statusOutput = execSync('git status --porcelain', { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim()
+      const statusOutput = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim()
       
       if (!statusOutput) {
         return { branch, isClean: true, staged: 0, modified: 0, untracked: 0 }

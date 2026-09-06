@@ -1,3 +1,4 @@
+import { ModelSettingsPanel } from './ModelSettingsPanel'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, Tag, Button, Tooltip, Progress, Statistic, App, Empty, Badge, Switch, Input, Divider } from 'antd'
 import {
@@ -151,6 +152,8 @@ export function AgentsPanel({ project: _project }: Props) {
           刷新状态
         </Button>
       </div>
+
+      <ModelSettingsPanel agents={agents} disabled={_project.isDemo} />
 
       {/* Token 统计总览 */}
       <Card
@@ -542,7 +545,7 @@ function ProviderConfigPanel({ agents }: { agents: AgentConfig[] }) {
           { key: 'CODEX_MODEL', label: '默认模型', required: false },
           { key: 'CODEX_TIMEOUT', label: '超时时间(s)', required: false },
         ],
-        defaultConfig: { model: 'codex-mini', timeout: 300, autoApprove: true },
+        defaultConfig: { model: '跟随 CLI 默认或 Agent 的模型选择', timeout: 300 },
       },
       claude: {
         id: 'claude',
@@ -555,7 +558,7 @@ function ProviderConfigPanel({ agents }: { agents: AgentConfig[] }) {
           { key: 'CLAUDE_MODEL', label: '默认模型', required: false },
           { key: 'CLAUDE_MAX_TOKENS', label: '最大 Tokens', required: false },
         ],
-        defaultConfig: { model: 'claude-sonnet-4-20250514', maxTokens: 8192, dangerouslySkipPermissions: false },
+        defaultConfig: { model: '以 Agent 的模型选择为准', maxTokens: 8192, dangerouslySkipPermissions: false },
       },
       'custom-cli': {
         id: 'custom-cli',

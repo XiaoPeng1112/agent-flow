@@ -62,7 +62,7 @@ const DEFAULT_RULES: ExtractionRule = {
  * 核心职责：
  * 1. 在节点执行完成后，分析产出物内容
  * 2. 基于规则评估是否值得作为 Skill 沉淀
- * 3. 自动生成 SKILL.md 并写入项目的 .agent-flow/skills/ 目录
+ * 3. 自动生成 SKILL.md 并写入应用数据中的项目专属 skills 目录
  * 4. 重新加载 SkillService 使新 Skill 立即可用
  * 
  * 评分维度：
@@ -293,14 +293,15 @@ export class SkillExtractionService {
   }
 
   /**
-   * 持久化 Skill 到项目的 .agent-flow/skills/ 目录
+   * 持久化 Skill 到应用数据中的项目专属 skills 目录
    */
   private async persistSkill(candidate: SkillCandidate, projectId: string): Promise<SkillConfig> {
     const project = this.projectService.getProject(projectId)
     if (!project) throw new Error(`Project not found: ${projectId}`)
 
     // 确定存储目录
-    const skillsDir = join(project.path, '.agent-flow', 'skills')
+    const skillsDir = this.projectService.getSkillsDir(projectId)
+    if (!skillsDir) throw new Error('Project skill storage is unavailable')
     const skillDir = join(skillsDir, candidate.name)
     
     // 创建目录
