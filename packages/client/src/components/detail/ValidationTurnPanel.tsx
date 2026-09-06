@@ -33,6 +33,7 @@ const STRATEGY_CONFIG: Record<string, { label: string; color: string; icon: Reac
 }
 
 export function ValidationTurnPanel({ run }: Props) {
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<ValidationSummary | null>(null)
@@ -49,7 +50,7 @@ export function ValidationTurnPanel({ run }: Props) {
     } catch (err: any) {
       setError(err.message || '加载验证数据失败')
     } finally {
-      setLoading(false)
+      setLoading(false); setHasLoaded(true)
     }
   }, [run.id])
 
@@ -76,7 +77,7 @@ export function ValidationTurnPanel({ run }: Props) {
     }
   }
 
-  if (loading) {
+  if (loading && !hasLoaded) {
     return (
       <div className="flex items-center justify-center h-full py-20">
         <Spin size="large" tip="加载验证数据..." />

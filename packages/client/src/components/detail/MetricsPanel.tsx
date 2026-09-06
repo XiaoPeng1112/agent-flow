@@ -87,6 +87,7 @@ export function MetricsPanel({ run }: Props) {
   const [metrics, setMetrics] = useState<RunMetrics | null>(null)
   const [tokenDist, setTokenDist] = useState<TokenDistribution[]>([])
   const [efficiency, setEfficiency] = useState<EfficiencyEntry[]>([])
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'tokens' | 'efficiency' | 'feedback'>('overview')
   const [feedbackEntries, setFeedbackEntries] = useState<any[]>([])
@@ -111,13 +112,13 @@ export function MetricsPanel({ run }: Props) {
       } catch {
         // 数据不可用
       } finally {
-        setLoading(false)
+        setLoading(false); setHasLoaded(true)
       }
     }
     load()
   }, [run.id])
 
-  if (loading) {
+  if (loading && !hasLoaded) {
     return (
       <div className="flex items-center justify-center h-full">
         <Spin tip="计算指标..." />

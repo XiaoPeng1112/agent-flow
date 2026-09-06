@@ -56,6 +56,13 @@ export const projectApi = {
   getSkills: (id: string) =>
     request<{ skills: any[] }>(`/projects/${id}/skills`),
 
+  getSkillContent: (id: string, skillId: string) =>
+    request<{ content: string }>(`/projects/${id}/skills/${encodeURIComponent(skillId)}/content`),
+  saveSkill: (id: string, content: string) =>
+    request<{ skill: import('../types').SkillInfo }>(`/projects/${id}/skills`, { method: 'POST', body: JSON.stringify({ content }) }),
+  generateSkill: (id: string, goal: string, signal?: AbortSignal) =>
+    request<{ content: string; model: string }>(`/projects/${id}/skills/generate`, { method: 'POST', body: JSON.stringify({ goal }), signal }),
+
   /** 获取项目启用的 Agent 列表 */
   getEnabledAgents: (id: string) =>
     request<{ enabledAgentIds: string[]; allAgentIds: string[] }>(`/projects/${id}/enabled-agents`),

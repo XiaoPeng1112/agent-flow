@@ -1,5 +1,5 @@
 import type {
-  SkillWhitelist, MaterializedSkill,
+  SkillWhitelist, MaterializedSkill, SkillConfig,
 } from '../types/index.js'
 import type { SkillService } from './skill.js'
 
@@ -86,14 +86,14 @@ export class SkillMaterializationService {
    * 
    * @returns 物化后的 Skill 列表（内含完整内容）
    */
-  async materializeForNode(nodeId: string): Promise<MaterializedSkill[]> {
+  async materializeForNode(nodeId: string, snapshot?: SkillConfig[]): Promise<MaterializedSkill[]> {
     // 检查缓存
     const cached = this.materializedCache.get(nodeId)
-    if (cached && this.isCacheValid(cached)) {
+    if (!snapshot && cached && this.isCacheValid(cached)) {
       return cached
     }
 
-    const allSkills = this.skillService.getSkills()
+    const allSkills = snapshot || this.skillService.getSkills()
     const whitelist = this.whitelists.get(nodeId)
 
     // 过滤出允许的 Skills
@@ -155,8 +155,8 @@ export class SkillMaterializationService {
   /**
    * 一站式接口：物化 + 格式化
    */
-  async getSkillPromptForNode(nodeId: string): Promise<string> {
-    const materialized = await this.materializeForNode(nodeId)
+  async getSkillPromptForNode(nodeId: string, snapshot?: SkillConfig[]): Promise<string> {
+    const materialized = await this.materializeForNode(nodeId, snapshot)
     return this.formatSkillsAsPrompt(materialized)
   }
 

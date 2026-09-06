@@ -1,5 +1,6 @@
+import { SkillStudioDialog } from './SkillStudioDialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, App, Button, Input, Modal, Select, Spin, Tag } from 'antd'
+import { Alert, App, Button, Select, Spin, Tag } from 'antd'
 import { nodeApi, projectApi } from '../../api'
 import { useAppStore } from '../../store/appStore'
 import type { SkillInfo, TaskNode } from '../../types'
@@ -41,11 +42,6 @@ export function NodeSkillBinding({ runId, node, projectId, onUpdate }: {
     } catch (err) { if (active.current) message.error(`保存失败：${(err as Error).message}`) }
     finally { savingRef.current = false; if (active.current) setSaving(false) }
   }
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([draft || ''], { type: 'text/markdown;charset=utf-8' }))
-    const link = document.createElement('a'); link.href = url; link.download = 'SKILL.md'; link.click()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }
   return <section className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
     <div className="flex items-center justify-between gap-2 mb-2">
       <span className="text-sm font-medium text-gray-800">节点 Skills</span>
@@ -71,12 +67,18 @@ export function NodeSkillBinding({ runId, node, projectId, onUpdate }: {
     </>}
     <div className="mt-3 flex items-center justify-between gap-2">
       <span className="text-xs text-gray-400">缺少合适的工作流程？</span>
-      <Button size="small" onClick={() => setDraft(createSkillDraft(node, projectName))}>生成 Skill 草稿</Button>
+      <Button size="small" onClick={() => setDraft(createSkillDraft(node, projectName))} disabled={saving}>AI 生成 Skill</Button>
     </div>
-    <Modal title="完善节点 Skill 草稿" open={draft !== null} onCancel={() => setDraft(null)} width={720}
-      footer={<><Button onClick={() => setDraft(null)}>关闭</Button><Button type="primary" disabled={!draft?.trim()} onClick={download}>下载 SKILL.md</Button></>}>
-      <p className="text-xs text-gray-500 mb-3">这是基于节点内容的本地模板，不会自动安装或绑定。编辑后放入项目的 .codex/skills/技能名称/SKILL.md，点击面板的“刷新”即可选择。</p>
-      <Input.TextArea aria-label="Skill 草稿内容" value={draft || ''} onChange={e => setDraft(e.target.value)} rows={17} className="font-mono" />
-    </Modal>
+    {draft !== null && <SkillStudioDialog projectId={projectId} initialContent={draft} initialGoal={`${node.name}：${node.description || ''}`}
+      onClose={() => setDraft(null)} bindAfterSave onSaved={async (skill, bind) => {
+        setSkills(prev => [...prev.filter(item => item.id !== skill.id), skill])
+        if (bind) {
+          const current = await import('../../api').then(api => api.runApi.get(runId))
+          const target = current.run.nodes.find((item: TaskNode) => item.id === node.id)
+          const res = await nodeApi.updateSkills(runId, node.id, [...new Set([...(target?.skillIds || []), skill.id])])
+          setSelectedIds(res.node.skillIds || []); onUpdate(res.node)
+        }
+      }} />}
+
   </section>
 }

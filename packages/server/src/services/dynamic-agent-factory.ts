@@ -592,7 +592,7 @@ export class DynamicAgentFactory {
         // 基于节点 skillIds 设置白名单
         this.skillMaterialization.initWhitelistFromTemplate(node.id, node.skillIds)
         // 物化 + 格式化为 prompt 片段
-        skillPrompt = await this.skillMaterialization.getSkillPromptForNode(node.id)
+        skillPrompt = await this.skillMaterialization.getSkillPromptForNode(node.id, await this.projectService.scanProjectSkills(run.projectId))
       } catch (err) {
         console.warn(`[DynamicAgentFactory] Skill materialization failed for node ${node.id}:`, (err as Error).message)
         // 降级：skillPrompt 为空，不影响其余上下文

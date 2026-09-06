@@ -1,6 +1,7 @@
+import { useSearchParams } from 'react-router-dom'
 import { NodeSkillBinding } from './NodeSkillBinding'
-import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Button, Tag, Card, Select, Input, Space, Tooltip, Popconfirm, App, Alert } from 'antd'
+import { Activity, startTransition, lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { Button, Tag, Card, Select, Input, Space, Tooltip, Popconfirm, App, Alert, Dropdown, Skeleton } from 'antd'
 import {
   ArrowLeftOutlined,
   PlayCircleOutlined,
@@ -36,19 +37,32 @@ import { runApi, nodeApi, agentApi } from '../../api'
 import type { Run, TaskNode, TaskNodeStatus, AgentConfig, AgentTurn, RunDetailTab, Artifact } from '../../types'
 
 const CodeHighlighter = lazy(() => import('./CodeHighlighter'))
-const AgentTreePanel = lazy(() => import('./AgentTreePanel').then(module => ({ default: module.AgentTreePanel })))
-const CheckpointPanel = lazy(() => import('./CheckpointPanel').then(module => ({ default: module.CheckpointPanel })))
-const ContextDBPanel = lazy(() => import('./ContextDBPanel').then(module => ({ default: module.ContextDBPanel })))
-const A2APanel = lazy(() => import('./A2APanel').then(module => ({ default: module.A2APanel })))
-const DiffReviewPanel = lazy(() => import('./DiffReviewPanel').then(module => ({ default: module.DiffReviewPanel })))
-const MetricsPanel = lazy(() => import('./MetricsPanel').then(module => ({ default: module.MetricsPanel })))
-const AutoFlowPanel = lazy(() => import('./AutoFlowPanel').then(module => ({ default: module.AutoFlowPanel })))
-const WeeklyDigestPanel = lazy(() => import('./WeeklyDigestPanel').then(module => ({ default: module.WeeklyDigestPanel })))
-const L1RulePanel = lazy(() => import('./L1RulePanel').then(module => ({ default: module.L1RulePanel })))
-const ValidationTurnPanel = lazy(() => import('./ValidationTurnPanel').then(module => ({ default: module.ValidationTurnPanel })))
-const MergeConflictPanel = lazy(() => import('./MergeConflictPanel').then(module => ({ default: module.MergeConflictPanel })))
-const FeedbackAggregatePanel = lazy(() => import('./FeedbackAggregatePanel').then(module => ({ default: module.FeedbackAggregatePanel })))
-const SubTurnPanel = lazy(() => import('./SubTurnPanel').then(module => ({ default: module.SubTurnPanel })))
+const loadAgentTreePanel = () => import('./AgentTreePanel').then(module => ({ default: module.AgentTreePanel }))
+const AgentTreePanel = lazy(loadAgentTreePanel)
+const loadCheckpointPanel = () => import('./CheckpointPanel').then(module => ({ default: module.CheckpointPanel }))
+const CheckpointPanel = lazy(loadCheckpointPanel)
+const loadContextDBPanel = () => import('./ContextDBPanel').then(module => ({ default: module.ContextDBPanel }))
+const ContextDBPanel = lazy(loadContextDBPanel)
+const loadA2APanel = () => import('./A2APanel').then(module => ({ default: module.A2APanel }))
+const A2APanel = lazy(loadA2APanel)
+const loadDiffReviewPanel = () => import('./DiffReviewPanel').then(module => ({ default: module.DiffReviewPanel }))
+const DiffReviewPanel = lazy(loadDiffReviewPanel)
+const loadMetricsPanel = () => import('./MetricsPanel').then(module => ({ default: module.MetricsPanel }))
+const MetricsPanel = lazy(loadMetricsPanel)
+const loadAutoFlowPanel = () => import('./AutoFlowPanel').then(module => ({ default: module.AutoFlowPanel }))
+const AutoFlowPanel = lazy(loadAutoFlowPanel)
+const loadWeeklyDigestPanel = () => import('./WeeklyDigestPanel').then(module => ({ default: module.WeeklyDigestPanel }))
+const WeeklyDigestPanel = lazy(loadWeeklyDigestPanel)
+const loadL1RulePanel = () => import('./L1RulePanel').then(module => ({ default: module.L1RulePanel }))
+const L1RulePanel = lazy(loadL1RulePanel)
+const loadValidationTurnPanel = () => import('./ValidationTurnPanel').then(module => ({ default: module.ValidationTurnPanel }))
+const ValidationTurnPanel = lazy(loadValidationTurnPanel)
+const loadMergeConflictPanel = () => import('./MergeConflictPanel').then(module => ({ default: module.MergeConflictPanel }))
+const MergeConflictPanel = lazy(loadMergeConflictPanel)
+const loadFeedbackAggregatePanel = () => import('./FeedbackAggregatePanel').then(module => ({ default: module.FeedbackAggregatePanel }))
+const FeedbackAggregatePanel = lazy(loadFeedbackAggregatePanel)
+const loadSubTurnPanel = () => import('./SubTurnPanel').then(module => ({ default: module.SubTurnPanel }))
+const SubTurnPanel = lazy(loadSubTurnPanel)
 
 interface Props {
   run: Run
@@ -79,7 +93,10 @@ const roleConfig: Record<string, { label: string; color: string }> = {
 }
 
 export function RunDetail({ run, onBack }: Props) {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const requestedNode = searchParams.get('node')
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(requestedNode)
+  useEffect(() => { if (requestedNode) setSelectedNodeId(requestedNode) }, [requestedNode])
   const [tokenStats, setTokenStats] = useState<{ totalTokens: number; estimatedCost?: { usd: number } } | null>(null)
   const updateRun = useAppStore((s) => s.updateRun)
   const updateNode = useAppStore((s) => s.updateNode)
@@ -361,27 +378,29 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
   const runDetailTab = useAppStore((s) => s.runDetailTab)
   const setRunDetailTab = useAppStore((s) => s.setRunDetailTab)
   const demoMode = useAppStore((s) => s.projects.find((project) => project.id === run.projectId)?.isDemo === true) || run.isDemo === true
-  const visibleTabs = (demoMode
-    ? [
-        { key: 'dag', label: 'DAG 视图' },
-        { key: 'context-db', label: 'Context DB' },
-      ]
+  const visibleTabs = useMemo(() => (demoMode
+    ? [{ key: 'dag', label: '流程' }, { key: 'context-db', label: '上下文' }]
     : [
-        { key: 'dag', label: 'DAG 视图' },
-        { key: 'diff-review', label: 'Diff Review' },
-        { key: 'metrics', label: 'Metrics' },
-        { key: 'autoflow', label: 'AutoFlow' },
-        { key: 'digest', label: '周报摘要' },
-        { key: 'l1-rules', label: 'L1 规则' },
-        { key: 'validation', label: '验证' },
-        { key: 'merge-conflict', label: '冲突检测' },
-        { key: 'feedback', label: '反馈聚合' },
-        { key: 'agent-tree', label: 'Agent Tree' },
-        { key: 'checkpoint', label: 'Checkpoint' },
-        { key: 'context-db', label: 'Context DB' },
-        { key: 'a2a', label: 'A2A 消息' },
-        { key: 'sub-turn', label: '对抗审查' },
-      ]) as { key: RunDetailTab; label: string }[]
+      { key: 'dag', label: '流程' }, { key: 'diff-review', label: '代码审查' },
+      { key: 'validation', label: '验证' }, { key: 'metrics', label: '运行统计' },
+      { key: 'autoflow', label: '自动化' }, { key: 'context-db', label: '上下文' },
+      { key: 'checkpoint', label: '检查点' }, { key: 'merge-conflict', label: '冲突检测' },
+      { key: 'feedback', label: '反馈汇总' }, { key: 'sub-turn', label: '对抗审查' },
+      { key: 'agent-tree', label: 'Agent 协作树' }, { key: 'a2a', label: 'Agent 消息' },
+      { key: 'l1-rules', label: '项目规则' }, { key: 'digest', label: '周报摘要' },
+    ]) as { key: RunDetailTab; label: string }[], [demoMode])
+  const [visited, setVisited] = useState<RunDetailTab[]>(['dag', runDetailTab])
+  const chooseTab = (key: RunDetailTab) => startTransition(() => {
+    setVisited(prev => prev.includes(key) ? prev : [...prev, key])
+    setRunDetailTab(key)
+  })
+  useEffect(() => {
+    // Warm common code after initial paint; no API requests or hidden polling.
+    const timer = setTimeout(() => {
+      if (!demoMode) void Promise.allSettled([loadDiffReviewPanel(), loadValidationTurnPanel(), loadMetricsPanel()])
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [demoMode])
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.key === runDetailTab)) {
@@ -391,76 +410,72 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden">
-      {/* Tab 切换栏 — 可横向滚动 */}
-      <div className="overflow-x-auto scrollbar-hide shrink-0 border-b border-gray-100 mb-2">
-        <div className="flex items-center gap-0.5 px-4 pb-2 min-w-max">
-          {visibleTabs.map((tab) => (
-            <button
-              key={tab.key}
-              className={`px-2.5 py-1.5 text-[11px] rounded-md transition-colors whitespace-nowrap ${
-                runDetailTab === tab.key
-                  ? 'bg-indigo-50 text-indigo-600 font-semibold border border-indigo-100'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-              }`}
-              onClick={() => setRunDetailTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="shrink-0 border-b border-gray-100 mb-2 flex flex-wrap items-center gap-1 px-4 pb-2" role="tablist" aria-label="工作流功能">
+        {visibleTabs.slice(0, demoMode ? 2 : 4).map(tab => <button key={tab.key} role="tab" aria-selected={runDetailTab === tab.key}
+          className={`px-3 py-2 text-xs rounded-lg transition-colors ${runDetailTab === tab.key ? 'bg-indigo-50 text-indigo-600 font-semibold' : 'text-gray-500 hover:bg-gray-50'}`}
+          onMouseEnter={() => { if (tab.key === 'diff-review') void loadDiffReviewPanel().catch(() => {}); if (tab.key === 'metrics') void loadMetricsPanel().catch(() => {}) }}
+          onClick={() => chooseTab(tab.key)}>{tab.label}</button>)}
+        {!demoMode && <Dropdown trigger={['click']} onOpenChange={open => { if (open) void Promise.allSettled([loadAutoFlowPanel(), loadContextDBPanel(), loadCheckpointPanel(), loadMergeConflictPanel(), loadFeedbackAggregatePanel(), loadSubTurnPanel(), loadAgentTreePanel(), loadA2APanel(), loadL1RulePanel(), loadWeeklyDigestPanel()]) }} menu={{ selectedKeys: [runDetailTab], onClick: ({ key }) => chooseTab(key as RunDetailTab), items: [
+          { type: 'group', label: '执行与上下文', children: visibleTabs.slice(4, 7).map(tab => ({ ...tab })) },
+          { type: 'group', label: '质量与协作', children: visibleTabs.slice(7, 12).map(tab => ({ ...tab })) },
+          { type: 'group', label: '规则与回顾', children: visibleTabs.slice(12).map(tab => ({ ...tab })) },
+        ] }}><Button type={visibleTabs.slice(4).some(tab => tab.key === runDetailTab) ? 'primary' : 'text'} size="small">
+          {visibleTabs.slice(4).find(tab => tab.key === runDetailTab)?.label || '更多功能'} <DownOutlined />
+        </Button></Dropdown>}
       </div>
 
       {/* 内容区 */}
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-[12px] text-gray-400">加载中...</div>}>
-      {runDetailTab === 'diff-review' ? (
+      {[...new Set([...visited, runDetailTab])].filter(key => visibleTabs.some(tab => tab.key === key)).map(panelKey => <Activity key={`${run.id}:${panelKey}`} mode={runDetailTab === panelKey ? 'visible' : 'hidden'}>
+      <Suspense fallback={<div className="p-6 flex-1"><Skeleton active paragraph={{ rows: 5 }} /></div>}>
+      {panelKey === 'diff-review' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <DiffReviewPanel run={run} />
         </div>
-      ) : runDetailTab === 'metrics' ? (
+      ) : panelKey === 'metrics' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <MetricsPanel run={run} />
         </div>
-      ) : runDetailTab === 'agent-tree' ? (
+      ) : panelKey === 'agent-tree' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <AgentTreePanel run={run} />
         </div>
-      ) : runDetailTab === 'log' || runDetailTab === 'checkpoint' ? (
+      ) : panelKey === 'log' || panelKey === 'checkpoint' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <CheckpointPanel run={run} />
         </div>
-      ) : runDetailTab === 'context-db' ? (
+      ) : panelKey === 'context-db' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <ContextDBPanel projectId={run.projectId} templateId={run.templateId} runId={run.id} />
         </div>
-      ) : runDetailTab === 'a2a' ? (
+      ) : panelKey === 'a2a' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <A2APanel run={run} />
         </div>
-      ) : runDetailTab === 'autoflow' ? (
+      ) : panelKey === 'autoflow' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <AutoFlowPanel run={run} />
         </div>
-      ) : runDetailTab === 'digest' ? (
+      ) : panelKey === 'digest' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <WeeklyDigestPanel run={run} />
         </div>
-      ) : runDetailTab === 'l1-rules' ? (
+      ) : panelKey === 'l1-rules' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <L1RulePanel run={run} />
         </div>
-      ) : runDetailTab === 'validation' ? (
+      ) : panelKey === 'validation' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <ValidationTurnPanel run={run} />
         </div>
-      ) : runDetailTab === 'merge-conflict' ? (
+      ) : panelKey === 'merge-conflict' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <MergeConflictPanel run={run} />
         </div>
-      ) : runDetailTab === 'feedback' ? (
+      ) : panelKey === 'feedback' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <FeedbackAggregatePanel run={run} />
         </div>
-      ) : runDetailTab === 'sub-turn' ? (
+      ) : panelKey === 'sub-turn' ? (
         <div className="flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white mx-4">
           <SubTurnPanel run={run} />
         </div>
@@ -503,6 +518,7 @@ function ResizableSplitPane({ run, selectedNodeId, setSelectedNodeId, activeTurn
         </div>
       )}
       </Suspense>
+      </Activity>)}
     </div>
   )
 }

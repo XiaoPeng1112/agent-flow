@@ -224,7 +224,7 @@ export function createRunsRouter(deps: {
   /** 更新节点绑定的 Skills */
   router.patch('/:runId/nodes/:nodeId/skills', async (req, res) => {
     const { skillIds } = req.body
-    if (!Array.isArray(skillIds)) {
+    if (!Array.isArray(skillIds) || skillIds.length > 30 || skillIds.some(id => typeof id !== 'string' || id.length > 200)) {
       res.status(400).json({ success: false, error: 'skillIds must be an array' })
       return
     }
@@ -238,7 +238,11 @@ export function createRunsRouter(deps: {
       res.status(404).json({ success: false, error: 'Node not found' })
       return
     }
-    node.skillIds = skillIds
+    if (!['pending', 'ready'].includes(node.status)) {
+      res.status(409).json({ success: false, error: '只能为待执行节点修改 Skills' })
+      return
+    }
+    node.skillIds = [...new Set(skillIds)]
     await workflowEngine.persist()
     res.json({ success: true, data: { node } })
   })

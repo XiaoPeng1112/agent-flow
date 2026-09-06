@@ -16,12 +16,10 @@ const execFileAsync = promisify(execFile)
 export class ProjectService {
   private projects: ProjectData[] = []
   private storagePath: string
-  private skillService: SkillService
   private contextDBService?: ContextDBService
   private dataRoot: string
 
-  constructor(skillService: SkillService, dataRoot?: string) {
-    this.skillService = skillService
+  constructor(_skillService: SkillService, dataRoot?: string) {
     const home = process.env.HOME || process.env.USERPROFILE || '/tmp'
     this.dataRoot = dataRoot || join(home, '.agent-flow')
     this.storagePath = join(this.dataRoot, 'projects.json')
@@ -240,7 +238,7 @@ export class ProjectService {
       `${process.env.HOME}/.claude/skills`,
       `${process.env.HOME}/.codex/skills`,
     ]
-    return this.skillService.loadSkills(searchPaths)
+    return new SkillService().loadSkills(searchPaths)
   }
 
   /** 获取项目的 Skill 沉淀目录路径 */

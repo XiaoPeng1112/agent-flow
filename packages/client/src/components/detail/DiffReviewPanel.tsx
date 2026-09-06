@@ -79,6 +79,7 @@ export function DiffReviewPanel({ run }: Props) {
   const [selectedReview, setSelectedReview] = useState<DiffReview | null>(null)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('squash')
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [merging, setMerging] = useState(false)
   const [mergeMode, setMergeMode] = useState<'local' | 'pr'>('local')
@@ -119,7 +120,7 @@ export function DiffReviewPanel({ run }: Props) {
       } catch {
         // 没有 diff review 数据是正常的
       } finally {
-        setLoading(false)
+        setLoading(false); setHasLoaded(true)
       }
     }
     if (reviewableNodes.length > 0) {
@@ -196,7 +197,7 @@ export function DiffReviewPanel({ run }: Props) {
     return selectedReview.fileDiffs.find(f => f.path === selectedFile)
   }, [selectedReview, selectedFile])
 
-  if (loading) {
+  if (loading && !hasLoaded) {
     return (
       <div className="flex items-center justify-center h-full">
         <Spin tip="加载 Diff Review 数据..." />

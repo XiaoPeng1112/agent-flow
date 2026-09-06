@@ -1,3 +1,4 @@
+import { SkillStudioService } from '../services/skill-studio.js'
 import { Router } from 'express'
 import type { ProjectService } from '../services/project.js'
 import type { AgentService } from '../services/agent.js'
@@ -16,6 +17,29 @@ export function createProjectsRouter(deps: {
 }): Router {
   const router = Router()
   const { projectService, agentService, templateService, workflowEngine, contextDBService } = deps
+
+  const skillStudio = new SkillStudioService(projectService)
+  router.get('/:id/skills/:skillId/content', async (req, res) => {
+    try { res.json({ success: true, data: await skillStudio.read(req.params.id, req.params.skillId) }) }
+    catch (error) { res.status(404).json({ success: false, error: (error as Error).message }) }
+  })
+  router.post('/:id/skills', async (req, res) => {
+    try { res.json({ success: true, data: { skill: await skillStudio.save(req.params.id, req.body.content) } }) }
+    catch (error) { res.status(400).json({ success: false, error: (error as NodeJS.ErrnoException).code === 'EEXIST' ? '同名 Skill 已存在，请修改 name 后另存' : (error as Error).message }) }
+  })
+  router.post('/:id/skills/generate', async (req, res) => {
+    const project = projectService.getProject(req.params.id)
+    if (!project) { res.status(404).json({ success: false, error: 'Project not found' }); return }
+    const agent = agentService.getAgents().find(a => a.type === 'codex' && a.id === 'codex-universal' && (!project.enabledAgentIds || project.enabledAgentIds.includes(a.id)))
+      || agentService.getAgents().find(a => a.type === 'codex' && (!project.enabledAgentIds || project.enabledAgentIds.includes(a.id)))
+    if (!agent) { res.status(400).json({ success: false, error: '请先在项目 Agents 中启用一个 Codex Agent' }); return }
+    const controller = new AbortController()
+    const cancel = () => { if (!res.writableEnded) controller.abort() }
+    res.on('close', cancel)
+    try { const data = await skillStudio.generate(req.params.id, req.body.goal, agent.model, controller.signal); if (!controller.signal.aborted) res.json({ success: true, data }) }
+    catch (error) { if (!controller.signal.aborted) res.status(400).json({ success: false, error: (error as Error).message }) }
+    finally { res.off('close', cancel) }
+  })
 
   // ═══════════════ Project API ═══════════════
 
